@@ -21,6 +21,10 @@ const (
 	AskRule     = "Bash(sunstack amend *)"
 )
 
+// AskRules are the sunstack commands the user always approves: changing an
+// agent's rules, and creating or deleting an agent (design §6).
+var AskRules = []string{AskRule, "Bash(sunstack hire *)", "Bash(sunstack fire *)"}
+
 // Targets says which CLIs to act on.
 type Targets struct{ Claude, Codex bool }
 
@@ -55,6 +59,9 @@ func Confirm(in io.Reader, out io.Writer, q string, def bool) bool {
 }
 
 func isTerminal(f *os.File) bool { return term.IsTerminal(int(f.Fd())) }
+
+// IsTerminal reports whether f is an interactive terminal.
+func IsTerminal(f *os.File) bool { return isTerminal(f) }
 
 // InstallClaude adds the marketplace if needed, refreshes it, and installs or
 // updates the plugin, so running it again always ends on the latest version.

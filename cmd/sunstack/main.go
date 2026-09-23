@@ -7,10 +7,13 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"strings"
+	"time"
 
 	"github.com/Lucklyric/sunstack/internal/core"
 	"github.com/Lucklyric/sunstack/internal/setup"
+	"github.com/Lucklyric/sunstack/internal/tui"
 )
 
 // version is set at release time with -ldflags "-X main.version=...".
@@ -30,6 +33,19 @@ Agent identity (used by the plugin's skills):
 Self-improvement (the user approves every call; both CLIs prompt for it):
   sunstack amend <id> <pillars.md|AGENT.md> <candidate> <checksum> --summary "..." [--root DIR]
   sunstack amend --team <candidate> <checksum> --summary "..." [--root DIR]
+
+Team (run these yourself):
+  sunstack init                                   create sunstack/ here, the AGENTS.md block and .gitignore line
+  sunstack hire <title> [name] [--file DRAFT]     add an agent from a template, or from an approved draft
+  sunstack fire <id> [--discard]                  delete an agent nobody holds
+  sunstack library                                list templates (personal, then built-in)
+  sunstack library save <id> [--as TITLE] [--force]  save an agent's AGENT.md as a personal template
+  sunstack team                                   who is on the team, who holds whom, where
+  sunstack log [--id ID] [--follow]               the event log
+  sunstack inbox <id>                             pending messages, read only
+  sunstack pillar <id> | --team                   effective pillars with their source
+  sunstack health                                 read-only checks of the project and the install
+  sunstack tui                                    team dashboard (also: sunstack with no arguments)
 
 Setup:
   sunstack install [--claude] [--codex] [--yes]   install the plugin (both CLIs found on PATH by default)
@@ -100,6 +116,16 @@ func detectTool() (tool, session string) {
 }
 
 func run(argv []string, stdin io.Reader, stdout, stderr io.Writer) int {
+	if len(argv) == 0 {
+		// A bare `sunstack` in a terminal inside a project opens the dashboard.
+		if p, err := core.FindProject(""); err == nil && setup.IsTerminal(os.Stdout) {
+			if err := tui.Run(p); err != nil {
+				fmt.Fprintf(stderr, "sunstack: error: %v\n", err)
+				return core.ExitFail
+			}
+			return 0
+		}
+	}
 	if len(argv) == 0 || argv[0] == "help" || argv[0] == "--help" || argv[0] == "-h" {
 		fmt.Fprint(stdout, usage)
 		return 0
@@ -242,6 +268,155 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 		fmt.Fprintf(stdout, "sunstack: released %s\n", a.pos[0])
 		return nil
 
+	case "init":
+		a, err := parse(rest, "", "")
+		if err != nil {
+			return err
+		}
+		dir := "."
+		if len(a.pos) > 0 {
+			dir = a.pos[0]
+		}
+		done, err := core.Init(dir)
+		if err != nil {
+			return err
+		}
+		if len(done) == 0 {
+			done = []string{"already initialized; nothing to change"}
+		}
+		for _, d := range done {
+			fmt.Fprintln(stdout, d)
+		}
+		return nil
+
+	case "hire":
+		a, err := parse(rest, "root file", "")
+		if err != nil {
+			return err
+		}
+		p, err := core.FindProject(a.flags["root"])
+		if err != nil {
+			return err
+		}
+		o := core.HireOptions{File: a.flags["file"]}
+		if len(a.pos) > 0 {
+			o.Title = a.pos[0]
+		}
+		if len(a.pos) > 1 {
+			o.Name = a.pos[1]
+		}
+		id, err := p.Hire(o)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(stdout, "sunstack: hired %s (sunstack/%s/)\n", id, id)
+		return nil
+
+	case "fire":
+		a, err := parse(rest, "root", "discard")
+		if err != nil {
+			return err
+		}
+		if len(a.pos) < 1 {
+			return missing("id")
+		}
+		p, err := core.FindProject(a.flags["root"])
+		if err != nil {
+			return err
+		}
+		if err := p.Fire(a.pos[0], a.has("discard")); err != nil {
+			return err
+		}
+		fmt.Fprintf(stdout, "sunstack: fired %s\n", a.pos[0])
+		return nil
+
+	case "library":
+		a, err := parse(rest, "root as", "force")
+		if err != nil {
+			return err
+		}
+		if len(a.pos) == 0 {
+			for _, e := range core.Library() {
+				fmt.Fprintf(stdout, "%-20s %-9s %s\n", e.Title, e.Source, e.Summary)
+			}
+			return nil
+		}
+		if a.pos[0] != "save" {
+			return &core.Error{Code: core.ExitUsage, Reason: "usage", Msg: "sunstack library [save <id> [--as TITLE]]"}
+		}
+		if len(a.pos) < 2 {
+			return missing("id")
+		}
+		p, err := core.FindProject(a.flags["root"])
+		if err != nil {
+			return err
+		}
+		dest, err := p.LibrarySave(a.pos[1], a.flags["as"], a.has("force"))
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(stdout, "sunstack: saved %s\n", dest)
+		return nil
+
+	case "team", "log", "inbox", "pillar":
+		a, err := parse(rest, "root id", "follow team")
+		if err != nil {
+			return err
+		}
+		p, err := core.FindProject(a.flags["root"])
+		if err != nil {
+			return err
+		}
+		switch cmd {
+		case "team":
+			fmt.Fprint(stdout, p.TeamText())
+		case "log":
+			return followLog(p, a.flags["id"], a.has("follow"), stdout)
+		case "inbox":
+			if len(a.pos) < 1 {
+				return missing("id")
+			}
+			entries := p.Inbox(a.pos[0])
+			if len(entries) == 0 {
+				fmt.Fprintf(stdout, "%s has no pending messages\n", a.pos[0])
+			}
+			for _, e := range entries {
+				fmt.Fprintf(stdout, "%s  %-8s from %-16s %s\n", e.At, e.Type, e.From, e.File)
+			}
+		case "pillar":
+			id := core.TeamID
+			if !a.has("team") {
+				if len(a.pos) < 1 {
+					return missing("id")
+				}
+				id = a.pos[0]
+			}
+			out, err := p.Pillars(id)
+			if err != nil {
+				return err
+			}
+			fmt.Fprint(stdout, out)
+		}
+		return nil
+
+	case "tui":
+		a, err := parse(rest, "root", "")
+		if err != nil {
+			return err
+		}
+		p, err := core.FindProject(a.flags["root"])
+		if err != nil {
+			return err
+		}
+		return tui.Run(p)
+
+	case "health":
+		a, err := parse(rest, "root", "")
+		if err != nil {
+			return err
+		}
+		return health(a.flags["root"], stdout)
+
 	case "install", "update", "uninstall":
 		a, err := parse(rest, "", "claude codex yes")
 		if err != nil {
@@ -270,14 +445,14 @@ func lifecycle(cmd string, t setup.Targets, yes bool, stdin io.Reader, out io.Wr
 			step("claude plugin", setup.InstallClaude(out))
 			if setup.HasClaudeRules() {
 				fmt.Fprintf(out, "Claude Code already has the sunstack permission rules\n")
-			} else if yes || setup.Confirm(stdin, out, fmt.Sprintf("Add two rules to %s: allow %q (no prompt before each call) and ask %q (you approve every pillar or AGENT.md change)?", setup.ClaudeSettingsPath(), setup.AllowRule, setup.AskRule), false) {
+			} else if yes || setup.Confirm(stdin, out, fmt.Sprintf("Update %s: allow %q (no prompt before each call), and ask before sunstack amend, hire and fire (you approve every rule change and every new or deleted agent)?", setup.ClaudeSettingsPath(), setup.AllowRule), false) {
 				_, err := setup.SetClaudeRules(true)
 				step("permission rules", err)
 				if err == nil {
-					fmt.Fprintf(out, "added allow %s and ask %s (previous file kept as settings.json.bak)\n", setup.AllowRule, setup.AskRule)
+					fmt.Fprintf(out, "added allow %s and ask %s (previous file kept as settings.json.bak)\n", setup.AllowRule, strings.Join(setup.AskRules, ", "))
 				}
 			} else {
-				fmt.Fprintf(out, "skipped the permission rules; rerun with --yes, or add allow %q and ask %q yourself\n", setup.AllowRule, setup.AskRule)
+				fmt.Fprintf(out, "skipped the permission rules; rerun with --yes, or add allow %q and ask %s yourself\n", setup.AllowRule, strings.Join(setup.AskRules, ", "))
 			}
 		}
 		if t.Codex {
@@ -325,5 +500,63 @@ func lifecycle(cmd string, t setup.Targets, yes bool, stdin io.Reader, out io.Wr
 		return &core.Error{Code: core.ExitFail, Reason: cmd + "_failed", Msg: strings.Join(failed, ", ")}
 	}
 	fmt.Fprintf(out, "sunstack: %s done\n", cmd)
+	return nil
+}
+
+// followLog prints the event log, then keeps printing new lines with --follow.
+func followLog(p *core.Project, id string, follow bool, out io.Writer) error {
+	seen := 0
+	for {
+		lines := p.Events(id)
+		for _, l := range lines[min(seen, len(lines)):] {
+			fmt.Fprintln(out, l)
+		}
+		seen = len(lines)
+		if !follow {
+			return nil
+		}
+		time.Sleep(time.Second)
+	}
+}
+
+// health prints project checks (when inside a project) and install checks.
+func health(root string, out io.Writer) error {
+	var cs []core.Check
+	if p, err := core.FindProject(root); err == nil {
+		cs = p.Health()
+	} else {
+		cs = append(cs, core.Check{Level: "fail", Area: "project", Msg: "no sunstack/ here or above", Fix: "sunstack init"})
+	}
+	cs = append(cs, core.Check{Level: "ok", Area: "install", Msg: "sunstack " + version})
+	if _, err := exec.LookPath("claude"); err == nil {
+		if setup.HasClaudeRules() {
+			cs = append(cs, core.Check{Level: "ok", Area: "install", Msg: "Claude Code allows sunstack and asks before amend, hire and fire"})
+		} else {
+			cs = append(cs, core.Check{Level: "warn", Area: "install", Msg: "Claude Code permission rules are missing", Fix: "sunstack install --claude"})
+		}
+	}
+	if _, err := exec.LookPath("codex"); err == nil {
+		if _, err := os.Stat(setup.CodexRulesPath()); err == nil {
+			cs = append(cs, core.Check{Level: "ok", Area: "install", Msg: "Codex asks before amend, hire and fire (" + setup.CodexRulesPath() + ")"})
+		} else {
+			cs = append(cs, core.Check{Level: "warn", Area: "install", Msg: "Codex amend rule is missing", Fix: "sunstack install --codex"})
+		}
+		if setup.CodexAutoReviewsApprovals() {
+			cs = append(cs, core.Check{Level: "warn", Area: "install", Msg: "Codex approvals_reviewer sends approval prompts to an automatic reviewer; rule changes rely on the skill asking you"})
+		}
+	}
+	failedN := 0
+	for _, c := range cs {
+		fmt.Fprintf(out, "%-4s %-8s %s\n", c.Level, c.Area, c.Msg)
+		if c.Fix != "" {
+			fmt.Fprintf(out, "              fix: %s\n", c.Fix)
+		}
+		if c.Level == "fail" {
+			failedN++
+		}
+	}
+	if failedN > 0 {
+		return &core.Error{Code: core.ExitFail, Reason: "health", Msg: fmt.Sprintf("%d check(s) failed", failedN)}
+	}
 	return nil
 }

@@ -398,3 +398,104 @@ func TestAmend(t *testing.T) {
 		}
 	}
 }
+
+func TestTeamCommands(t *testing.T) {
+	p := t.TempDir()
+	home := []string{"SUNSTACK_HOME=" + filepath.Join(p, ".home")}
+	must(t, os.WriteFile(filepath.Join(p, "AGENTS.md"), []byte("# Project\n\nKeep this.\n"), 0o644))
+	r := sh(t, p, home, "init")
+	expect(t, r, 0, "init")
+	agents, _ := os.ReadFile(filepath.Join(p, "AGENTS.md"))
+	if !strings.Contains(string(agents), "Keep this.") || strings.Count(string(agents), "<!-- sunstack:begin -->") != 1 {
+		t.Errorf("AGENTS.md after init:\n%s", agents)
+	}
+	if r = sh(t, p, home, "init"); !strings.Contains(r.out, "nothing to change") {
+		t.Errorf("second init should be a no-op: %q", r.out)
+	}
+	gi, _ := os.ReadFile(filepath.Join(p, ".gitignore"))
+	if !strings.Contains(string(gi), "sunstack/_local/") {
+		t.Error(".gitignore line missing")
+	}
+
+	// A malformed block is refused without writing.
+	bad := t.TempDir()
+	must(t, os.WriteFile(filepath.Join(bad, "AGENTS.md"), []byte("<!-- sunstack:begin -->\nhalf\n"), 0o644))
+	expect(t, sh(t, bad, home, "init"), 1, "malformed block")
+	if _, err := os.Stat(filepath.Join(bad, "sunstack")); err == nil {
+		t.Error("init must not write anything when the block is malformed")
+	}
+
+	r = sh(t, p, home, "hire")
+	expect(t, r, 2, "hire without a title")
+	if !strings.Contains(r.out, "builder\tbuilt-in") {
+		t.Errorf("hire should list templates: %q", r.out)
+	}
+	expect(t, sh(t, p, home, "hire", "nobody"), 1, "unknown template")
+	expect(t, sh(t, p, home, "hire", "builder"), 0, "hire builder")
+	expect(t, sh(t, p, home, "hire", "builder"), 2, "second builder needs a name")
+	expect(t, sh(t, p, home, "hire", "builder", "alice"), 0, "hire builder.alice")
+	expect(t, sh(t, p, home, "hire", "builder", "alice"), 1, "duplicate id")
+	doc, _ := os.ReadFile(filepath.Join(p, "sunstack", "builder.alice", "AGENT.md"))
+	if !strings.Contains(string(doc), "name: alice") || !strings.Contains(string(doc), "from: builder@1") || !strings.Contains(string(doc), "hired: ") {
+		t.Errorf("AGENT.md frontmatter:\n%s", doc)
+	}
+
+	// Recruit: an approved draft becomes a custom agent.
+	draft := filepath.Join(p, "draft.md")
+	must(t, os.WriteFile(draft, []byte("---\ntitle: security-reviewer\n---\n## 职责\n只看安全问题\n"), 0o644))
+	expect(t, sh(t, p, home, "hire", "security-reviewer", "--file", draft), 0, "hire from a draft")
+	doc, _ = os.ReadFile(filepath.Join(p, "sunstack", "security-reviewer", "AGENT.md"))
+	if !strings.Contains(string(doc), "from: custom") {
+		t.Errorf("draft hire should be from: custom:\n%s", doc)
+	}
+	expect(t, sh(t, p, home, "hire", "other", "--file", draft), 1, "draft title must match")
+
+	// Personal library round trip.
+	expect(t, sh(t, p, home, "library", "save", "security-reviewer"), 0, "library save")
+	r = sh(t, p, home, "library")
+	if !strings.Contains(r.out, "security-reviewer") || !strings.Contains(r.out, "personal") {
+		t.Errorf("library should list the personal template: %q", r.out)
+	}
+	expect(t, sh(t, p, home, "library", "save", "security-reviewer"), 1, "library save refuses to overwrite")
+	expect(t, sh(t, p, home, "hire", "security-reviewer", "bob"), 0, "hire from the personal template")
+
+	// team, pillar, inbox, log.
+	tok := field(tokenRe, sh(t, p, append(home, "TMUX_PANE=%0"), "as", "builder.alice").out)
+	r = sh(t, p, home, "team")
+	if !strings.Contains(r.out, "builder.alice") || !strings.Contains(r.out, "claimed by") {
+		t.Errorf("team: %q", r.out)
+	}
+	must(t, os.WriteFile(filepath.Join(p, "sunstack", "PILLARS.md"), []byte("<!-- - not a rule -->\n- 2026-09-23 team rule\n"), 0o644))
+	must(t, os.WriteFile(filepath.Join(p, "sunstack", "builder.alice", "pillars.md"), []byte("- 2026-09-23 own rule\n"), 0o644))
+	r = sh(t, p, home, "pillar", "builder.alice")
+	if !strings.Contains(r.out, "[team] 2026-09-23 team rule") || !strings.Contains(r.out, "[builder.alice] 2026-09-23 own rule") || strings.Contains(r.out, "not a rule") {
+		t.Errorf("pillar: %q", r.out)
+	}
+	expect(t, sh(t, p, home, "pillar", "builder"), 0, "pillar on the exact id builder")
+	expect(t, sh(t, p, home, "pillar", "nobody"), 1, "pillar unknown id")
+	must(t, os.MkdirAll(filepath.Join(p, "sunstack", "_local", "inbox", "builder.alice"), 0o755))
+	must(t, os.WriteFile(filepath.Join(p, "sunstack", "_local", "inbox", "builder.alice", "m1.md"), []byte("---\nfrom: pm\ntype: handoff   # q\nat: 2026-09-23T10:00:00Z\n---\nbody\n"), 0o644))
+	r = sh(t, p, home, "inbox", "builder.alice")
+	if !strings.Contains(r.out, "handoff") || !strings.Contains(r.out, "from pm") {
+		t.Errorf("inbox: %q", r.out)
+	}
+	r = sh(t, p, home, "log", "--id", "builder.alice")
+	if !strings.Contains(r.out, "hire     builder.alice") || !strings.Contains(r.out, "claim    builder.alice") || strings.Contains(r.out, "security-reviewer") {
+		t.Errorf("log --id: %q", r.out)
+	}
+
+	// fire refuses a claimed agent and pending messages.
+	expect(t, sh(t, p, home, "fire", "builder.alice"), 4, "fire a claimed agent")
+	sh(t, p, home, "release", "builder.alice", "--token", tok)
+	expect(t, sh(t, p, home, "fire", "builder.alice"), 1, "fire with a pending message")
+	expect(t, sh(t, p, home, "fire", "builder.alice", "--discard"), 0, "fire --discard")
+	if _, err := os.Stat(filepath.Join(p, "sunstack", "builder.alice")); !os.IsNotExist(err) {
+		t.Error("agent folder still there")
+	}
+
+	r = sh(t, p, home, "health")
+	if !strings.Contains(r.out, "AGENTS.md has one sunstack block") {
+		t.Errorf("health: %q", r.out)
+	}
+	expect(t, sh(t, t.TempDir(), home, "health"), 1, "health outside a project fails")
+}

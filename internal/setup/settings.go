@@ -137,7 +137,13 @@ func editRule(src []byte, list, rule string, add bool) ([]byte, bool, error) {
 
 // claudeRules are the two Claude Code permission rules Sunstack manages:
 // run sunstack without asking, but always ask before amend (design §6, §10).
-var claudeRules = [][2]string{{"allow", AllowRule}, {"ask", AskRule}}
+var claudeRules = func() [][2]string {
+	r := [][2]string{{"allow", AllowRule}}
+	for _, a := range AskRules {
+		r = append(r, [2]string{"ask", a})
+	}
+	return r
+}()
 
 // HasClaudeRules reports whether the Claude Code settings hold both rules.
 func HasClaudeRules() bool {
@@ -184,11 +190,21 @@ func SetClaudeRules(add bool) (bool, error) {
 
 // codexRules makes Codex ask before every sunstack amend.
 const codexRules = `# Managed by sunstack install. Codex asks before any change to an agent's
-# pillars or AGENT.md, so the user approves every self-improvement step.
+# pillars or AGENT.md, and before an agent is created or deleted.
 prefix_rule(
     pattern = ["sunstack", "amend"],
     decision = "prompt",
     justification = "Sunstack amend changes an agent's pillars or AGENT.md; the user must approve it.",
+)
+prefix_rule(
+    pattern = ["sunstack", "hire"],
+    decision = "prompt",
+    justification = "Sunstack hire creates an agent and its prompt; the user must approve it.",
+)
+prefix_rule(
+    pattern = ["sunstack", "fire"],
+    decision = "prompt",
+    justification = "Sunstack fire deletes an agent; the user must approve it.",
 )
 `
 
