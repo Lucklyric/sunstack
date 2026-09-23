@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -23,6 +24,9 @@ func TestMain(m *testing.M) {
 		panic(err)
 	}
 	bin = filepath.Join(dir, "sunstack")
+	if runtime.GOOS == "windows" {
+		bin += ".exe"
+	}
 	if out, err := exec.Command("go", "build", "-o", bin, ".").CombinedOutput(); err != nil {
 		panic(string(out))
 	}
@@ -300,8 +304,11 @@ func TestGuards(t *testing.T) {
 	// Symlinked thread target.
 	tb := field(tokenRe, sh(t, p, nil, "as", "reviewer").out)
 	must(t, os.MkdirAll(filepath.Join(p, "sunstack", "reviewer", "threads"), 0o755))
-	must(t, os.Symlink(outside, filepath.Join(p, "sunstack", "reviewer", "threads", "evil.md")))
-	expect(t, sh(t, p, nil, "snapshot", "reviewer", "threads/evil.md", "--token", tb), 1, "symlinked target")
+	if err := os.Symlink(outside, filepath.Join(p, "sunstack", "reviewer", "threads", "evil.md")); err == nil {
+		expect(t, sh(t, p, nil, "snapshot", "reviewer", "threads/evil.md", "--token", tb), 1, "symlinked target")
+	} else if runtime.GOOS != "windows" {
+		t.Fatal(err)
+	}
 
 	// A leftover lock (kill -9) gives busy, and is not removed.
 	lock := filepath.Join(p, "sunstack", "_local", "locks", "reviewer")
