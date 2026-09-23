@@ -178,7 +178,7 @@ func Duty(agentMD []byte) string {
 
 // setFrontmatter sets (or with val "" removes) keys in the leading --- block.
 func setFrontmatter(doc []byte, kv [][2]string) ([]byte, error) {
-	s := string(doc)
+	s := strings.ReplaceAll(string(doc), "\r\n", "\n")
 	if !strings.HasPrefix(s, "---\n") {
 		return nil, fail(ExitFail, "invalid_agent", "AGENT.md must start with a --- frontmatter block")
 	}
