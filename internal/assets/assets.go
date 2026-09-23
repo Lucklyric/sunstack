@@ -12,7 +12,7 @@ import (
 var files embed.FS
 
 // Built-in template version, recorded as from: <title>@<LibraryVersion>.
-const LibraryVersion = "1"
+const LibraryVersion = "2"
 
 // Protocol is the project's sunstack/PROTOCOL.md.
 func Protocol() []byte { return must("project/PROTOCOL.md") }
@@ -40,17 +40,17 @@ func Titles() []string {
 }
 
 // ContextTemplate is a new agent's empty context.md.
-const ContextTemplate = `## 当前状态
-## 决策
-## 坑
-## 未决问题
-## 提议
-## 已处理消息
+const ContextTemplate = `## Current state
+## Decisions
+## Pitfalls
+## Open questions
+## Proposals
+## Processed messages
 ## Threads
 `
 
 // PillarsTemplate is a new project's PILLARS.md.
-const PillarsTemplate = `<!-- 团队 pillars：对本项目所有 agent 生效。每条一行，以「- 日期」开头，写成可检查的陈述句。只经用户批准修改（sunstack amend --team）。 -->
+const PillarsTemplate = `<!-- Team pillars: they apply to every agent in this project. One per line, starting with "- <date>", written as a checkable statement. Changed only with the user's approval (sunstack amend --team). -->
 `
 
 // Routing block markers in AGENTS.md.
@@ -62,12 +62,13 @@ const (
 // RoutingBlock is the block init maintains in AGENTS.md (design §7).
 const RoutingBlock = RouteBegin + `
 ## Sunstack
-本项目的 agent 团队在 sunstack/，协议见 sunstack/PROTOCOL.md。
-- 仅当本会话通过 sunstack as 加载了身份时，才按协议读写 sunstack/ 下的 agent 文件。
-- 管理与只读命令（sunstack init、hire、fire、team、log、inbox、health、pillar、as）任何会话都可调用。
-- 结束或切换身份前运行 sunstack save 与 release。
-- 若不确定自己的身份或 token（如上下文被压缩），请用户确认后重新运行 as，不要猜测。
-- 子 agent 不加载身份，也不写 sunstack/；委派任务时，父 agent 需在任务里写明适用的 pillars 与职责限制。
+This project's agent team lives in sunstack/; the protocol is sunstack/PROTOCOL.md.
+- Read and write the agent files in sunstack/ only after this session has taken on an identity with sunstack as, and then follow the protocol.
+- Any session may run the management and read-only commands (sunstack init, team, log, inbox, health, pillar, library, as).
+- Creating or deleting an agent (sunstack hire, sunstack fire) and changing pillars or AGENT.md (sunstack amend) need the user's explicit approval first.
+- Before ending or switching identity, run the Sunstack save skill, then sunstack release.
+- If you are unsure of your identity or token (for example after compaction), ask the user and run as again. Never guess.
+- Subagents take on no identity and never write sunstack/; when delegating, state the applicable pillars and role limits in the task.
 ` + RouteEnd + "\n"
 
 func must(name string) []byte {

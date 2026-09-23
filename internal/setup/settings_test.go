@@ -1,6 +1,7 @@
 package setup
 
 import (
+	"os"
 	"strings"
 	"testing"
 )
@@ -65,5 +66,36 @@ func TestAllowAndAskTogether(t *testing.T) {
 	s := string(out)
 	if !strings.Contains(s, `"ask": [`) || !strings.Contains(s, `"Bash(sunstack amend *)"`) || !strings.Contains(s, `"Bash(sunstack *)"`) {
 		t.Errorf("want both rules:\n%s", s)
+	}
+}
+
+func TestParseRejectsPartialInput(t *testing.T) {
+	for _, src := range []string{`{`, `{"model":"opus"`, `{"a":1}{"b":2}`, `{"a":1} // note`, `{"permissions":{},"permissions":{}}`} {
+		if _, _, err := editRule([]byte(src), "allow", AllowRule, true); err == nil {
+			t.Errorf("%q: want an error, got none", src)
+		}
+	}
+}
+
+func TestCodexRulesOnlyTouchOwnFile(t *testing.T) {
+	t.Setenv("CODEX_HOME", t.TempDir())
+	path := CodexRulesPath()
+	if CodexRulesState() != "missing" {
+		t.Fatal("want missing")
+	}
+	if err := SetCodexRules(true); err != nil || CodexRulesState() != "current" {
+		t.Fatalf("install: %v %s", err, CodexRulesState())
+	}
+	if err := os.WriteFile(path, []byte("# my own rules\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := SetCodexRules(true); err == nil {
+		t.Error("must not overwrite a file sunstack did not write")
+	}
+	if err := SetCodexRules(false); err == nil {
+		t.Error("must not delete a file sunstack did not write")
+	}
+	if b, _ := os.ReadFile(path); string(b) != "# my own rules\n" {
+		t.Errorf("user file changed: %q", b)
 	}
 }

@@ -94,10 +94,11 @@ func fixture(t *testing.T) string {
 		d := filepath.Join(p, "sunstack", id)
 		must(t, os.MkdirAll(d, 0o755))
 		title := strings.SplitN(id, ".", 2)[0]
-		must(t, os.WriteFile(filepath.Join(d, "AGENT.md"), []byte("---\ntitle: "+title+"\nfrom: custom\n---\n## 职责\n"), 0o644))
-		must(t, os.WriteFile(filepath.Join(d, "context.md"), []byte("## 当前状态\n## 决策\n"), 0o644))
+		must(t, os.WriteFile(filepath.Join(d, "AGENT.md"), []byte("---\ntitle: "+title+"\nfrom: custom\n---\n## Role\n"), 0o644))
+		must(t, os.WriteFile(filepath.Join(d, "context.md"), []byte("## Current state\n## Decisions\n"), 0o644))
 	}
-	must(t, os.WriteFile(filepath.Join(p, "sunstack", "PILLARS.md"), []byte("- 2026-09-22 所有 migration 必须可回滚\n"), 0o644))
+	must(t, os.WriteFile(filepath.Join(p, "sunstack", "PILLARS.md"), []byte("- 2026-09-22 every migration must be reversible\n"), 0o644))
+	must(t, os.WriteFile(filepath.Join(p, "sunstack", "PROTOCOL.md"), []byte("# Sunstack protocol\n"), 0o644))
 	return p
 }
 
@@ -239,15 +240,15 @@ func TestSnapshotCommit(t *testing.T) {
 	r := sh(t, p, nil, "snapshot", "builder.alice", "context.md", "--token", tok)
 	expect(t, r, 0, "snapshot")
 	c1 := field(sumRe, r.out)
-	must(t, os.WriteFile(filepath.Join(tmp, "a.md"), []byte("## 当前状态\n- A\n"), 0o644))
-	must(t, os.WriteFile(filepath.Join(tmp, "b.md"), []byte("## 当前状态\n- B\n"), 0o644))
+	must(t, os.WriteFile(filepath.Join(tmp, "a.md"), []byte("## Current state\n- A\n"), 0o644))
+	must(t, os.WriteFile(filepath.Join(tmp, "b.md"), []byte("## Current state\n- B\n"), 0o644))
 	expect(t, sh(t, p, nil, "commit", "builder.alice", "context.md", filepath.Join(tmp, "a.md"), c1, "--token", tok), 0, "commit A")
 	r = sh(t, p, nil, "commit", "builder.alice", "context.md", filepath.Join(tmp, "b.md"), c1, "--token", tok)
 	expect(t, r, 3, "commit B from the old snapshot")
 	if !strings.Contains(r.out, "- A") || field(sumRe, r.out) == "" {
 		t.Errorf("mismatch must return fresh content and checksum: %q", r.out)
 	}
-	if b, _ := os.ReadFile(ctx); string(b) != "## 当前状态\n- A\n" {
+	if b, _ := os.ReadFile(ctx); string(b) != "## Current state\n- A\n" {
 		t.Errorf("file should hold A only: %q", b)
 	}
 
@@ -269,7 +270,7 @@ func TestSnapshotCommit(t *testing.T) {
 	if field(sumRe, r.out) != "absent" {
 		t.Errorf("missing file checksum should be absent: %q", r.out)
 	}
-	must(t, os.WriteFile(filepath.Join(tmp, "auth-refactor.md"), []byte("目标：重构 auth\n"), 0o644))
+	must(t, os.WriteFile(filepath.Join(tmp, "auth-refactor.md"), []byte("Goal: refactor auth\n"), 0o644))
 	expect(t, sh(t, p, nil, "commit", "builder.alice", "threads/auth-refactor.md", filepath.Join(tmp, "auth-refactor.md"), "absent", "--token", tok), 0, "create thread")
 	c3 := field(sumRe, sh(t, p, nil, "snapshot", "builder.alice", "threads/auth-refactor.md", "--token", tok).out)
 	expect(t, sh(t, p, nil, "commit", "builder.alice", "threads/auth-refactor.md", "--delete", c3, "--token", tok), 0, "delete thread")
@@ -378,7 +379,7 @@ func TestAmend(t *testing.T) {
 	must(t, os.WriteFile(filepath.Join(teamTmp, "PILLARS.md"), []byte("- 2026-09-23 new team rule\n"), 0o644))
 	r = sh(t, p, nil, "amend", "--team", filepath.Join(teamTmp, "PILLARS.md"), "deadbeef", "--summary", "x")
 	expect(t, r, 3, "stale team checksum")
-	if !strings.Contains(r.out, "migration") {
+	if !strings.Contains(r.out, "reversible") {
 		t.Errorf("mismatch must return the current team pillars: %q", r.out)
 	}
 	expect(t, sh(t, p, nil, "amend", "--team", filepath.Join(teamTmp, "PILLARS.md"), sum, "--summary", "replace team rules"), 0, "amend team pillars")
@@ -388,7 +389,7 @@ func TestAmend(t *testing.T) {
 	asum := field(sumRe, r.out)
 	must(t, os.WriteFile(filepath.Join(tmp, "AGENT.md"), []byte("no frontmatter\n"), 0o644))
 	expect(t, sh(t, p, nil, "amend", "builder.alice", "AGENT.md", filepath.Join(tmp, "AGENT.md"), asum, "--summary", "x"), 1, "AGENT.md without frontmatter")
-	must(t, os.WriteFile(filepath.Join(tmp, "AGENT.md"), []byte("---\ntitle: builder\nfrom: custom\n---\n## 职责\n改进后\n"), 0o644))
+	must(t, os.WriteFile(filepath.Join(tmp, "AGENT.md"), []byte("---\ntitle: builder\nfrom: custom\n---\n## Role\nImproved\n"), 0o644))
 	expect(t, sh(t, p, nil, "amend", "builder.alice", "AGENT.md", filepath.Join(tmp, "AGENT.md"), asum, "--summary", "tighten duties"), 0, "amend AGENT.md")
 
 	log, _ := os.ReadFile(filepath.Join(p, "sunstack", "_local", "log", "events.log"))
@@ -436,13 +437,13 @@ func TestTeamCommands(t *testing.T) {
 	expect(t, sh(t, p, home, "hire", "builder", "alice"), 0, "hire builder.alice")
 	expect(t, sh(t, p, home, "hire", "builder", "alice"), 1, "duplicate id")
 	doc, _ := os.ReadFile(filepath.Join(p, "sunstack", "builder.alice", "AGENT.md"))
-	if !strings.Contains(string(doc), "name: alice") || !strings.Contains(string(doc), "from: builder@1") || !strings.Contains(string(doc), "hired: ") {
+	if !strings.Contains(string(doc), "name: alice") || !strings.Contains(string(doc), "from: builder@2") || !strings.Contains(string(doc), "hired: ") {
 		t.Errorf("AGENT.md frontmatter:\n%s", doc)
 	}
 
 	// Recruit: an approved draft becomes a custom agent.
 	draft := filepath.Join(p, "draft.md")
-	must(t, os.WriteFile(draft, []byte("---\ntitle: security-reviewer\n---\n## 职责\n只看安全问题\n"), 0o644))
+	must(t, os.WriteFile(draft, []byte("---\ntitle: security-reviewer\n---\n## Role\nReviews security only\n"), 0o644))
 	expect(t, sh(t, p, home, "hire", "security-reviewer", "--file", draft), 0, "hire from a draft")
 	doc, _ = os.ReadFile(filepath.Join(p, "sunstack", "security-reviewer", "AGENT.md"))
 	if !strings.Contains(string(doc), "from: custom") {
@@ -494,8 +495,82 @@ func TestTeamCommands(t *testing.T) {
 	}
 
 	r = sh(t, p, home, "health")
-	if !strings.Contains(r.out, "AGENTS.md has one sunstack block") {
+	if !strings.Contains(r.out, "AGENTS.md has one current sunstack block") {
 		t.Errorf("health: %q", r.out)
 	}
 	expect(t, sh(t, t.TempDir(), home, "health"), 1, "health outside a project fails")
+}
+
+func TestReviewFixes(t *testing.T) {
+	p := fixture(t)
+	must(t, os.WriteFile(filepath.Join(p, "sunstack", "PROTOCOL.md"), []byte("# protocol\n"), 0o644))
+
+	// A damaged claim is an error, not "free": no fresh claim, no fire.
+	must(t, os.MkdirAll(filepath.Join(p, "sunstack", "_local", "live"), 0o755))
+	must(t, os.WriteFile(filepath.Join(p, "sunstack", "_local", "live", "reviewer.json"), []byte("{broken"), 0o644))
+	r := sh(t, p, nil, "as", "reviewer")
+	expect(t, r, 1, "as on a damaged claim")
+	if !strings.Contains(r.stderr, "bad_claim") {
+		t.Errorf("want bad_claim: %s", r.stderr)
+	}
+	expect(t, sh(t, p, nil, "fire", "reviewer", "--discard"), 1, "fire on a damaged claim")
+	if !strings.Contains(sh(t, p, nil, "team").out, "claim file damaged") {
+		t.Error("team should flag the damaged claim")
+	}
+	os.Remove(filepath.Join(p, "sunstack", "_local", "live", "reviewer.json"))
+
+	// A missing PROTOCOL.md stops as before any claim.
+	os.Rename(filepath.Join(p, "sunstack", "PROTOCOL.md"), filepath.Join(p, "PROTOCOL.bak"))
+	expect(t, sh(t, p, nil, "as", "reviewer"), 1, "as without PROTOCOL.md")
+	if _, err := os.Stat(filepath.Join(p, "sunstack", "_local", "live", "reviewer.json")); err == nil {
+		t.Error("no claim should be written when identity files are missing")
+	}
+	os.Rename(filepath.Join(p, "PROTOCOL.bak"), filepath.Join(p, "sunstack", "PROTOCOL.md"))
+
+	// A symlinked agent directory cannot be written through.
+	outside := t.TempDir()
+	must(t, os.WriteFile(filepath.Join(outside, "AGENT.md"), []byte("---\ntitle: evil\n---\n"), 0o644))
+	if err := os.Symlink(outside, filepath.Join(p, "sunstack", "evil")); err == nil {
+		expect(t, sh(t, p, nil, "snapshot", "evil", "pillars.md"), 1, "snapshot through a symlinked agent dir")
+		must(t, os.MkdirAll(filepath.Join(p, "sunstack", "_local", "tmp", "evil"), 0o755))
+		must(t, os.WriteFile(filepath.Join(p, "sunstack", "_local", "tmp", "evil", "c.md"), []byte("- x\n"), 0o644))
+		expect(t, sh(t, p, nil, "amend", "evil", "pillars.md", filepath.Join(p, "sunstack", "_local", "tmp", "evil", "c.md"), "absent", "--summary", "x"), 1, "amend through a symlinked agent dir")
+		if _, err := os.Stat(filepath.Join(outside, "pillars.md")); err == nil {
+			t.Error("amend wrote outside the project")
+		}
+		os.Remove(filepath.Join(p, "sunstack", "evil"))
+
+		// A symlinked candidate file is refused.
+		tok := field(tokenRe, sh(t, p, nil, "as", "builder.bob").out)
+		tmp := filepath.Join(p, "sunstack", "_local", "tmp", "builder.bob")
+		sh(t, p, nil, "snapshot", "builder.bob", "context.md", "--token", tok)
+		secret := filepath.Join(outside, "secret")
+		must(t, os.WriteFile(secret, []byte("secret\n"), 0o644))
+		must(t, os.Symlink(secret, filepath.Join(tmp, "link.md")))
+		expect(t, sh(t, p, nil, "commit", "builder.bob", "context.md", filepath.Join(tmp, "link.md"), "x", "--token", tok), 1, "symlinked candidate")
+	}
+
+	// Outside git, fire refuses without --discard.
+	r = sh(t, p, nil, "fire", "reviewer")
+	expect(t, r, 1, "fire outside git")
+	if !strings.Contains(r.stderr, "git cannot confirm") {
+		t.Errorf("want the git warning: %s", r.stderr)
+	}
+	expect(t, sh(t, p, nil, "fire", "reviewer", "--discard"), 0, "fire --discard outside git")
+
+	// Surplus arguments are errors, and pillar does not pretend to write.
+	expect(t, sh(t, p, nil, "fire", "builder.bob", "extra"), 2, "fire with an extra argument")
+	expect(t, sh(t, p, nil, "pillar", "builder.alice", "always run tests"), 2, "pillar with a requirement")
+
+	// Concurrent hires of one ID: exactly one wins, and nothing is overwritten.
+	codes := race(t, 6, p, func(int) []string { return []string{"hire", "builder", "carol"} })
+	if count(codes, 0) != 1 {
+		t.Errorf("6 concurrent hires: want exactly 1 success, got %v", codes)
+	}
+
+	// library show prints a built-in template.
+	r = sh(t, p, nil, "library", "show", "builder")
+	if r.code != 0 || !strings.Contains(r.out, "## Role") {
+		t.Errorf("library show: %d %q", r.code, r.out)
+	}
 }

@@ -33,14 +33,17 @@ func (p *Project) Health() []Check {
 		cs = append(cs, ok("project", "sunstack/ with PROTOCOL.md at "+p.Root))
 	}
 	agents, _, _ := readMaybe(filepath.Join(p.Root, "AGENTS.md"))
-	nb, ne := strings.Count(string(agents), assets.RouteBegin), strings.Count(string(agents), assets.RouteEnd)
+	nb := strings.Count(string(agents), assets.RouteBegin)
+	updated, changed, err := routeBlock(agents)
 	switch {
-	case nb == 1 && ne == 1:
-		cs = append(cs, ok("project", "AGENTS.md has one sunstack block"))
-	case nb == 0 && ne == 0:
+	case err != nil:
+		cs = append(cs, failed("project", "AGENTS.md sunstack block is malformed", "fix AGENTS.md by hand, then sunstack init"))
+	case nb == 0:
 		cs = append(cs, failed("project", "AGENTS.md has no sunstack block, so agents are not routed to sunstack/", "sunstack init"))
+	case changed && len(updated) > 0:
+		cs = append(cs, warn("project", "AGENTS.md sunstack block is from an older version", "sunstack init"))
 	default:
-		cs = append(cs, failed("project", fmt.Sprintf("AGENTS.md sunstack block is malformed (%d begin, %d end)", nb, ne), "fix AGENTS.md by hand, then sunstack init"))
+		cs = append(cs, ok("project", "AGENTS.md has one current sunstack block"))
 	}
 	gi, _, _ := readMaybe(filepath.Join(p.Root, ".gitignore"))
 	if hasLine(gi, "sunstack/_local/") {
@@ -71,7 +74,7 @@ func (p *Project) Health() []Check {
 	if fileHasConflict(filepath.Join(p.Dir, "PILLARS.md")) {
 		cs = append(cs, failed("files", "PILLARS.md has merge conflict markers", "resolve the conflict"))
 	}
-	if u := p.uncommitted("sunstack"); len(u) > 0 {
+	if u, _ := p.uncommitted("sunstack"); len(u) > 0 {
 		cs = append(cs, warn("files", fmt.Sprintf("%d uncommitted change(s) under sunstack/", len(u)), "review and commit them"))
 	}
 
@@ -88,6 +91,9 @@ func (p *Project) Health() []Check {
 			"if no sunstack command is running, remove "+p.local("locks", l.Name())))
 	}
 	for _, s := range p.Status() {
+		if s.ClaimErr != nil {
+			cs = append(cs, failed("runtime", s.ClaimErr.Error(), "inspect the file, then delete it to free "+s.ID))
+		}
 		if s.Claim != nil && s.Where == "pane closed" {
 			cs = append(cs, warn("runtime", fmt.Sprintf("%s is claimed from pane %s, which is gone", s.ID, s.Claim.TmuxPane),
 				"take it over with sunstack as "+s.ID+" --takeover, or release it"))

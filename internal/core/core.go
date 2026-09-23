@@ -83,8 +83,13 @@ func FindProject(start string) (*Project, error) {
 		return nil, fail(ExitFail, "no_root", "cannot enter %s", start)
 	}
 	for {
-		if st, err := os.Stat(filepath.Join(d, "sunstack")); err == nil && st.IsDir() {
-			return &Project{Root: d, Dir: filepath.Join(d, "sunstack")}, nil
+		if st, err := os.Lstat(filepath.Join(d, "sunstack")); err == nil {
+			if st.Mode()&os.ModeSymlink != 0 {
+				return nil, fail(ExitFail, "symlink", "%s is a symlink; sunstack/ must be a real directory", filepath.Join(d, "sunstack"))
+			}
+			if st.IsDir() {
+				return &Project{Root: d, Dir: filepath.Join(d, "sunstack")}, nil
+			}
 		}
 		parent := filepath.Dir(d)
 		if parent == d {
@@ -92,6 +97,30 @@ func FindProject(start string) (*Project, error) {
 		}
 		d = parent
 	}
+}
+
+// noSymlink rejects path if it, or any directory between the project root and
+// it, is a symlink, so writes can never leave the project.
+func (p *Project) noSymlink(path string) error {
+	rel, err := filepath.Rel(p.Root, path)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return fail(ExitFail, "outside", "%s is outside the project", path)
+	}
+	cur := p.Root
+	for _, part := range strings.Split(rel, string(filepath.Separator)) {
+		cur = filepath.Join(cur, part)
+		st, err := os.Lstat(cur)
+		if err != nil {
+			if os.IsNotExist(err) {
+				return nil // the rest does not exist yet
+			}
+			return fail(ExitFail, "fs", "%v", err)
+		}
+		if st.Mode()&os.ModeSymlink != 0 {
+			return fail(ExitFail, "symlink", "refusing symlinked path: %s", cur)
+		}
+	}
+	return nil
 }
 
 func (p *Project) local(parts ...string) string {

@@ -98,21 +98,37 @@ func SelfUpdate(version string) error {
 	if exe, err = filepath.EvalSymlinks(exe); err != nil {
 		return err
 	}
-	tmp := exe + ".new"
-	if err := os.WriteFile(tmp, bin, 0o755); err != nil {
+	// Stage in a uniquely named file beside the binary, so the final rename is
+	// atomic and concurrent updates cannot clobber each other's staging file.
+	tmp, err := os.CreateTemp(filepath.Dir(exe), ".sunstack-new-*")
+	if err != nil {
 		return err
 	}
-	// Windows cannot overwrite a running executable, but it can rename it.
-	old := exe + ".old"
-	os.Remove(old)
-	if runtime.GOOS == "windows" {
-		if err := os.Rename(exe, old); err != nil {
-			os.Remove(tmp)
-			return err
-		}
+	staged := tmp.Name()
+	defer os.Remove(staged)
+	if _, err := tmp.Write(bin); err != nil {
+		tmp.Close()
+		return err
 	}
-	if err := os.Rename(tmp, exe); err != nil {
-		os.Remove(tmp)
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := os.Chmod(staged, 0o755); err != nil {
+		return err
+	}
+	if runtime.GOOS != "windows" {
+		return os.Rename(staged, exe)
+	}
+	// Windows cannot overwrite a running executable, but it can rename it.
+	// Move it aside, put the new one in place, and move it back on failure.
+	old := fmt.Sprintf("%s.old-%d", exe, time.Now().UnixNano())
+	if err := os.Rename(exe, old); err != nil {
+		return err
+	}
+	if err := os.Rename(staged, exe); err != nil {
+		if rerr := os.Rename(old, exe); rerr != nil {
+			return fmt.Errorf("%v; restoring the old binary also failed, it is at %s", err, old)
+		}
 		return err
 	}
 	return nil

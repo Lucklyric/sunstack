@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -25,23 +26,40 @@ type field struct {
 	Val json.RawMessage
 }
 
-// parseObject decodes a JSON object without losing key order.
+// parseObject decodes one complete JSON object without losing key order. It
+// rejects anything else: truncated input, trailing content, comments, and
+// duplicate keys, so a file is never rewritten from a partial reading.
 func parseObject(b []byte) ([]field, error) {
 	dec := json.NewDecoder(bytes.NewReader(b))
 	if t, err := dec.Token(); err != nil || t != json.Delim('{') {
 		return nil, errors.New("not a JSON object")
 	}
 	var fs []field
+	seen := map[string]bool{}
 	for dec.More() {
 		t, err := dec.Token()
 		if err != nil {
 			return nil, err
 		}
+		key, ok := t.(string)
+		if !ok {
+			return nil, errors.New("invalid object key")
+		}
+		if seen[key] {
+			return nil, fmt.Errorf("duplicate key %q", key)
+		}
+		seen[key] = true
 		var v json.RawMessage
 		if err := dec.Decode(&v); err != nil {
 			return nil, err
 		}
-		fs = append(fs, field{t.(string), v})
+		fs = append(fs, field{key, v})
+	}
+	if t, err := dec.Token(); err != nil || t != json.Delim('}') {
+		return nil, errors.New("unterminated JSON object")
+	}
+	if _, err := dec.Token(); err != io.EOF {
+		return nil, errors.New("unexpected content after the JSON object")
 	}
 	return fs, nil
 }
@@ -159,9 +177,25 @@ func HasClaudeRules() bool {
 	return true
 }
 
-// SetClaudeRules adds or removes both rules, keeping a .bak copy of the old file.
+// HasAllowRule reports whether the user already allowed sunstack, which is
+// the consent update relies on to add newer ask rules.
+func HasAllowRule() bool {
+	b, err := os.ReadFile(ClaudeSettingsPath())
+	if err != nil {
+		return false
+	}
+	_, changed, err := editRule(b, "allow", AllowRule, true)
+	return err == nil && !changed
+}
+
+// SetClaudeRules adds or removes the rules, keeping a .bak copy of the old
+// file. The new file is written beside the old one and renamed over it, and
+// only if nothing else changed the file in the meantime.
 func SetClaudeRules(add bool) (bool, error) {
 	path := ClaudeSettingsPath()
+	if st, err := os.Lstat(path); err == nil && st.Mode()&os.ModeSymlink != 0 {
+		return false, fmt.Errorf("%s is a symlink; edit it by hand", path)
+	}
 	src, err := os.ReadFile(path)
 	if err != nil && !os.IsNotExist(err) {
 		return false, err
@@ -182,10 +216,43 @@ func SetClaudeRules(add bool) (bool, error) {
 			return false, err
 		}
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return false, err
+	mode := os.FileMode(0o600)
+	if st, err := os.Stat(path); err == nil {
+		mode = st.Mode().Perm()
 	}
-	return true, os.WriteFile(path, out, 0o600)
+	return true, replaceIfUnchanged(path, src, out, mode)
+}
+
+// replaceIfUnchanged atomically replaces path with data, unless its content no
+// longer equals want (someone edited it since we read it).
+func replaceIfUnchanged(path string, want, data []byte, mode os.FileMode) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".sunstack.*")
+	if err != nil {
+		return err
+	}
+	name := tmp.Name()
+	defer os.Remove(name)
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := os.Chmod(name, mode); err != nil {
+		return err
+	}
+	cur, err := os.ReadFile(path)
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	if !bytes.Equal(cur, want) {
+		return fmt.Errorf("%s changed while sunstack was editing it; run the command again", path)
+	}
+	return os.Rename(name, path)
 }
 
 // codexRules makes Codex ask before every sunstack amend.
@@ -218,19 +285,48 @@ func CodexRulesPath() string {
 	return filepath.Join(home, "rules", "sunstack.rules")
 }
 
-// SetCodexRules writes or removes the Codex rule file.
+const codexRulesHeader = "# Managed by sunstack install."
+
+// CodexRulesState says whether the Codex rule file is missing, ours and
+// current, ours but outdated, or someone else's.
+func CodexRulesState() string {
+	path := CodexRulesPath()
+	st, err := os.Lstat(path)
+	if os.IsNotExist(err) {
+		return "missing"
+	}
+	if err != nil || st.Mode()&os.ModeSymlink != 0 {
+		return "foreign"
+	}
+	b, err := os.ReadFile(path)
+	switch {
+	case err != nil || !strings.HasPrefix(string(b), codexRulesHeader):
+		return "foreign"
+	case string(b) == codexRules:
+		return "current"
+	}
+	return "outdated"
+}
+
+// SetCodexRules writes or removes the Codex rule file. It only ever replaces
+// or deletes a file it wrote itself.
 func SetCodexRules(add bool) error {
 	path := CodexRulesPath()
+	state := CodexRulesState()
+	if state == "foreign" {
+		return fmt.Errorf("%s exists and was not written by sunstack; merge the sunstack rules by hand", path)
+	}
 	if !add {
-		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
-			return err
+		if state == "missing" {
+			return nil
 		}
+		return os.Remove(path)
+	}
+	if state == "current" {
 		return nil
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
-	}
-	return os.WriteFile(path, []byte(codexRules), 0o644)
+	cur, _ := os.ReadFile(path)
+	return replaceIfUnchanged(path, cur, []byte(codexRules), 0o644)
 }
 
 // CodexAutoReviewsApprovals reports whether Codex sends approval prompts to an

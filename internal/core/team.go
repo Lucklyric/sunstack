@@ -157,11 +157,19 @@ func Library() []LibraryEntry {
 	return out
 }
 
-// Duty is the first line under "## 职责", for one-line summaries.
+// Duty is the first line under "## Role" (or, failing that, under the first
+// heading), for one-line summaries.
 func Duty(agentMD []byte) string {
 	lines := strings.Split(string(agentMD), "\n")
+	if d := dutyUnder(lines, func(h string) bool { return h == "## Role" }); d != "" {
+		return d
+	}
+	return dutyUnder(lines, func(h string) bool { return strings.HasPrefix(h, "## ") })
+}
+
+func dutyUnder(lines []string, match func(string) bool) string {
 	for i, l := range lines {
-		if strings.TrimSpace(l) == "## 职责" {
+		if match(strings.TrimSpace(l)) {
 			for _, m := range lines[i+1:] {
 				m = strings.TrimSpace(m)
 				if strings.HasPrefix(m, "## ") {
@@ -265,21 +273,30 @@ func (p *Project) Hire(o HireOptions) (string, error) {
 		return "", &Error{Code: ExitUsage, Reason: "missing_arguments", Msg: o.Title + " already has an instance; give this one a name",
 			Stdout: "missing_arguments: name\n" + strings.Join(p.instances(o.Title), "\n") + "\n"}
 	}
-	if _, err := os.Stat(p.AgentDir(id)); err == nil {
+	if err := p.noSymlink(p.AgentDir(id)); err != nil {
+		return "", err
+	}
+	unlock, err := p.lock(id)
+	if err != nil {
+		return "", err
+	}
+	defer unlock()
+	if _, err := os.Lstat(p.AgentDir(id)); err == nil {
 		return "", fail(ExitFail, "exists", "%s already exists", id)
 	}
 	kv := [][2]string{{"name", o.Name}, {"hired", time.Now().Format("2006-01-02")}}
 	if from != "" {
 		kv = append(kv, [2]string{"from", from})
 	}
-	doc, err := setFrontmatter(doc, kv)
+	doc, err = setFrontmatter(doc, kv)
 	if err != nil {
 		return "", err
 	}
-	if err := writeAtomic(filepath.Join(p.AgentDir(id), "AGENT.md"), doc); err != nil {
+	// AGENT.md is written last: an agent exists only once it is complete.
+	if err := writeAtomic(filepath.Join(p.AgentDir(id), "context.md"), []byte(assets.ContextTemplate)); err != nil {
 		return "", fail(ExitFail, "fs", "%v", err)
 	}
-	if err := writeAtomic(filepath.Join(p.AgentDir(id), "context.md"), []byte(assets.ContextTemplate)); err != nil {
+	if err := writeAtomic(filepath.Join(p.AgentDir(id), "AGENT.md"), doc); err != nil {
 		return "", fail(ExitFail, "fs", "%v", err)
 	}
 	src := "template=" + o.Title
@@ -290,19 +307,19 @@ func (p *Project) Hire(o HireOptions) (string, error) {
 	return id, nil
 }
 
-// uncommitted lists git changes under a path, or nil outside git.
-func (p *Project) uncommitted(rel string) []string {
-	out, err := exec.Command("git", "-C", p.Root, "status", "--porcelain", "--", rel).Output()
+// uncommitted lists changed, untracked and ignored files under rel. known is
+// false when git cannot tell (no git, not a repository, or an error).
+func (p *Project) uncommitted(rel string) (lines []string, known bool) {
+	out, err := exec.Command("git", "-C", p.Root, "status", "--porcelain", "--ignored", "--", rel).Output()
 	if err != nil {
-		return nil
+		return nil, false
 	}
-	var lines []string
 	for _, l := range strings.Split(strings.TrimSpace(string(out)), "\n") {
 		if l != "" {
 			lines = append(lines, l)
 		}
 	}
-	return lines
+	return lines, true
 }
 
 // Fire deletes an agent that nobody holds, after checking for uncommitted
@@ -319,15 +336,26 @@ func (p *Project) Fire(id string, discard bool) error {
 		return err
 	}
 	defer unlock()
-	if cur := p.ReadLive(id); cur != nil {
+	if !p.HasAgent(id) {
+		return fail(ExitFail, "not_found", "%s was removed while waiting", id)
+	}
+	cur, err := p.ReadLive(id)
+	if err != nil {
+		return err
+	}
+	if cur != nil {
 		e := fail(ExitClaim, "occupied", "%s is claimed; release it (or take it over) before firing", id)
 		e.Stdout = cur.ClaimLine() + "\n"
 		return e
 	}
 	if !discard {
 		var problems []string
-		if u := p.uncommitted(filepath.Join("sunstack", id)); len(u) > 0 {
-			problems = append(problems, fmt.Sprintf("%d uncommitted change(s) under sunstack/%s", len(u), id))
+		u, known := p.uncommitted(filepath.Join("sunstack", id))
+		switch {
+		case !known:
+			problems = append(problems, "git cannot confirm its files are committed, so deleting them may be permanent")
+		case len(u) > 0:
+			problems = append(problems, fmt.Sprintf("%d uncommitted, untracked or ignored file(s) under sunstack/%s", len(u), id))
 		}
 		if n := len(listNames(p.local("inbox", id), ".md")); n > 0 {
 			problems = append(problems, fmt.Sprintf("%d pending message(s)", n))
@@ -439,7 +467,8 @@ func (p *Project) Pillars(id string) (string, error) {
 type AgentStatus struct {
 	ID, Title, Duty string
 	Claim           *Live
-	Where           string // tmux session:window.pane, "pane closed", or ""
+	ClaimErr        error  // the claim file exists but cannot be read
+	Where           string // tmux session:window.pane, "pane closed", "tmux unavailable", or ""
 	Inbox           int
 	Proposals       []string
 	Threads         []string
@@ -447,12 +476,30 @@ type AgentStatus struct {
 	Conflict        bool
 }
 
-// TmuxWhere resolves a pane ID to session:window.pane via tmux.
-func TmuxWhere(pane string) string {
+// TmuxArgs targets the tmux server a claim was made on.
+func TmuxArgs(socket string, args ...string) []string {
+	if socket != "" {
+		return append([]string{"-S", socket}, args...)
+	}
+	return args
+}
+
+// TmuxWhere resolves a pane ID on the claim's tmux server to
+// session:window.pane. It says "tmux unavailable" when it cannot ask, so an
+// unreachable server is not mistaken for a closed pane.
+func TmuxWhere(socket, pane string) string {
 	if pane == "" {
 		return ""
 	}
-	out, err := exec.Command("tmux", "display-message", "-p", "-t", pane, "#{session_name}:#{window_index}.#{pane_index}").Output()
+	if _, err := exec.LookPath("tmux"); err != nil {
+		return "tmux unavailable"
+	}
+	if socket != "" {
+		if _, err := os.Stat(socket); err != nil {
+			return "pane closed" // the server is gone
+		}
+	}
+	out, err := exec.Command("tmux", TmuxArgs(socket, "display-message", "-p", "-t", pane, "#{session_name}:#{window_index}.#{pane_index}")...).Output()
 	if err != nil || len(bytes.TrimSpace(out)) == 0 {
 		return "pane closed"
 	}
@@ -465,11 +512,12 @@ func (p *Project) Status() []AgentStatus {
 	for _, id := range p.Agents() {
 		agent, _ := os.ReadFile(filepath.Join(p.AgentDir(id), "AGENT.md"))
 		ctx, _ := os.ReadFile(filepath.Join(p.AgentDir(id), "context.md"))
+		claim, claimErr := p.ReadLive(id)
 		s := AgentStatus{
 			ID: id, Title: strings.SplitN(id, ".", 2)[0], Duty: Duty(agent),
-			Claim:        p.ReadLive(id),
+			Claim: claim, ClaimErr: claimErr,
 			Inbox:        len(listNames(p.local("inbox", id), ".md")),
-			Proposals:    section(ctx, "提议"),
+			Proposals:    section(ctx, "Proposals"),
 			ContextLines: bytes.Count(ctx, []byte("\n")),
 			Conflict:     HasConflictMarkers(ctx) || HasConflictMarkers(agent),
 		}
@@ -477,7 +525,7 @@ func (p *Project) Status() []AgentStatus {
 			s.Threads = append(s.Threads, strings.TrimSuffix(t, ".md"))
 		}
 		if s.Claim != nil {
-			s.Where = TmuxWhere(s.Claim.TmuxPane)
+			s.Where = TmuxWhere(s.Claim.TmuxSocket, s.Claim.TmuxPane)
 		}
 		out = append(out, s)
 	}
@@ -498,7 +546,9 @@ func (p *Project) TeamText() string {
 			fmt.Fprintf(&b, "%s\n", title)
 		}
 		state := "free"
-		if c := s.Claim; c != nil {
+		if s.ClaimErr != nil {
+			state = "claim file damaged (see sunstack health)"
+		} else if c := s.Claim; c != nil {
 			state = fmt.Sprintf("claimed by %s on %s", c.Tool, c.Host)
 			if s.Where != "" {
 				state += " at " + s.Where

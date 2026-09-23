@@ -3,42 +3,16 @@ package core
 import (
 	"fmt"
 	"os"
-	"os/signal"
 	"path/filepath"
-	"sync"
-	"syscall"
 	"time"
 )
 
-// Lock attempts, spaced by lockWait. A leftover lock (kill -9, power loss) is
-// reported as busy and never removed automatically (design §8).
+// Lock attempts, spaced by lockWait. A leftover lock (interrupt, kill -9, power
+// loss) is reported as busy and never removed automatically (design §8).
 var (
 	lockTries = 10
 	lockWait  = 200 * time.Millisecond
 )
-
-var (
-	heldMu sync.Mutex
-	held   = map[string]bool{}
-	sigsOn sync.Once
-)
-
-// releaseAllOnSignal removes every lock this process holds when it is
-// interrupted, then exits.
-func releaseAllOnSignal() {
-	sigsOn.Do(func() {
-		c := make(chan os.Signal, 1)
-		signal.Notify(c, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
-		go func() {
-			<-c
-			heldMu.Lock()
-			for dir := range held {
-				os.RemoveAll(dir)
-			}
-			os.Exit(ExitFail)
-		}()
-	})
-}
 
 // lock takes the per-ID mkdir lock and returns its release function.
 func (p *Project) lock(id string) (func(), error) {
@@ -46,8 +20,10 @@ func (p *Project) lock(id string) (func(), error) {
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		return nil, fail(ExitFail, "fs", "%v", err)
 	}
-	releaseAllOnSignal()
 	dir := filepath.Join(root, id)
+	if err := p.noSymlink(dir); err != nil {
+		return nil, err
+	}
 	for i := 0; ; i++ {
 		err := os.Mkdir(dir, 0o755)
 		if err == nil {
@@ -65,16 +41,10 @@ func (p *Project) lock(id string) (func(), error) {
 		}
 		time.Sleep(lockWait)
 	}
-	heldMu.Lock()
-	held[dir] = true
-	heldMu.Unlock()
 	_ = os.WriteFile(filepath.Join(dir, "owner"), []byte(fmt.Sprintf("%s pid %d\n", now(), os.Getpid())), 0o644)
-	return func() {
-		heldMu.Lock()
-		delete(held, dir)
-		heldMu.Unlock()
-		os.RemoveAll(dir)
-	}, nil
+	// An interrupted command leaves its lock behind on purpose: a writer may
+	// still be mid-rename. health reports it for manual removal (design §8).
+	return func() { os.RemoveAll(dir) }, nil
 }
 
 func trimNL(b []byte) string {

@@ -35,6 +35,7 @@ type model struct {
 	events   []string
 	warnings []core.Check
 	sel      int
+	offset   int // first visible row of the team list
 	view     view
 	w, h     int
 	note     string
@@ -140,7 +141,7 @@ func (m *model) goToPane() string {
 	}
 	pane := a.Claim.TmuxPane
 	for _, args := range [][]string{{"select-window", "-t", pane}, {"select-pane", "-t", pane}, {"switch-client", "-t", pane}} {
-		if err := exec.Command("tmux", args...).Run(); err != nil {
+		if err := exec.Command("tmux", core.TmuxArgs(a.Claim.TmuxSocket, args...)...).Run(); err != nil {
 			return "tmux: " + err.Error()
 		}
 	}
@@ -230,6 +231,7 @@ func (m *model) teamView() string {
 	bodyH := max(4, m.h-used-2) // minus the top boxes' borders
 
 	var rows []string
+	selRow := 0
 	title := ""
 	for i, a := range m.agents {
 		if a.Title != title {
@@ -237,7 +239,9 @@ func (m *model) teamView() string {
 			rows = append(rows, cHeader.Render(title))
 		}
 		dot, state := cDim.Render("○"), cDim.Render("free")
-		if a.Claim != nil {
+		if a.ClaimErr != nil {
+			dot, state = cWarn.Render("?"), cWarn.Render("claim file damaged")
+		} else if a.Claim != nil {
 			dot = cOn.Render("●")
 			state = a.Claim.Tool
 			if a.Where == "pane closed" {
@@ -249,11 +253,19 @@ func (m *model) teamView() string {
 		line := fmt.Sprintf("%s %-20s %s", dot, a.ID, state)
 		if i == m.sel {
 			line = cSel.Render(line)
+			selRow = len(rows)
 		}
 		rows = append(rows, line)
-		rows = append(rows, cDim.Render(fmt.Sprintf("    inbox %d · 提议 %d · threads %d", a.Inbox, len(a.Proposals), len(a.Threads))))
+		rows = append(rows, cDim.Render(fmt.Sprintf("    inbox %d · proposals %d · threads %d", a.Inbox, len(a.Proposals), len(a.Threads))))
 	}
-	left := cBox.Width(leftW).Height(bodyH).Render(strings.Join(clip(rows, bodyH), "\n"))
+	// Scroll so the selected agent (its line and the summary under it) stays visible.
+	if selRow < m.offset {
+		m.offset = selRow
+	} else if selRow+2 > m.offset+bodyH {
+		m.offset = selRow + 2 - bodyH
+	}
+	m.offset = max(0, min(m.offset, max(0, len(rows)-bodyH)))
+	left := cBox.Width(leftW).Height(bodyH).Render(strings.Join(clip(rows[m.offset:], bodyH), "\n"))
 	right := cBox.Width(rightW).Height(bodyH).Render(strings.Join(clip(m.details(rightW), bodyH), "\n"))
 	top := lipgloss.JoinHorizontal(lipgloss.Top, left, right)
 	return lipgloss.JoinVertical(lipgloss.Left, append([]string{top}, bottom...)...)
@@ -281,12 +293,12 @@ func (m *model) details(width int) []string {
 		out = append(out, strings.Split(strings.TrimRight(pl, "\n"), "\n")...)
 	}
 	if len(a.Proposals) > 0 {
-		out = append(out, "", cHeader.Render("提议 (waiting for your approval)"))
+		out = append(out, "", cHeader.Render("Proposals (waiting for your approval)"))
 		out = append(out, a.Proposals...)
 	}
 	ctx, _ := os.ReadFile(filepath.Join(m.p.AgentDir(a.ID), "context.md"))
-	if st := sectionLines(ctx, "当前状态"); len(st) > 0 {
-		out = append(out, "", cHeader.Render("当前状态"))
+	if st := sectionLines(ctx, "Current state"); len(st) > 0 {
+		out = append(out, "", cHeader.Render("Current state"))
 		out = append(out, st...)
 	}
 	if len(a.Threads) > 0 {

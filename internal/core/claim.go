@@ -2,6 +2,7 @@ package core
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -18,21 +19,31 @@ type Live struct {
 	LastContact string `json:"last_contact"`
 	Session     string `json:"session,omitempty"`
 	TmuxPane    string `json:"tmux_pane,omitempty"`
+	TmuxSocket  string `json:"tmux_socket,omitempty"`
 }
 
 func (p *Project) livePath(id string) string { return p.local("live", id+".json") }
 
-// ReadLive returns the claim on id, or nil when it is free.
-func (p *Project) ReadLive(id string) *Live {
-	b, err := os.ReadFile(p.livePath(id))
+// ReadLive returns the claim on id, or nil when there is none. A claim file
+// that exists but cannot be read or parsed is an error, never "free": state
+// changes stop until it is repaired.
+func (p *Project) ReadLive(id string) (*Live, error) {
+	path := p.livePath(id)
+	if err := p.noSymlink(path); err != nil {
+		return nil, err
+	}
+	b, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
 	if err != nil {
-		return nil
+		return nil, fail(ExitFail, "bad_claim", "cannot read the claim on %s: %v", id, err)
 	}
 	var l Live
 	if json.Unmarshal(b, &l) != nil || l.Token == "" {
-		return nil
+		return nil, fail(ExitFail, "bad_claim", "the claim file %s is damaged; check it, then delete it to free %s", path, id)
 	}
-	return &l
+	return &l, nil
 }
 
 func (p *Project) writeLive(id string, l *Live) error {
@@ -57,6 +68,7 @@ type AsOptions struct {
 	Takeover bool
 	Expect   string // token shown in the refusal
 	Pane     string // $TMUX_PANE
+	Socket   string // tmux server socket, from $TMUX
 	Session  string // CLI session id, when known
 }
 
@@ -67,7 +79,7 @@ type AsResult struct {
 	Token string
 }
 
-// Roster lists "id<TAB>free|claimed" lines.
+// Roster lists "id<TAB>free|claimed|unknown" lines.
 func (p *Project) Roster(prefix string) string {
 	var b strings.Builder
 	for _, id := range p.Agents() {
@@ -75,7 +87,9 @@ func (p *Project) Roster(prefix string) string {
 			continue
 		}
 		state := "free"
-		if p.ReadLive(id) != nil {
+		if l, err := p.ReadLive(id); err != nil {
+			state = "unknown"
+		} else if l != nil {
 			state = "claimed"
 		}
 		fmt.Fprintf(&b, "%s\t%s\n", id, state)
@@ -118,22 +132,48 @@ func (p *Project) resolve(arg string) (string, error) {
 		Stdout: "missing_arguments: id\n" + p.Roster(arg+".")}
 }
 
+// checkIdentityFiles makes sure the files an identity is built from are real,
+// readable and conflict-free before anything is claimed.
+func (p *Project) checkIdentityFiles(id string) error {
+	for _, f := range []struct {
+		path     string
+		required bool
+	}{
+		{filepath.Join(p.Dir, "PROTOCOL.md"), true},
+		{filepath.Join(p.AgentDir(id), "AGENT.md"), true},
+		{filepath.Join(p.Dir, "PILLARS.md"), false},
+		{filepath.Join(p.AgentDir(id), "pillars.md"), false},
+		{filepath.Join(p.AgentDir(id), "context.md"), false},
+	} {
+		rel, _ := filepath.Rel(p.Root, f.path)
+		if err := p.noSymlink(f.path); err != nil {
+			return err
+		}
+		b, ok, err := readMaybe(f.path)
+		switch {
+		case err != nil:
+			return fail(ExitFail, "fs", "cannot read %s: %v", rel, err)
+		case !ok && f.required:
+			return fail(ExitFail, "missing_file", "%s is missing; run sunstack init or sunstack health", rel)
+		case HasConflictMarkers(b):
+			return fail(ExitFail, "conflict", "merge conflict markers in %s; resolve them first", rel)
+		}
+	}
+	return nil
+}
+
+func samePane(l *Live, pane, socket string) bool {
+	return pane != "" && l.TmuxPane == pane && (l.TmuxSocket == "" || socket == "" || l.TmuxSocket == socket)
+}
+
 // As claims, resumes or takes over an agent ID (design §6, §7).
 func (p *Project) As(o AsOptions) (*AsResult, error) {
 	id, err := p.resolve(o.Arg)
 	if err != nil {
 		return nil, err
 	}
-	for _, f := range []string{
-		filepath.Join(p.Dir, "PILLARS.md"),
-		filepath.Join(p.AgentDir(id), "AGENT.md"),
-		filepath.Join(p.AgentDir(id), "pillars.md"),
-		filepath.Join(p.AgentDir(id), "context.md"),
-	} {
-		if fileHasConflict(f) {
-			rel, _ := filepath.Rel(p.Root, f)
-			return nil, fail(ExitFail, "conflict", "merge conflict markers in %s; resolve them first", rel)
-		}
+	if err := p.checkIdentityFiles(id); err != nil {
+		return nil, err
 	}
 
 	unlock, err := p.lock(id)
@@ -141,8 +181,14 @@ func (p *Project) As(o AsOptions) (*AsResult, error) {
 		return nil, err
 	}
 	defer unlock()
+	if !p.HasAgent(id) {
+		return nil, fail(ExitFail, "not_found", "%s was removed while waiting", id)
+	}
 
-	cur := p.ReadLive(id)
+	cur, err := p.ReadLive(id)
+	if err != nil {
+		return nil, err
+	}
 	res := &AsResult{ID: id}
 	claimed := now()
 	switch {
@@ -163,7 +209,7 @@ func (p *Project) As(o AsOptions) (*AsResult, error) {
 			return nil, e
 		}
 		res.Mode, res.Token = "taken_over", NewToken()
-	case o.Pane != "" && cur.TmuxPane == o.Pane:
+	case samePane(cur, o.Pane, o.Socket):
 		e := fail(ExitClaim, "occupied_same_pane", "%s is claimed from this same tmux pane; confirm with the user, then rerun with --takeover --expect %s", id, cur.Token)
 		e.Stdout = cur.ClaimLine() + "\n"
 		return nil, e
@@ -177,7 +223,8 @@ func (p *Project) As(o AsOptions) (*AsResult, error) {
 	if i := strings.IndexByte(host, '.'); i > 0 {
 		host = host[:i]
 	}
-	l := &Live{Tool: o.Tool, Host: host, Token: res.Token, Claimed: claimed, LastContact: now(), Session: o.Session, TmuxPane: o.Pane}
+	l := &Live{Tool: o.Tool, Host: host, Token: res.Token, Claimed: claimed, LastContact: now(),
+		Session: o.Session, TmuxPane: o.Pane, TmuxSocket: o.Socket}
 	if l.Tool == "" {
 		l.Tool = "unknown"
 	}
@@ -224,7 +271,7 @@ id: %s
 token: %s
 protocol: %d
 Pass --root, the id and --token explicitly on every later snapshot, commit and release.
-Run save and release before ending or switching identity.
+Before ending or switching identity, run the Sunstack save skill, then sunstack release.
 `, p.Root, r.ID, r.Token, ProtocolVersion)
 	return b.String()
 }
@@ -246,7 +293,10 @@ func (p *Project) requireToken(id, token string) (*Live, error) {
 	if token == "" {
 		return nil, fail(ExitClaim, "token", "missing --token; run as again (design §7)")
 	}
-	cur := p.ReadLive(id)
+	cur, err := p.ReadLive(id)
+	if err != nil {
+		return nil, err
+	}
 	if cur == nil {
 		return nil, fail(ExitClaim, "token", "%s is not claimed; run as first", id)
 	}

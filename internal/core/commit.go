@@ -30,7 +30,8 @@ func (p *Project) resolveTarget(id, rel string) (*target, error) {
 		if rel != "PILLARS.md" {
 			return nil, fail(ExitUsage, "usage", "the team target is PILLARS.md, got: %s", rel)
 		}
-		return &target{path: filepath.Join(p.Dir, "PILLARS.md"), rel: "PILLARS.md", owner: TeamID, amended: true}, nil
+		t := &target{path: filepath.Join(p.Dir, "PILLARS.md"), rel: "PILLARS.md", owner: TeamID, amended: true}
+		return t, p.noSymlink(t.path)
 	}
 	if !ValidID(id) {
 		return nil, fail(ExitUsage, "usage", "invalid id: %s", id)
@@ -52,12 +53,7 @@ func (p *Project) resolveTarget(id, rel string) (*target, error) {
 		return nil, fail(ExitFail, "not_found", "no agent %s", id)
 	}
 	t.path = filepath.Join(p.AgentDir(id), filepath.FromSlash(rel))
-	for _, x := range []string{t.path, filepath.Join(p.AgentDir(id), "threads")} {
-		if st, err := os.Lstat(x); err == nil && st.Mode()&os.ModeSymlink != 0 {
-			return nil, fail(ExitFail, "symlink", "refusing symlinked path: %s", x)
-		}
-	}
-	return t, nil
+	return t, p.noSymlink(t.path)
 }
 
 // TmpDir is where snapshots point candidates to; they must sit directly in it.
@@ -82,7 +78,11 @@ func (p *Project) Snapshot(id, rel, token string) (string, error) {
 		if token == "" {
 			return "", fail(ExitClaim, "token", "missing --token")
 		}
-		if cur := p.ReadLive(id); cur == nil || cur.Token != token {
+		cur, err := p.ReadLive(id)
+		if err != nil {
+			return "", err
+		}
+		if cur == nil || cur.Token != token {
 			return "", fail(ExitClaim, "token", "token does not match the current claim on %s", id)
 		}
 	}
@@ -102,14 +102,22 @@ func (p *Project) Snapshot(id, rel, token string) (string, error) {
 // readCandidate checks the candidate sits directly in the owner's tmp dir and
 // carries no conflict markers.
 func (p *Project) readCandidate(owner, path string) ([]byte, error) {
-	cdir, err1 := filepath.EvalSymlinks(filepath.Dir(path))
-	tdir, err2 := filepath.EvalSymlinks(p.TmpDir(owner))
-	if err1 != nil || err2 != nil || cdir != tdir {
+	// Resolve the directory: a symlinked tmp dir resolves elsewhere and fails
+	// the comparison; the file itself is checked by noSymlink below.
+	dir, err := filepath.EvalSymlinks(filepath.Dir(path))
+	if err != nil || dir != p.TmpDir(owner) {
 		return nil, fail(ExitUsage, "usage", "candidate must sit directly in %s (no subfolder)", p.TmpDir(owner))
 	}
-	b, err := os.ReadFile(path)
+	abs := filepath.Join(dir, filepath.Base(path))
+	if err := p.noSymlink(abs); err != nil {
+		return nil, err
+	}
+	if st, err := os.Lstat(abs); err != nil || !st.Mode().IsRegular() {
+		return nil, fail(ExitFail, "no_candidate", "candidate not found or not a regular file: %s", path)
+	}
+	b, err := os.ReadFile(abs)
 	if err != nil {
-		return nil, fail(ExitFail, "no_candidate", "candidate not found: %s", path)
+		return nil, fail(ExitFail, "no_candidate", "candidate not readable: %s", path)
 	}
 	if HasConflictMarkers(b) {
 		return nil, fail(ExitFail, "conflict", "candidate contains merge conflict markers")
@@ -172,6 +180,9 @@ func (p *Project) Commit(o CommitOptions) error {
 		return err
 	}
 	defer unlock()
+	if !p.HasAgent(o.ID) {
+		return fail(ExitFail, "not_found", "%s was removed", o.ID)
+	}
 	cur, err := p.requireToken(o.ID, o.Token)
 	if err != nil {
 		return err
@@ -199,8 +210,8 @@ type AmendOptions struct {
 
 var titleRe = regexp.MustCompile(`(?m)^title:\s*(\S+)\s*$`)
 
-// Amend writes a user-approved change to pillars or AGENT.md (design §6
-// "自我改进循环"). Approval happens before the call: the skill asks, and the
+// Amend writes a user-approved change to pillars or AGENT.md (design §6, the
+// self-improvement loop). Approval happens before the call: the skill asks, and the
 // CLI's own permission rules make both Claude Code and Codex prompt for it.
 func (p *Project) Amend(o AmendOptions) error {
 	t, err := p.resolveTarget(o.ID, o.Rel)
@@ -228,6 +239,9 @@ func (p *Project) Amend(o AmendOptions) error {
 		return err
 	}
 	defer unlock()
+	if t.owner != TeamID && !p.HasAgent(o.ID) {
+		return fail(ExitFail, "not_found", "%s was removed; the approved change was not applied", o.ID)
+	}
 	if err := swap(t, o.Sum, cand, false, p.TmpDir(t.owner)); err != nil {
 		return err
 	}

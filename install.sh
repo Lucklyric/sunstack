@@ -48,8 +48,11 @@ fi
 
 tar -xzf "$tmp/$name" -C "$tmp" sunstack
 mkdir -p "$bin_dir"
-mv "$tmp/sunstack" "$bin_dir/sunstack"
-chmod 755 "$bin_dir/sunstack"
+# Stage inside the destination so the final rename is atomic on one filesystem.
+staged="$bin_dir/.sunstack-new-$$"
+cp "$tmp/sunstack" "$staged"
+chmod 755 "$staged"
+mv -f "$staged" "$bin_dir/sunstack"
 echo "installed $("$bin_dir/sunstack" version | head -n 1) to $bin_dir/sunstack"
 
 case ":$PATH:" in

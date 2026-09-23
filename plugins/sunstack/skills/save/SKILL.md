@@ -37,23 +37,22 @@ step 2 the same way. If nothing is worth keeping, say so and stop.
 
 ## 2. Rule changes: ask the user now
 
-For each rule change, and for any still-pending line under `## 提议` in context.md:
+For each rule change, and for any still-pending line under `## Proposals` in context.md:
 
 1. Snapshot the target (no token needed):
    `sunstack snapshot --root "<root>" "<id>" pillars.md`, or `AGENT.md`, or
    `sunstack snapshot --root "<root>" --team` for the team `PILLARS.md`.
-2. Write the complete new file directly into `candidate_dir`, changing only what is proposed.
-   Pillars stay one dated, checkable line each. `AGENT.md` keeps its frontmatter.
+2. Write the complete new file directly into `candidate_dir` under a name used only for this
+   proposal (for example `pillars-<time>.md`), changing only what is proposed. Pillars stay one
+   dated, checkable line each. `AGENT.md` keeps its frontmatter. Use that exact file for amend,
+   and do not rewrite it after the user has seen it; an edit means a new file and a new showing.
 3. Show the user the change: the file, the lines before and after, and why. Do this even when
    the user asked for the change: a request is not approval of your exact wording.
-4. Get the approval:
-   - **Claude Code**: running `sunstack amend` makes Claude Code show its own approval prompt,
-     and that prompt is the approval. Tell the user in one line: approve the prompt to apply
-     it, or deny it to edit, reject or postpone. Then run amend.
-   - **Codex, or anywhere without that prompt**: ask first, with numbered options (approve /
-     edit / reject / later), end your turn, and wait for the user's reply. Run amend only after
-     an explicit approve in that reply. Codex may prompt again, or its automatic approval
-     reviewer may decide; either way your question is the approval that counts.
+4. Ask: approve / edit / reject / later (with AskUserQuestion if you have it, otherwise as
+   numbered options), end your turn, and wait for the user's reply. Run amend only after an
+   explicit approve in that reply. Claude Code or Codex may then show their own prompt for the
+   command, or an automatic reviewer may decide it; either way, the user's reply to your
+   question is the approval that counts.
 
    ```sh
    sunstack amend --root "<root>" "<id>" pillars.md "<candidate file>" "<checksum>" --summary "<one line: what changes>"
@@ -61,10 +60,11 @@ For each rule change, and for any still-pending line under `## 提议` in contex
 
    For the team file: `sunstack amend --root "<root>" --team "<candidate file>" "<checksum>" --summary "..."`.
 5. Record the outcome in context (step 3 writes it):
-   - **approved** (exit 0): remove it from `## 提议`, add under `## 决策`: `<date> 用户批准：<change>`
-   - **rejected**: remove it from `## 提议`, add under `## 决策`: `<date> 用户否决：<change>，<reason if given>`.
-     Never propose the same change again.
-   - **later**, or no answer: keep it under `## 提议`; it is asked again at the next save or as.
+   - **approved** (exit 0): remove it from `## Proposals`, add under `## Decisions`:
+     `- <date> User approved: <change>`
+   - **rejected**: remove it from `## Proposals`, add under `## Decisions`:
+     `- <date> User rejected: <change> — <reason if given>`. Never propose the same change again.
+   - **later**, or no answer: keep it under `## Proposals`; it is asked again at the next save or as.
    - **edit**: rewrite the candidate with the user's wording and show it again.
    - **exit 3 `mismatch`**: the file changed; snapshot again, redo the candidate, ask again.
 
@@ -104,6 +104,8 @@ sunstack commit --root "<root>" "<id>" context.md "<candidate file>" "<checksum>
 - **4 `token`**: this session no longer holds the ID. Stop and tell the user.
 - **1 / 2**: show the error. Do not work around it.
 
-A thread is finished: first commit its conclusion into `context.md`, then take a fresh
-snapshot of the thread and remove it with
+A thread is finished: snapshot it, commit its conclusion into `context.md`, then remove it with
+the checksum of that same snapshot:
 `sunstack commit --root "<root>" "<id>" threads/<topic>.md --delete "<checksum>" --token "<token>"`.
+If this says `mismatch`, the thread changed after you summarized it: fold the new content into
+context first, then delete against the new checksum.

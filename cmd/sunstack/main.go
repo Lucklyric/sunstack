@@ -39,6 +39,7 @@ Team (run these yourself):
   sunstack hire <title> [name] [--file DRAFT]     add an agent from a template, or from an approved draft
   sunstack fire <id> [--discard]                  delete an agent nobody holds
   sunstack library                                list templates (personal, then built-in)
+  sunstack library show <title>                   print a template's AGENT.md
   sunstack library save <id> [--as TITLE] [--force]  save an agent's AGENT.md as a personal template
   sunstack team                                   who is on the team, who holds whom, where
   sunstack log [--id ID] [--follow]               the event log
@@ -100,6 +101,23 @@ func parse(in []string, valued, switches string) (*args, error) {
 
 func (a *args) has(name string) bool { _, ok := a.flags[name]; return ok }
 
+// atMost rejects surplus positional arguments, so a mistyped command never
+// silently does less than asked.
+func (a *args) atMost(n int, cmd string) error {
+	if len(a.pos) > n {
+		return &core.Error{Code: core.ExitUsage, Reason: "usage", Msg: fmt.Sprintf("too many arguments for %s: %s (see sunstack help)", cmd, strings.Join(a.pos[n:], " "))}
+	}
+	return nil
+}
+
+// tmuxSocket is the server socket from $TMUX ("socket,pid,session").
+func tmuxSocket() string {
+	if t := os.Getenv("TMUX"); t != "" {
+		return strings.SplitN(t, ",", 2)[0]
+	}
+	return ""
+}
+
 func missing(what string) error {
 	return &core.Error{Code: core.ExitUsage, Reason: "missing_arguments", Msg: "missing " + what, Stdout: "missing_arguments: " + what + "\n"}
 }
@@ -152,6 +170,9 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 
 	case "as":
 		a, err := parse(rest, "root token expect tool", "takeover")
+		if err == nil {
+			err = a.atMost(1, "as")
+		}
 		if err != nil {
 			return err
 		}
@@ -169,7 +190,7 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 		}
 		r, err := p.As(core.AsOptions{
 			Arg: arg, Tool: tool, Token: a.flags["token"], Takeover: a.has("takeover"),
-			Expect: a.flags["expect"], Pane: os.Getenv("TMUX_PANE"), Session: session,
+			Expect: a.flags["expect"], Pane: os.Getenv("TMUX_PANE"), Socket: tmuxSocket(), Session: session,
 		})
 		if err != nil {
 			return err
@@ -183,7 +204,13 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 			return err
 		}
 		if a.has("team") {
+			if err := a.atMost(0, "snapshot --team"); err != nil {
+				return err
+			}
 			a.pos = []string{core.TeamID, "PILLARS.md"}
+		}
+		if err := a.atMost(2, "snapshot"); err != nil {
+			return err
 		}
 		if len(a.pos) < 2 {
 			return missing("id target")
@@ -208,6 +235,9 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 		need := 4
 		if o.Delete {
 			need = 3
+		}
+		if err := a.atMost(need, "commit"); err != nil {
+			return err
 		}
 		if len(a.pos) < need {
 			return missing("id target candidate checksum")
@@ -236,6 +266,9 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 		if a.has("team") {
 			a.pos = append([]string{core.TeamID, "PILLARS.md"}, a.pos...)
 		}
+		if err := a.atMost(4, "amend"); err != nil {
+			return err
+		}
 		if len(a.pos) < 4 {
 			return missing("target candidate checksum")
 		}
@@ -252,6 +285,9 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 
 	case "release":
 		a, err := parse(rest, "root token", "")
+		if err == nil {
+			err = a.atMost(1, "release")
+		}
 		if err != nil {
 			return err
 		}
@@ -270,6 +306,9 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 
 	case "init":
 		a, err := parse(rest, "", "")
+		if err == nil {
+			err = a.atMost(1, "init")
+		}
 		if err != nil {
 			return err
 		}
@@ -291,6 +330,9 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 
 	case "hire":
 		a, err := parse(rest, "root file", "")
+		if err == nil {
+			err = a.atMost(2, "hire")
+		}
 		if err != nil {
 			return err
 		}
@@ -314,6 +356,9 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 
 	case "fire":
 		a, err := parse(rest, "root", "discard")
+		if err == nil {
+			err = a.atMost(1, "fire")
+		}
 		if err != nil {
 			return err
 		}
@@ -332,6 +377,9 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 
 	case "library":
 		a, err := parse(rest, "root as", "force")
+		if err == nil {
+			err = a.atMost(2, "library")
+		}
 		if err != nil {
 			return err
 		}
@@ -341,8 +389,19 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 			}
 			return nil
 		}
+		if a.pos[0] == "show" {
+			if len(a.pos) < 2 {
+				return missing("title")
+			}
+			b, src, ok := core.Template(a.pos[1])
+			if !ok {
+				return &core.Error{Code: core.ExitFail, Reason: "not_found", Msg: "no template " + a.pos[1]}
+			}
+			fmt.Fprintf(stdout, "source: %s\n----- AGENT.md -----\n%s", src, b)
+			return nil
+		}
 		if a.pos[0] != "save" {
-			return &core.Error{Code: core.ExitUsage, Reason: "usage", Msg: "sunstack library [save <id> [--as TITLE]]"}
+			return &core.Error{Code: core.ExitUsage, Reason: "usage", Msg: "sunstack library [show <title> | save <id> [--as TITLE]]"}
 		}
 		if len(a.pos) < 2 {
 			return missing("id")
@@ -360,6 +419,14 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 
 	case "team", "log", "inbox", "pillar":
 		a, err := parse(rest, "root id", "follow team")
+		if err != nil {
+			return err
+		}
+		if cmd == "team" || cmd == "log" {
+			err = a.atMost(0, cmd)
+		} else if cmd == "inbox" {
+			err = a.atMost(1, cmd)
+		}
 		if err != nil {
 			return err
 		}
@@ -384,6 +451,9 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 				fmt.Fprintf(stdout, "%s  %-8s from %-16s %s\n", e.At, e.Type, e.From, e.File)
 			}
 		case "pillar":
+			if n := len(a.pos); n > 1 || (a.has("team") && n > 0) {
+				return &core.Error{Code: core.ExitUsage, Reason: "usage", Msg: "pillar only shows pillars; a change is proposed to the user and written with sunstack amend (see the save skill)"}
+			}
 			id := core.TeamID
 			if !a.has("team") {
 				if len(a.pos) < 1 {
@@ -479,9 +549,20 @@ func lifecycle(cmd string, t setup.Targets, yes bool, stdin io.Reader, out io.Wr
 		}
 		if t.Claude {
 			step("claude plugin", setup.UpdateClaude(out))
+			// The user allowed sunstack before; add any ask rules a newer version needs.
+			if setup.HasAllowRule() && !setup.HasClaudeRules() {
+				_, err := setup.SetClaudeRules(true)
+				step("permission rules", err)
+				if err == nil {
+					fmt.Fprintf(out, "added the newer ask rules: %s\n", strings.Join(setup.AskRules, ", "))
+				}
+			}
 		}
 		if t.Codex {
 			step("codex plugin", setup.UpdateCodex(out))
+			if setup.CodexRulesState() == "outdated" {
+				step("codex rule", setup.SetCodexRules(true))
+			}
 		}
 	case "uninstall":
 		if t.Claude {
@@ -536,10 +617,15 @@ func health(root string, out io.Writer) error {
 		}
 	}
 	if _, err := exec.LookPath("codex"); err == nil {
-		if _, err := os.Stat(setup.CodexRulesPath()); err == nil {
+		switch setup.CodexRulesState() {
+		case "current":
 			cs = append(cs, core.Check{Level: "ok", Area: "install", Msg: "Codex asks before amend, hire and fire (" + setup.CodexRulesPath() + ")"})
-		} else {
-			cs = append(cs, core.Check{Level: "warn", Area: "install", Msg: "Codex amend rule is missing", Fix: "sunstack install --codex"})
+		case "outdated":
+			cs = append(cs, core.Check{Level: "warn", Area: "install", Msg: "Codex rules are from an older sunstack", Fix: "sunstack update"})
+		case "foreign":
+			cs = append(cs, core.Check{Level: "warn", Area: "install", Msg: setup.CodexRulesPath() + " was not written by sunstack", Fix: "merge the sunstack rules by hand"})
+		default:
+			cs = append(cs, core.Check{Level: "warn", Area: "install", Msg: "Codex rules for amend, hire and fire are missing", Fix: "sunstack install --codex"})
 		}
 		if setup.CodexAutoReviewsApprovals() {
 			cs = append(cs, core.Check{Level: "warn", Area: "install", Msg: "Codex approvals_reviewer sends approval prompts to an automatic reviewer; rule changes rely on the skill asking you"})

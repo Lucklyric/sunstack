@@ -28,33 +28,33 @@ sunstack team
 ```
 
 If a template already fits the description, propose hiring from it instead of drafting: say
-which template and why, then go to step 4 with `sunstack hire <title> [name]`.
+which template, why, and the resulting ID, show its `AGENT.md` (`sunstack library show "<title>"`), and ask as in step 3. Only after an explicit approve, go to step 4 with `sunstack hire <title> [name]`.
 
 ## 2. Draft the agent
 
 Pick a `title` (the role, `[a-z][a-z0-9-]`, 2 to 32 characters, not `review`, not starting
 with `_`) and, if that title already has an instance, a `name` for this one. Then write the
-draft file into `sunstack/_local/tmp/_recruit/<title>.md`, in this shape and in the language
-the team's files use:
+draft to a file used only for this recruit, for example
+`sunstack/_local/tmp/_recruit/<title>-<time>.md`, in English and in this shape:
 
 ```md
 ---
 title: <title>
 ---
-## 职责
+## Role
 
 <one line: what this agent is for>
 
-## 工作方式与规则
+## How I work
 
 - <how it works, what it must and must not do>
 
-## Context 策略
+## Context policy
 
-记：
+Remember:
 - <what it should remember in this project>
 
-不记：
+Do not record:
 - <what it should not record>
 ```
 
@@ -64,18 +64,19 @@ Keep it short and specific to what the user described. Only `title` goes in the 
 ## 3. Show it and ask
 
 Show the whole draft and the resulting ID (`<title>` or `<title>.<name>`). Options: approve /
-edit / cancel. On edit, change the draft and show it again. A description from the user is
-not approval of your draft.
+edit / cancel. Then end your turn and wait for the reply. On edit, write a new draft file and
+show it again. A description from the user is not approval of your draft, and the command's
+own permission prompt is not enough on its own: Codex may route it to an automatic reviewer.
 
 ## 4. Create it
 
 ```sh
-sunstack hire "<title>" "<name>" --file "sunstack/_local/tmp/_recruit/<title>.md"
+sunstack hire "<title>" "<name>" --file "<the draft file you showed>"
 ```
 
 Leave out `"<name>"` when there is none, and leave out `--file` when hiring from a template.
-In Claude Code and Codex this command asks the user for approval itself; that prompt is
-expected.
+Use exactly the file the user approved, unchanged. Claude Code and Codex may also ask for
+approval of the command itself; that prompt is expected.
 
 - **0**: created. Tell the user the new ID and how to use it (`/sunstack:as <id>` in Claude
   Code, `$sunstack:as <id>` in Codex).
