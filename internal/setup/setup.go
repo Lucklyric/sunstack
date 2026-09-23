@@ -9,6 +9,8 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+
+	"golang.org/x/term"
 )
 
 const (
@@ -39,17 +41,6 @@ func run(out io.Writer, name string, args ...string) error {
 	return cmd.Run()
 }
 
-// firstOK runs alternatives until one succeeds.
-func firstOK(out io.Writer, cmds ...[]string) error {
-	var err error
-	for _, c := range cmds {
-		if err = run(out, c[0], c[1:]...); err == nil {
-			return nil
-		}
-	}
-	return err
-}
-
 // Confirm asks a yes/no question on a terminal. Without a terminal it returns
 // def, so a non-interactive call never blocks.
 func Confirm(in io.Reader, out io.Writer, q string, def bool) bool {
@@ -62,28 +53,26 @@ func Confirm(in io.Reader, out io.Writer, q string, def bool) bool {
 	return a == "y" || a == "yes"
 }
 
-func isTerminal(f *os.File) bool {
-	st, err := f.Stat()
-	return err == nil && st.Mode()&os.ModeCharDevice != 0
-}
+func isTerminal(f *os.File) bool { return term.IsTerminal(int(f.Fd())) }
 
-// InstallClaude adds the marketplace and installs (or updates) the plugin.
+// InstallClaude adds the marketplace if needed, refreshes it, and installs or
+// updates the plugin, so running it again always ends on the latest version.
 func InstallClaude(out io.Writer) error {
-	if err := firstOK(out,
-		[]string{"claude", "plugin", "marketplace", "add", Repo},
-		[]string{"claude", "plugin", "marketplace", "update", Marketplace}); err != nil {
+	_ = run(out, "claude", "plugin", "marketplace", "add", Repo) // fails harmlessly when already added
+	if err := run(out, "claude", "plugin", "marketplace", "update", Marketplace); err != nil {
 		return err
 	}
-	return firstOK(out,
-		[]string{"claude", "plugin", "install", Plugin},
-		[]string{"claude", "plugin", "update", Plugin})
+	if err := run(out, "claude", "plugin", "install", Plugin); err != nil {
+		return err
+	}
+	return run(out, "claude", "plugin", "update", Plugin)
 }
 
-// InstallCodex adds the marketplace and installs the plugin.
+// InstallCodex adds the marketplace if needed, refreshes its snapshot, and
+// installs the plugin from it.
 func InstallCodex(out io.Writer) error {
-	if err := firstOK(out,
-		[]string{"codex", "plugin", "marketplace", "add", Repo},
-		[]string{"codex", "plugin", "marketplace", "upgrade", Marketplace}); err != nil {
+	_ = run(out, "codex", "plugin", "marketplace", "add", Repo) // fails harmlessly when already added
+	if err := run(out, "codex", "plugin", "marketplace", "upgrade", Marketplace); err != nil {
 		return err
 	}
 	return run(out, "codex", "plugin", "add", Plugin)
