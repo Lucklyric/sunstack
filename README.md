@@ -2,50 +2,43 @@
 
 Sunstack is a plugin for Claude Code and Codex that manages the agent layer of a project. It lets you hire a team of role agents (builder, reviewer, and others) and give the team and each agent project-level constraints called pillars. Each agent keeps a persistent context, and agents in the same project can message each other.
 
-> **Status:** build step 1, a spike of `as`, `save` and `release` in both CLIs. Not ready for real projects.
+> **Status:** build step 2. The `sunstack` CLI does `as`, `snapshot`, `commit` and `release`, and installs the plugin. Not ready for real projects.
 
 ## Principles
 
-- **Plain files plus skills.** There is no runtime binding: no environment variables and no `--agent`. Any Claude Code or Codex session takes on an identity with `as <id>` and writes back with `save`.
+- **A CLI does the deterministic work, the model does the judgment.** One `sunstack` binary handles claims, commits, locks and installs. The plugin holds only thin skills that call it.
 - **Everything lives in the project.** `sunstack/` holds the team pillars and one folder per agent (`AGENT.md`, optional `pillars.md`, `context.md`, `threads/`), committed with git.
-- **Humans own the constraints.** Agents write their own context directly and only propose changes to their identity or pillars.
+- **Host-local state stays out of git.** Claims, inboxes, locks, snapshots and the event log live in `sunstack/_local/`.
+- **Humans own the constraints.** Agents write their own context and only propose changes to their identity or pillars.
 - **One session per agent ID.** Parallel work uses named instances such as `builder.alice`.
-- **Scripts do the deterministic work, the model does the judgment.** Scripts are POSIX sh. tmux is optional.
-
-## Commands (planned)
-
-- **Team:** `init`, `hire`, `fire`, `team`, `health`
-- **Constraints:** `pillar`
-- **Identity and context:** `as`, `save`, `release`
-- **Collaboration:** `send`, `check`, `spawn`, `dismiss`
-
-Implemented so far: `as`, `save`, `release`.
 
 ## Install
 
-One repo serves both CLIs: the root `.claude-plugin/marketplace.json` is read by Claude Code and by Codex.
-
-Claude Code:
-
 ```sh
-claude plugin marketplace add Lucklyric/sunstack
-claude plugin install sunstack@sunstack
+curl -fsSL https://raw.githubusercontent.com/Lucklyric/sunstack/main/install.sh | sh
+sunstack install
 ```
 
-Codex:
+The first line puts the `sunstack` binary in `~/.local/bin`. The second adds the plugin to Claude Code and Codex (whichever are on your PATH, or pick one with `--claude` / `--codex`). For Claude Code it also offers to add one permission rule, `Bash(sunstack *)`, so you are not asked before every call.
 
-```sh
-codex plugin marketplace add Lucklyric/sunstack
-codex plugin add sunstack@sunstack
-```
+Keep it current with `sunstack update`. Remove it with `sunstack uninstall`.
+
+## Commands
+
+- **Identity (used by the skills):** `as`, `snapshot`, `commit`, `release`
+- **Setup:** `install`, `update`, `uninstall`, `version`
+- **Planned:** `init`, `hire`, `fire`, `team`, `log`, `inbox`, `health`, `pillar`, `send`, `check`, `ack`, `spawn`, `dismiss`
+
+In Claude Code the skills are `/sunstack:as`, `/sunstack:save` and `/sunstack:release`. In Codex they are `$sunstack:as`, `$sunstack:save` and `$sunstack:release`.
 
 ## Development
 
 ```sh
-sh tests/spike-test.sh    # script-level checks: claims, takeover, snapshot/commit, races, guards
+go test -race ./...
+go build -o dist/sunstack ./cmd/sunstack
 ```
 
-Scripts live in `plugins/sunstack/scripts/`, skills in `plugins/sunstack/skills/`.
+The tests build the binary and run it in separate processes, so the claim and commit races are real. Tagging `v*` publishes binaries for macOS, Linux and Windows through goreleaser.
 
 ## License
 
