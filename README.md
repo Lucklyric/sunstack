@@ -2,7 +2,7 @@
 
 Sunstack is a plugin for Claude Code and Codex that manages the agent layer of a project. It lets you hire a team of role agents (builder, reviewer, and others) and give the team and each agent project-level constraints called pillars. Each agent keeps a persistent context, and agents in the same project can message each other.
 
-> **Status:** design phase. There is no usable code yet.
+> **Status:** build step 1, a spike of `as`, `save` and `release` in both CLIs. Not ready for real projects.
 
 ## Principles
 
@@ -19,7 +19,33 @@ Sunstack is a plugin for Claude Code and Codex that manages the agent layer of a
 - **Identity and context:** `as`, `save`, `release`
 - **Collaboration:** `send`, `check`, `spawn`, `dismiss`
 
-In Claude Code these are `/sunstack:<cmd>`. In Codex they are `$sunstack-<cmd>`.
+Implemented so far: `as`, `save`, `release`.
+
+## Install
+
+One repo serves both CLIs: the root `.claude-plugin/marketplace.json` is read by Claude Code and by Codex.
+
+Claude Code:
+
+```sh
+claude plugin marketplace add Lucklyric/sunstack
+claude plugin install sunstack@sunstack
+```
+
+Codex:
+
+```sh
+codex plugin marketplace add Lucklyric/sunstack
+codex plugin add sunstack@sunstack
+```
+
+## Development
+
+```sh
+sh tests/spike-test.sh    # script-level checks: claims, takeover, snapshot/commit, races, guards
+```
+
+Scripts live in `plugins/sunstack/scripts/`, skills in `plugins/sunstack/skills/`.
 
 ## License
 

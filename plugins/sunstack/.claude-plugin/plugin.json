@@ -1,0 +1,10 @@
+{
+  "name": "sunstack",
+  "description": "Agent-team layer for Claude Code and Codex: role agents, project pillars, per-agent persistent context, and inbox messaging, all as plain files in the project.",
+  "version": "0.0.1",
+  "author": {
+    "name": "0xasun"
+  },
+  "repository": "https://github.com/Lucklyric/sunstack",
+  "license": "Apache-2.0"
+}

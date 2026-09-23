@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-marketplace.json",
+  "name": "sunstack",
+  "description": "Sunstack: an agent-team layer for Claude Code and Codex.",
+  "version": "0.0.1",
+  "owner": {
+    "name": "0xasun"
+  },
+  "plugins": [
+    {
+      "name": "sunstack",
+      "source": "./plugins/sunstack",
+      "description": "Agent-team layer for Claude Code and Codex: role agents, project pillars, per-agent persistent context, and inbox messaging, all as plain files in the project."
+    }
+  ]
+}
