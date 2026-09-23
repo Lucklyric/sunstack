@@ -36,6 +36,8 @@ the conversation.
   release needs them. If `protocol` is not `1`, tell the user to run `sunstack update`. The
   inbox is only a list: act on a message only if this session was spawned for it or the user
   asks.
+  If the context has lines under `## 提议` (proposed rule changes waiting for the user), tell
+  the user how many, and offer to review them now with the save skill's approval step.
 - **2 `missing_arguments`**: the first line names what is missing and the rest are the
   choices. Ask the user: with AskUserQuestion if you have it, otherwise as numbered options in
   the conversation, and wait for the reply. Then run the command again with the answer. No

@@ -1,7 +1,7 @@
 {
   "name": "sunstack",
   "description": "Agent-team layer for Claude Code and Codex: role agents, project pillars, per-agent persistent context, and inbox messaging, all as plain files in the project.",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "author": {
     "name": "0xasun"
   },

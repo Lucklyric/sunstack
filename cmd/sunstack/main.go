@@ -21,9 +21,15 @@ const usage = `sunstack — agent-team layer for Claude Code and Codex
 Agent identity (used by the plugin's skills):
   sunstack as <id|title> [--token T] [--takeover --expect CLAIM] [--tool claude|codex] [--root DIR]
   sunstack snapshot <id> <context.md|threads/<topic>.md> --token T [--root DIR]
+  sunstack snapshot <id> <pillars.md|AGENT.md> [--root DIR]      rule files, no token needed
+  sunstack snapshot --team [--root DIR]                           team PILLARS.md
   sunstack commit <id> <target> <candidate> <checksum> --token T [--root DIR]
   sunstack commit <id> <target> --delete <checksum> --token T [--root DIR]
   sunstack release <id> --token T [--root DIR]
+
+Self-improvement (the user approves every call; both CLIs prompt for it):
+  sunstack amend <id> <pillars.md|AGENT.md> <candidate> <checksum> --summary "..." [--root DIR]
+  sunstack amend --team <candidate> <checksum> --summary "..." [--root DIR]
 
 Setup:
   sunstack install [--claude] [--codex] [--yes]   install the plugin (both CLIs found on PATH by default)
@@ -146,9 +152,12 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 		return nil
 
 	case "snapshot":
-		a, err := parse(rest, "root token", "")
+		a, err := parse(rest, "root token", "team")
 		if err != nil {
 			return err
+		}
+		if a.has("team") {
+			a.pos = []string{core.TeamID, "PILLARS.md"}
 		}
 		if len(a.pos) < 2 {
 			return missing("id target")
@@ -191,6 +200,28 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 			return err
 		}
 		fmt.Fprintf(stdout, "sunstack: committed %s/%s\n", o.ID, o.Rel)
+		return nil
+
+	case "amend":
+		a, err := parse(rest, "root summary", "team")
+		if err != nil {
+			return err
+		}
+		if a.has("team") {
+			a.pos = append([]string{core.TeamID, "PILLARS.md"}, a.pos...)
+		}
+		if len(a.pos) < 4 {
+			return missing("target candidate checksum")
+		}
+		p, err := core.FindProject(a.flags["root"])
+		if err != nil {
+			return err
+		}
+		o := core.AmendOptions{ID: a.pos[0], Rel: a.pos[1], Candidate: a.pos[2], Sum: a.pos[3], Summary: a.flags["summary"]}
+		if err := p.Amend(o); err != nil {
+			return err
+		}
+		fmt.Fprintf(stdout, "sunstack: amended %s\n", strings.TrimPrefix(o.ID+"/"+o.Rel, core.TeamID+"/"))
 		return nil
 
 	case "release":
@@ -237,20 +268,25 @@ func lifecycle(cmd string, t setup.Targets, yes bool, stdin io.Reader, out io.Wr
 	case "install":
 		if t.Claude {
 			step("claude plugin", setup.InstallClaude(out))
-			if setup.HasAllowRule() {
-				fmt.Fprintf(out, "Claude Code already allows %s\n", setup.AllowRule)
-			} else if yes || setup.Confirm(stdin, out, fmt.Sprintf("Add %q to %s so Claude Code stops asking before each sunstack call?", setup.AllowRule, setup.ClaudeSettingsPath()), false) {
-				_, err := setup.SetAllowRule(true)
-				step("permission rule", err)
+			if setup.HasClaudeRules() {
+				fmt.Fprintf(out, "Claude Code already has the sunstack permission rules\n")
+			} else if yes || setup.Confirm(stdin, out, fmt.Sprintf("Add two rules to %s: allow %q (no prompt before each call) and ask %q (you approve every pillar or AGENT.md change)?", setup.ClaudeSettingsPath(), setup.AllowRule, setup.AskRule), false) {
+				_, err := setup.SetClaudeRules(true)
+				step("permission rules", err)
 				if err == nil {
-					fmt.Fprintf(out, "added %s (previous file kept as settings.json.bak)\n", setup.AllowRule)
+					fmt.Fprintf(out, "added allow %s and ask %s (previous file kept as settings.json.bak)\n", setup.AllowRule, setup.AskRule)
 				}
 			} else {
-				fmt.Fprintf(out, "skipped the permission rule; add %q to permissions.allow yourself, or rerun with --yes\n", setup.AllowRule)
+				fmt.Fprintf(out, "skipped the permission rules; rerun with --yes, or add allow %q and ask %q yourself\n", setup.AllowRule, setup.AskRule)
 			}
 		}
 		if t.Codex {
 			step("codex plugin", setup.InstallCodex(out))
+			err := setup.SetCodexRules(true)
+			step("codex rule", err)
+			if err == nil {
+				fmt.Fprintf(out, "wrote %s: Codex asks before every sunstack amend\n", setup.CodexRulesPath())
+			}
 		}
 	case "update":
 		if version == "dev" {
@@ -272,13 +308,14 @@ func lifecycle(cmd string, t setup.Targets, yes bool, stdin io.Reader, out io.Wr
 	case "uninstall":
 		if t.Claude {
 			step("claude plugin", setup.UninstallClaude(out))
-			if setup.HasAllowRule() && (yes || setup.Confirm(stdin, out, fmt.Sprintf("Remove %q from %s?", setup.AllowRule, setup.ClaudeSettingsPath()), false)) {
-				_, err := setup.SetAllowRule(false)
-				step("permission rule", err)
+			if yes || setup.Confirm(stdin, out, fmt.Sprintf("Remove the sunstack permission rules from %s?", setup.ClaudeSettingsPath()), false) {
+				_, err := setup.SetClaudeRules(false)
+				step("permission rules", err)
 			}
 		}
 		if t.Codex {
 			step("codex plugin", setup.UninstallCodex(out))
+			step("codex rule", setup.SetCodexRules(false))
 		}
 	}
 	if len(failed) > 0 {

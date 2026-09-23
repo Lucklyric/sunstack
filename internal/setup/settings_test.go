@@ -14,7 +14,7 @@ func TestEditAllowKeepsOrderAndOtherKeys(t *testing.T) {
   },
   "hooks": {"Stop": []}
 }`)
-	out, changed, err := editAllow(src, AllowRule, true)
+	out, changed, err := editRule(src, "allow", AllowRule, true)
 	if err != nil || !changed {
 		t.Fatalf("add: changed=%v err=%v", changed, err)
 	}
@@ -31,12 +31,12 @@ func TestEditAllowKeepsOrderAndOtherKeys(t *testing.T) {
 		t.Errorf("permissions key order changed:\n%s", s)
 	}
 
-	again, changed, _ := editAllow(out, AllowRule, true)
+	again, changed, _ := editRule(out, "allow", AllowRule, true)
 	if changed || string(again) != s {
 		t.Error("adding twice must be a no-op")
 	}
 
-	back, changed, err := editAllow(out, AllowRule, false)
+	back, changed, err := editRule(out, "allow", AllowRule, false)
 	if err != nil || !changed || strings.Contains(string(back), "sunstack") || !strings.Contains(string(back), `"Read"`) {
 		t.Errorf("remove: changed=%v err=%v\n%s", changed, err, back)
 	}
@@ -44,12 +44,26 @@ func TestEditAllowKeepsOrderAndOtherKeys(t *testing.T) {
 
 func TestEditAllowEmptyAndMissing(t *testing.T) {
 	for _, src := range []string{"", "{}", `{"permissions": {}}`} {
-		out, changed, err := editAllow([]byte(src), AllowRule, true)
+		out, changed, err := editRule([]byte(src), "allow", AllowRule, true)
 		if err != nil || !changed || !strings.Contains(string(out), `"Bash(sunstack *)"`) {
 			t.Errorf("%q: changed=%v err=%v out=%s", src, changed, err, out)
 		}
 	}
-	if _, _, err := editAllow([]byte(`[1,2]`), AllowRule, true); err == nil {
+	if _, _, err := editRule([]byte(`[1,2]`), "allow", AllowRule, true); err == nil {
 		t.Error("a non-object settings file must be an error, not overwritten")
+	}
+}
+
+func TestAllowAndAskTogether(t *testing.T) {
+	out, _, err := editRule([]byte(`{"permissions":{"allow":["Read"]}}`), "allow", AllowRule, true)
+	if err == nil {
+		out, _, err = editRule(out, "ask", AskRule, true)
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(out)
+	if !strings.Contains(s, `"ask": [`) || !strings.Contains(s, `"Bash(sunstack amend *)"`) || !strings.Contains(s, `"Bash(sunstack *)"`) {
+		t.Errorf("want both rules:\n%s", s)
 	}
 }

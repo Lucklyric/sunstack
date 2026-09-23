@@ -18,6 +18,7 @@ const (
 	Marketplace = "sunstack"
 	Plugin      = "sunstack@sunstack"
 	AllowRule   = "Bash(sunstack *)"
+	AskRule     = "Bash(sunstack amend *)"
 )
 
 // Targets says which CLIs to act on.

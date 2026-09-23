@@ -291,7 +291,7 @@ func TestGuards(t *testing.T) {
 	nested := filepath.Join(tmp, "threads", "x.md")
 	must(t, os.WriteFile(nested, []byte("x\n"), 0o644))
 	expect(t, sh(t, p, nil, "commit", "builder.alice", "context.md", nested, "absent", "--token", tok), 2, "candidate in a subfolder")
-	expect(t, sh(t, p, nil, "snapshot", "builder.alice", "AGENT.md", "--token", tok), 2, "target outside the allowed set")
+	expect(t, sh(t, p, nil, "snapshot", "builder.alice", "notes.md", "--token", tok), 2, "target outside the allowed set")
 	expect(t, sh(t, p, nil, "snapshot", "builder.alice", "threads/../x.md", "--token", tok), 2, "traversal in topic")
 	conflict := filepath.Join(tmp, "c.md")
 	must(t, os.WriteFile(conflict, []byte("<<<<<<< HEAD\nx\n=======\ny\n>>>>>>> b\n"), 0o644))
@@ -345,5 +345,56 @@ func TestMissingArguments(t *testing.T) {
 	expect(t, r, 0, "version")
 	if !strings.Contains(r.out, "protocol: 1") {
 		t.Errorf("version output: %q", r.out)
+	}
+}
+
+func TestAmend(t *testing.T) {
+	p := fixture(t)
+	tok := field(tokenRe, sh(t, p, nil, "as", "builder.alice").out)
+	tmp := filepath.Join(p, "sunstack", "_local", "tmp", "builder.alice")
+	teamTmp := filepath.Join(p, "sunstack", "_local", "tmp", "_team")
+
+	// Rule files cannot go through commit.
+	must(t, os.MkdirAll(tmp, 0o755))
+	must(t, os.WriteFile(filepath.Join(tmp, "p.md"), []byte("- rule\n"), 0o644))
+	expect(t, sh(t, p, nil, "commit", "builder.alice", "pillars.md", filepath.Join(tmp, "p.md"), "absent", "--token", tok), 2, "commit refuses pillars.md")
+
+	// Agent pillars: snapshot needs no token; amend needs a summary.
+	r := sh(t, p, nil, "snapshot", "builder.alice", "pillars.md")
+	expect(t, r, 0, "snapshot agent pillars without token")
+	if field(sumRe, r.out) != "absent" {
+		t.Errorf("new pillars.md should be absent: %q", r.out)
+	}
+	expect(t, sh(t, p, nil, "amend", "builder.alice", "pillars.md", filepath.Join(tmp, "p.md"), "absent"), 2, "amend without --summary")
+	expect(t, sh(t, p, nil, "amend", "builder.alice", "pillars.md", filepath.Join(tmp, "p.md"), "absent", "--summary", "add rule"), 0, "amend agent pillars")
+	if b, _ := os.ReadFile(filepath.Join(p, "sunstack", "builder.alice", "pillars.md")); string(b) != "- rule\n" {
+		t.Errorf("pillars.md = %q", b)
+	}
+
+	// Team pillars through --team, with a stale checksum first.
+	r = sh(t, p, nil, "snapshot", "--team")
+	expect(t, r, 0, "snapshot team pillars")
+	sum := field(sumRe, r.out)
+	must(t, os.WriteFile(filepath.Join(teamTmp, "PILLARS.md"), []byte("- 2026-09-23 new team rule\n"), 0o644))
+	r = sh(t, p, nil, "amend", "--team", filepath.Join(teamTmp, "PILLARS.md"), "deadbeef", "--summary", "x")
+	expect(t, r, 3, "stale team checksum")
+	if !strings.Contains(r.out, "migration") {
+		t.Errorf("mismatch must return the current team pillars: %q", r.out)
+	}
+	expect(t, sh(t, p, nil, "amend", "--team", filepath.Join(teamTmp, "PILLARS.md"), sum, "--summary", "replace team rules"), 0, "amend team pillars")
+
+	// AGENT.md must keep frontmatter with the right title.
+	r = sh(t, p, nil, "snapshot", "builder.alice", "AGENT.md")
+	asum := field(sumRe, r.out)
+	must(t, os.WriteFile(filepath.Join(tmp, "AGENT.md"), []byte("no frontmatter\n"), 0o644))
+	expect(t, sh(t, p, nil, "amend", "builder.alice", "AGENT.md", filepath.Join(tmp, "AGENT.md"), asum, "--summary", "x"), 1, "AGENT.md without frontmatter")
+	must(t, os.WriteFile(filepath.Join(tmp, "AGENT.md"), []byte("---\ntitle: builder\nfrom: custom\n---\n## 职责\n改进后\n"), 0o644))
+	expect(t, sh(t, p, nil, "amend", "builder.alice", "AGENT.md", filepath.Join(tmp, "AGENT.md"), asum, "--summary", "tighten duties"), 0, "amend AGENT.md")
+
+	log, _ := os.ReadFile(filepath.Join(p, "sunstack", "_local", "log", "events.log"))
+	for _, want := range []string{`amend    builder.alice  pillars.md  summary="add rule"`, `amend    team  PILLARS.md  summary="replace team rules"`, `summary="tighten duties"`} {
+		if !strings.Contains(string(log), want) {
+			t.Errorf("events.log lacks %s:\n%s", want, log)
+		}
 	}
 }

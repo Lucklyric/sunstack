@@ -78,9 +78,10 @@ func set(fs []field, key string, v json.RawMessage) []field {
 	return append(fs, field{key, v})
 }
 
-// editAllow adds (add=true) or removes rule in permissions.allow, keeping the
-// rest of the file and its key order. It reports whether anything changed.
-func editAllow(src []byte, rule string, add bool) ([]byte, bool, error) {
+// editRule adds (add=true) or removes rule in permissions.<list> ("allow" or
+// "ask"), keeping the rest of the file and its key order. It reports whether
+// anything changed.
+func editRule(src []byte, list, rule string, add bool) ([]byte, bool, error) {
 	if len(bytes.TrimSpace(src)) == 0 {
 		src = []byte("{}")
 	}
@@ -97,9 +98,9 @@ func editAllow(src []byte, rule string, add bool) ([]byte, bool, error) {
 		return nil, false, fmt.Errorf("permissions: %w", err)
 	}
 	var allow []string
-	if raw, _ := get(perm, "allow"); raw != nil {
+	if raw, _ := get(perm, list); raw != nil {
 		if err := json.Unmarshal(raw, &allow); err != nil {
-			return nil, false, fmt.Errorf("permissions.allow: %w", err)
+			return nil, false, fmt.Errorf("permissions.%s: %w", list, err)
 		}
 	}
 	has := false
@@ -123,7 +124,7 @@ func editAllow(src []byte, rule string, add bool) ([]byte, bool, error) {
 		kept = []string{}
 	}
 	allowRaw, _ := json.Marshal(kept)
-	perm = set(perm, "allow", allowRaw)
+	perm = set(perm, list, allowRaw)
 	top = set(top, "permissions", encodeObject(perm))
 	var out bytes.Buffer
 	if err := json.Indent(&out, encodeObject(top), "", "  "); err != nil {
@@ -133,26 +134,41 @@ func editAllow(src []byte, rule string, add bool) ([]byte, bool, error) {
 	return out.Bytes(), true, nil
 }
 
-// HasAllowRule reports whether the Claude Code settings allow sunstack.
-func HasAllowRule() bool {
+// claudeRules are the two Claude Code permission rules Sunstack manages:
+// run sunstack without asking, but always ask before amend (design §6, §10).
+var claudeRules = [][2]string{{"allow", AllowRule}, {"ask", AskRule}}
+
+// HasClaudeRules reports whether the Claude Code settings hold both rules.
+func HasClaudeRules() bool {
 	b, err := os.ReadFile(ClaudeSettingsPath())
 	if err != nil {
 		return false
 	}
-	_, changed, err := editAllow(b, AllowRule, true)
-	return err == nil && !changed
+	for _, r := range claudeRules {
+		if _, changed, err := editRule(b, r[0], r[1], true); err != nil || changed {
+			return false
+		}
+	}
+	return true
 }
 
-// SetAllowRule adds or removes the rule, keeping a .bak copy of the old file.
-func SetAllowRule(add bool) (bool, error) {
+// SetClaudeRules adds or removes both rules, keeping a .bak copy of the old file.
+func SetClaudeRules(add bool) (bool, error) {
 	path := ClaudeSettingsPath()
 	src, err := os.ReadFile(path)
 	if err != nil && !os.IsNotExist(err) {
 		return false, err
 	}
-	out, changed, err := editAllow(src, AllowRule, add)
-	if err != nil || !changed {
-		return false, err
+	out, changedAny := src, false
+	for _, r := range claudeRules {
+		var changed bool
+		if out, changed, err = editRule(out, r[0], r[1], add); err != nil {
+			return false, err
+		}
+		changedAny = changedAny || changed
+	}
+	if !changedAny {
+		return false, nil
 	}
 	if len(src) > 0 {
 		if err := os.WriteFile(path+".bak", src, 0o600); err != nil {
@@ -163,4 +179,39 @@ func SetAllowRule(add bool) (bool, error) {
 		return false, err
 	}
 	return true, os.WriteFile(path, out, 0o600)
+}
+
+// codexRules makes Codex ask before every sunstack amend.
+const codexRules = `# Managed by sunstack install. Codex asks before any change to an agent's
+# pillars or AGENT.md, so the user approves every self-improvement step.
+prefix_rule(
+    pattern = ["sunstack", "amend"],
+    decision = "prompt",
+    justification = "Sunstack amend changes an agent's pillars or AGENT.md; the user must approve it.",
+)
+`
+
+// CodexRulesPath is where the Codex exec-policy rule lives.
+func CodexRulesPath() string {
+	home := os.Getenv("CODEX_HOME")
+	if home == "" {
+		h, _ := os.UserHomeDir()
+		home = filepath.Join(h, ".codex")
+	}
+	return filepath.Join(home, "rules", "sunstack.rules")
+}
+
+// SetCodexRules writes or removes the Codex rule file.
+func SetCodexRules(add bool) error {
+	path := CodexRulesPath()
+	if !add {
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		return nil
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(path, []byte(codexRules), 0o644)
 }

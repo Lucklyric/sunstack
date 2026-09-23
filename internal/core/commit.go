@@ -4,32 +4,64 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 )
 
-// targetPath allows only context.md and threads/<topic>.md (design §8.4).
-func (p *Project) targetPath(id, rel string) (string, error) {
+// TeamID names the team-level target (sunstack/PILLARS.md) for locks and
+// scratch space; it cannot collide with an agent ID, which never starts with _.
+const TeamID = "_team"
+
+// target is a file Sunstack writes through a snapshot checksum.
+type target struct {
+	path    string // absolute file path
+	rel     string // how it is named in output and events
+	owner   string // agent ID, or TeamID
+	amended bool   // pillars or AGENT.md: user-approved, via amend
+}
+
+// resolveTarget accepts:
+//
+//	<id> context.md | threads/<topic>.md     agent experience (commit)
+//	<id> pillars.md | AGENT.md               agent rules (amend)
+//	TeamID PILLARS.md                        team rules (amend)
+func (p *Project) resolveTarget(id, rel string) (*target, error) {
+	if id == TeamID {
+		if rel != "PILLARS.md" {
+			return nil, fail(ExitUsage, "usage", "the team target is PILLARS.md, got: %s", rel)
+		}
+		return &target{path: filepath.Join(p.Dir, "PILLARS.md"), rel: "PILLARS.md", owner: TeamID, amended: true}, nil
+	}
+	if !ValidID(id) {
+		return nil, fail(ExitUsage, "usage", "invalid id: %s", id)
+	}
+	t := &target{rel: rel, owner: id}
 	switch {
 	case rel == "context.md":
+	case rel == "pillars.md" || rel == "AGENT.md":
+		t.amended = true
 	case strings.HasPrefix(rel, "threads/") && strings.HasSuffix(rel, ".md"):
 		topic := strings.TrimSuffix(strings.TrimPrefix(rel, "threads/"), ".md")
 		if !ValidPart(topic) {
-			return "", fail(ExitUsage, "usage", "invalid thread topic: %s", topic)
+			return nil, fail(ExitUsage, "usage", "invalid thread topic: %s", topic)
 		}
 	default:
-		return "", fail(ExitUsage, "usage", "target must be context.md or threads/<topic>.md, got: %s", rel)
+		return nil, fail(ExitUsage, "usage", "target must be context.md, threads/<topic>.md, pillars.md or AGENT.md, got: %s", rel)
 	}
-	path := filepath.Join(p.AgentDir(id), filepath.FromSlash(rel))
-	for _, x := range []string{path, filepath.Join(p.AgentDir(id), "threads")} {
+	if !p.HasAgent(id) {
+		return nil, fail(ExitFail, "not_found", "no agent %s", id)
+	}
+	t.path = filepath.Join(p.AgentDir(id), filepath.FromSlash(rel))
+	for _, x := range []string{t.path, filepath.Join(p.AgentDir(id), "threads")} {
 		if st, err := os.Lstat(x); err == nil && st.Mode()&os.ModeSymlink != 0 {
-			return "", fail(ExitFail, "symlink", "refusing symlinked path: %s", x)
+			return nil, fail(ExitFail, "symlink", "refusing symlinked path: %s", x)
 		}
 	}
-	return path, nil
+	return t, nil
 }
 
-// TmpDir is where snapshots are described from and candidates must live.
-func (p *Project) TmpDir(id string) string { return p.local("tmp", id) }
+// TmpDir is where snapshots point candidates to; they must sit directly in it.
+func (p *Project) TmpDir(owner string) string { return p.local("tmp", owner) }
 
 func snapshotText(sum, candDir string, content []byte) string {
 	var b strings.Builder
@@ -39,32 +71,78 @@ func snapshotText(sum, candDir string, content []byte) string {
 }
 
 // Snapshot reads the target once and returns its content with the checksum of
-// exactly those bytes (design §8.1).
+// exactly those bytes (design §8.1). Experience targets need the claim token;
+// rule targets (pillars, AGENT.md, team pillars) are readable by anyone.
 func (p *Project) Snapshot(id, rel, token string) (string, error) {
-	if !ValidID(id) {
-		return "", fail(ExitUsage, "usage", "invalid id: %s", id)
-	}
-	path, err := p.targetPath(id, rel)
+	t, err := p.resolveTarget(id, rel)
 	if err != nil {
 		return "", err
 	}
-	if token == "" {
-		return "", fail(ExitClaim, "token", "missing --token")
+	if !t.amended {
+		if token == "" {
+			return "", fail(ExitClaim, "token", "missing --token")
+		}
+		if cur := p.ReadLive(id); cur == nil || cur.Token != token {
+			return "", fail(ExitClaim, "token", "token does not match the current claim on %s", id)
+		}
 	}
-	if cur := p.ReadLive(id); cur == nil || cur.Token != token {
-		return "", fail(ExitClaim, "token", "token does not match the current claim on %s", id)
-	}
-	b, ok, err := readMaybe(path)
+	b, ok, err := readMaybe(t.path)
 	if err != nil {
 		return "", fail(ExitFail, "fs", "%v", err)
 	}
 	if HasConflictMarkers(b) {
-		return "", fail(ExitFail, "conflict", "merge conflict markers in %s; resolve them first", rel)
+		return "", fail(ExitFail, "conflict", "merge conflict markers in %s; resolve them first", t.rel)
 	}
-	if err := os.MkdirAll(p.TmpDir(id), 0o755); err != nil {
+	if err := os.MkdirAll(p.TmpDir(t.owner), 0o755); err != nil {
 		return "", fail(ExitFail, "fs", "%v", err)
 	}
-	return snapshotText(Checksum(b, ok), p.TmpDir(id), b), nil
+	return snapshotText(Checksum(b, ok), p.TmpDir(t.owner), b), nil
+}
+
+// readCandidate checks the candidate sits directly in the owner's tmp dir and
+// carries no conflict markers.
+func (p *Project) readCandidate(owner, path string) ([]byte, error) {
+	cdir, err1 := filepath.EvalSymlinks(filepath.Dir(path))
+	tdir, err2 := filepath.EvalSymlinks(p.TmpDir(owner))
+	if err1 != nil || err2 != nil || cdir != tdir {
+		return nil, fail(ExitUsage, "usage", "candidate must sit directly in %s (no subfolder)", p.TmpDir(owner))
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fail(ExitFail, "no_candidate", "candidate not found: %s", path)
+	}
+	if HasConflictMarkers(b) {
+		return nil, fail(ExitFail, "conflict", "candidate contains merge conflict markers")
+	}
+	return b, nil
+}
+
+// swap compares the target with the snapshot checksum and, if unchanged,
+// replaces it (or deletes it when cand is nil and del is set). Caller holds
+// the owner's lock.
+func swap(t *target, sum string, cand []byte, del bool, candDir string) error {
+	b, ok, err := readMaybe(t.path)
+	if err != nil {
+		return fail(ExitFail, "fs", "%v", err)
+	}
+	if HasConflictMarkers(b) {
+		return fail(ExitFail, "conflict", "merge conflict markers in %s; resolve them first", t.rel)
+	}
+	if cur := Checksum(b, ok); cur != sum {
+		e := fail(ExitMismatch, "mismatch", "%s changed since the snapshot; merge onto the content above and try again", t.rel)
+		e.Stdout = snapshotText(cur, candDir, b)
+		return e
+	}
+	if del {
+		if err := os.Remove(t.path); err != nil && !os.IsNotExist(err) {
+			return fail(ExitFail, "write_failed", "could not delete %s: %v", t.rel, err)
+		}
+		return nil
+	}
+	if err := writeAtomic(t.path, cand); err != nil {
+		return fail(ExitFail, "write_failed", "could not write %s: %v", t.rel, err)
+	}
+	return nil
 }
 
 // CommitOptions are the inputs of `sunstack commit`.
@@ -73,31 +151,22 @@ type CommitOptions struct {
 	Delete                         bool
 }
 
-// Commit replaces (or deletes) the target if it still matches the snapshot
-// checksum, all under the per-ID lock (design §8.3-§8.6).
+// Commit writes the agent's own experience (context.md, threads) if it still
+// matches the snapshot, under the per-ID lock and token (design §8.3-§8.6).
 func (p *Project) Commit(o CommitOptions) error {
-	if !ValidID(o.ID) {
-		return fail(ExitUsage, "usage", "invalid id: %s", o.ID)
-	}
-	path, err := p.targetPath(o.ID, o.Rel)
+	t, err := p.resolveTarget(o.ID, o.Rel)
 	if err != nil {
 		return err
 	}
+	if t.amended {
+		return fail(ExitUsage, "usage", "%s is a rule file; changes need user approval through sunstack amend", o.Rel)
+	}
 	var cand []byte
 	if !o.Delete {
-		cdir, err1 := filepath.EvalSymlinks(filepath.Dir(o.Candidate))
-		tdir, err2 := filepath.EvalSymlinks(p.TmpDir(o.ID))
-		if err1 != nil || err2 != nil || cdir != tdir {
-			return fail(ExitUsage, "usage", "candidate must sit directly in %s (no subfolder)", p.TmpDir(o.ID))
-		}
-		if cand, err = os.ReadFile(o.Candidate); err != nil {
-			return fail(ExitFail, "no_candidate", "candidate not found: %s", o.Candidate)
-		}
-		if HasConflictMarkers(cand) {
-			return fail(ExitFail, "conflict", "candidate contains merge conflict markers")
+		if cand, err = p.readCandidate(o.ID, o.Candidate); err != nil {
+			return err
 		}
 	}
-
 	unlock, err := p.lock(o.ID)
 	if err != nil {
 		return err
@@ -107,26 +176,10 @@ func (p *Project) Commit(o CommitOptions) error {
 	if err != nil {
 		return err
 	}
-	b, ok, err := readMaybe(path)
-	if err != nil {
-		return fail(ExitFail, "fs", "%v", err)
+	if err := swap(t, o.Sum, cand, o.Delete, p.TmpDir(o.ID)); err != nil {
+		return err
 	}
-	if HasConflictMarkers(b) {
-		return fail(ExitFail, "conflict", "merge conflict markers in %s; resolve them first", o.Rel)
-	}
-	if sum := Checksum(b, ok); sum != o.Sum {
-		e := fail(ExitMismatch, "mismatch", "%s changed since the snapshot; merge onto the content above and commit again", o.Rel)
-		e.Stdout = snapshotText(sum, p.TmpDir(o.ID), b)
-		return e
-	}
-	if o.Delete {
-		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
-			return fail(ExitFail, "write_failed", "could not delete %s: %v", o.Rel, err)
-		}
-	} else {
-		if err := writeAtomic(path, cand); err != nil {
-			return fail(ExitFail, "write_failed", "could not write %s: %v", o.Rel, err)
-		}
+	if !o.Delete {
 		os.Remove(o.Candidate)
 	}
 	cur.LastContact = now()
@@ -136,5 +189,53 @@ func (p *Project) Commit(o CommitOptions) error {
 		verb = "delete"
 	}
 	p.LogEvent(verb, o.ID, o.Rel)
+	return nil
+}
+
+// AmendOptions are the inputs of `sunstack amend`.
+type AmendOptions struct {
+	ID, Rel, Candidate, Sum, Summary string
+}
+
+var titleRe = regexp.MustCompile(`(?m)^title:\s*(\S+)\s*$`)
+
+// Amend writes a user-approved change to pillars or AGENT.md (design §6
+// "自我改进循环"). Approval happens before the call: the skill asks, and the
+// CLI's own permission rules make both Claude Code and Codex prompt for it.
+func (p *Project) Amend(o AmendOptions) error {
+	t, err := p.resolveTarget(o.ID, o.Rel)
+	if err != nil {
+		return err
+	}
+	if !t.amended {
+		return fail(ExitUsage, "usage", "%s is agent experience; use sunstack commit", o.Rel)
+	}
+	if strings.TrimSpace(o.Summary) == "" {
+		return fail(ExitUsage, "usage", "--summary is required: one line saying what changes, for the event log")
+	}
+	cand, err := p.readCandidate(t.owner, o.Candidate)
+	if err != nil {
+		return err
+	}
+	if o.Rel == "AGENT.md" {
+		m := titleRe.FindSubmatch(cand)
+		if !strings.HasPrefix(string(cand), "---") || m == nil || string(m[1]) != strings.SplitN(o.ID, ".", 2)[0] {
+			return fail(ExitFail, "invalid_agent", "AGENT.md must keep its frontmatter with title: %s", strings.SplitN(o.ID, ".", 2)[0])
+		}
+	}
+	unlock, err := p.lock(t.owner)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	if err := swap(t, o.Sum, cand, false, p.TmpDir(t.owner)); err != nil {
+		return err
+	}
+	os.Remove(o.Candidate)
+	subject := o.ID
+	if o.ID == TeamID {
+		subject = "team"
+	}
+	p.LogEvent("amend", subject, t.rel, fmt.Sprintf("summary=%q", strings.TrimSpace(o.Summary)))
 	return nil
 }
