@@ -10,6 +10,9 @@ description: Release this session's claim on its Sunstack agent ID so another se
 `${CLAUDE_PLUGIN_ROOT}` below is this plugin's root folder. If it still appears literally
 (not replaced by a real path), use the folder two levels above this SKILL.md instead.
 
+Run each script as its own command, with nothing chained after it (no `; echo ...`), so a
+permission rule for the plugin scripts can match; the tool already reports the exit code.
+
 Run the save skill first if there is anything worth keeping. Then, with the root, id and token
 from the `session state` block of the as skill in this session:
 

@@ -10,6 +10,9 @@ description: Save what this Sunstack agent learned into its persistent context, 
 `${CLAUDE_PLUGIN_ROOT}` below is this plugin's root folder. If it still appears literally
 (not replaced by a real path), use the folder two levels above this SKILL.md instead.
 
+Run each script as its own command, with nothing chained after it (no `; echo ...`), so a
+permission rule for the plugin scripts can match; the tool already reports the exit code.
+
 Write this agent's new knowledge into `context.md` (or a thread) through a snapshot and a
 checked commit, so a concurrent writer can never be overwritten.
 

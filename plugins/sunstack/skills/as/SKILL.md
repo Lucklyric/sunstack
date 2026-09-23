@@ -10,6 +10,9 @@ description: Take on a Sunstack agent identity (for example builder or builder.a
 `${CLAUDE_PLUGIN_ROOT}` below is this plugin's root folder. If it still appears literally
 (not replaced by a real path), use the folder two levels above this SKILL.md instead.
 
+Run each script as its own command, with nothing chained after it (no `; echo ...`), so a
+permission rule for the plugin scripts can match; the tool already reports the exit code.
+
 Claim a Sunstack agent ID and load its identity. The script does the claiming; you decide
 what to ask the user and how to act afterwards.
 
