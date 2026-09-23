@@ -460,7 +460,7 @@ func lifecycle(cmd string, t setup.Targets, yes bool, stdin io.Reader, out io.Wr
 			err := setup.SetCodexRules(true)
 			step("codex rule", err)
 			if err == nil {
-				fmt.Fprintf(out, "wrote %s: Codex asks before every sunstack amend\n", setup.CodexRulesPath())
+				fmt.Fprintf(out, "wrote %s: Codex asks before sunstack amend, hire and fire\n", setup.CodexRulesPath())
 			}
 			if setup.CodexAutoReviewsApprovals() {
 				fmt.Fprintln(out, "note: your Codex config sets approvals_reviewer, so Codex approval prompts go to an automatic reviewer, not to you. The rule then cannot guarantee you see each amend; the skill still asks you before every rule change.")
