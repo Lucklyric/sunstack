@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // ClaudeSettingsPath is the user-level Claude Code settings file.
@@ -214,4 +215,20 @@ func SetCodexRules(add bool) error {
 		return err
 	}
 	return os.WriteFile(path, []byte(codexRules), 0o644)
+}
+
+// CodexAutoReviewsApprovals reports whether Codex sends approval prompts to an
+// automatic reviewer instead of the user, which makes the amend rule advisory.
+func CodexAutoReviewsApprovals() bool {
+	b, err := os.ReadFile(filepath.Join(filepath.Dir(filepath.Dir(CodexRulesPath())), "config.toml"))
+	if err != nil {
+		return false
+	}
+	for _, line := range strings.Split(string(b), "\n") {
+		k, v, ok := strings.Cut(line, "=")
+		if ok && strings.TrimSpace(k) == "approvals_reviewer" && !strings.Contains(v, "user") {
+			return true
+		}
+	}
+	return false
 }

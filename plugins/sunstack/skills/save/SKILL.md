@@ -44,13 +44,16 @@ For each rule change, and for any still-pending line under `## 提议` in contex
    `sunstack snapshot --root "<root>" --team` for the team `PILLARS.md`.
 2. Write the complete new file directly into `candidate_dir`, changing only what is proposed.
    Pillars stay one dated, checkable line each. `AGENT.md` keeps its frontmatter.
-3. Show the user the change: the file, the lines before and after, and why.
+3. Show the user the change: the file, the lines before and after, and why. Do this even when
+   the user asked for the change: a request is not approval of your exact wording.
 4. Get the approval:
    - **Claude Code**: running `sunstack amend` makes Claude Code show its own approval prompt,
      and that prompt is the approval. Tell the user in one line: approve the prompt to apply
      it, or deny it to edit, reject or postpone. Then run amend.
    - **Codex, or anywhere without that prompt**: ask first, with numbered options (approve /
-     edit / reject / later), and wait. On approve, run amend; Codex may prompt again.
+     edit / reject / later), end your turn, and wait for the user's reply. Run amend only after
+     an explicit approve in that reply. Codex may prompt again, or its automatic approval
+     reviewer may decide; either way your question is the approval that counts.
 
    ```sh
    sunstack amend --root "<root>" "<id>" pillars.md "<candidate file>" "<checksum>" --summary "<one line: what changes>"
