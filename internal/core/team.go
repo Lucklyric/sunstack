@@ -14,8 +14,10 @@ import (
 )
 
 // Init creates sunstack/ in dir and maintains the AGENTS.md routing block and
-// the .gitignore line. Re-running only fills in what is missing (design §6).
-func Init(dir string) ([]string, error) {
+// the .gitignore line. Re-running only fills in what is missing (design §6);
+// with refresh it also replaces PROTOCOL.md and README.md, which Sunstack owns,
+// with this version's text. PILLARS.md is never replaced.
+func Init(dir string, refresh bool) ([]string, error) {
 	root, err := filepath.Abs(dir)
 	if err != nil {
 		return nil, fail(ExitFail, "fs", "%v", err)
@@ -41,13 +43,18 @@ func Init(dir string) ([]string, error) {
 		{"PILLARS.md", []byte(assets.PillarsTemplate)},
 	} {
 		path := filepath.Join(ss, f.name)
-		if _, err := os.Stat(path); err == nil {
+		cur, exists, _ := readMaybe(path)
+		if exists && (!refresh || f.name == "PILLARS.md" || bytes.Equal(cur, f.data)) {
 			continue
 		}
 		if err := writeAtomic(path, f.data); err != nil {
 			return nil, fail(ExitFail, "fs", "%v", err)
 		}
-		done = append(done, "created sunstack/"+f.name)
+		if exists {
+			done = append(done, "refreshed sunstack/"+f.name+" (review the change with git diff)")
+		} else {
+			done = append(done, "created sunstack/"+f.name)
+		}
 	}
 	if changed {
 		if err := writeAtomic(agentsPath, newAgents); err != nil {

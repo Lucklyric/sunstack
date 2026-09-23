@@ -35,7 +35,8 @@ Self-improvement (the user approves every call; both CLIs prompt for it):
   sunstack amend --team <candidate> <checksum> --summary "..." [--root DIR]
 
 Team (run these yourself):
-  sunstack init                                   create sunstack/ here, the AGENTS.md block and .gitignore line
+  sunstack init [--refresh]                       create sunstack/ here, the AGENTS.md block and .gitignore line;
+                                                  --refresh also updates PROTOCOL.md and README.md to this version
   sunstack hire <title> [name] [--file DRAFT]     add an agent from a template, or from an approved draft
   sunstack fire <id> [--discard]                  delete an agent nobody holds
   sunstack library                                list templates (personal, then built-in)
@@ -305,7 +306,7 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 		return nil
 
 	case "init":
-		a, err := parse(rest, "", "")
+		a, err := parse(rest, "", "refresh")
 		if err == nil {
 			err = a.atMost(1, "init")
 		}
@@ -316,7 +317,7 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 		if len(a.pos) > 0 {
 			dir = a.pos[0]
 		}
-		done, err := core.Init(dir)
+		done, err := core.Init(dir, a.has("refresh"))
 		if err != nil {
 			return err
 		}

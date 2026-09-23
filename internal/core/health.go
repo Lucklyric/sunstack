@@ -1,6 +1,7 @@
 package core
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -27,10 +28,12 @@ func failed(area, msg, fix string) Check { return Check{"fail", area, msg, fix} 
 func (p *Project) Health() []Check {
 	var cs []Check
 	// Project.
-	if _, err := os.Stat(filepath.Join(p.Dir, "PROTOCOL.md")); err != nil {
+	if b, err := os.ReadFile(filepath.Join(p.Dir, "PROTOCOL.md")); err != nil {
 		cs = append(cs, failed("project", "sunstack/PROTOCOL.md is missing", "sunstack init"))
+	} else if !bytes.Equal(b, assets.Protocol()) {
+		cs = append(cs, warn("project", "sunstack/PROTOCOL.md differs from this sunstack version's", "sunstack init --refresh, then review the git diff"))
 	} else {
-		cs = append(cs, ok("project", "sunstack/ with PROTOCOL.md at "+p.Root))
+		cs = append(cs, ok("project", "sunstack/ with a current PROTOCOL.md at "+p.Root))
 	}
 	agents, _, _ := readMaybe(filepath.Join(p.Root, "AGENTS.md"))
 	nb := strings.Count(string(agents), assets.RouteBegin)

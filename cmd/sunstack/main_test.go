@@ -417,6 +417,23 @@ func TestTeamCommands(t *testing.T) {
 	if !strings.Contains(string(gi), "sunstack/_local/") {
 		t.Error(".gitignore line missing")
 	}
+	// An old PROTOCOL.md is kept by init and replaced by init --refresh; PILLARS.md never is.
+	must(t, os.WriteFile(filepath.Join(p, "sunstack", "PROTOCOL.md"), []byte("old\n"), 0o644))
+	must(t, os.WriteFile(filepath.Join(p, "sunstack", "PILLARS.md"), []byte("- 2026-09-23 keep me\n"), 0o644))
+	sh(t, p, home, "init")
+	if b, _ := os.ReadFile(filepath.Join(p, "sunstack", "PROTOCOL.md")); string(b) != "old\n" {
+		t.Error("plain init must not replace PROTOCOL.md")
+	}
+	if r := sh(t, p, home, "health"); !strings.Contains(r.out, "PROTOCOL.md differs") {
+		t.Errorf("health should flag the old protocol: %q", r.out)
+	}
+	sh(t, p, home, "init", "--refresh")
+	if b, _ := os.ReadFile(filepath.Join(p, "sunstack", "PROTOCOL.md")); !strings.HasPrefix(string(b), "# Sunstack protocol") {
+		t.Errorf("init --refresh should replace PROTOCOL.md: %q", b)
+	}
+	if b, _ := os.ReadFile(filepath.Join(p, "sunstack", "PILLARS.md")); string(b) != "- 2026-09-23 keep me\n" {
+		t.Error("PILLARS.md must never be replaced")
+	}
 
 	// A malformed block is refused without writing.
 	bad := t.TempDir()
