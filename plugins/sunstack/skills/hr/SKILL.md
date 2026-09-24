@@ -1,6 +1,6 @@
 ---
 name: hr
-description: Review the Sunstack team's staffing against the project and suggest changes, such as new hires for uncovered objectives or missing roles, splitting an overloaded agent, or retiring idle ones, then carry out the ones the user approves. Use when the user says "hr", "sunstack hr", "/sunstack:hr", "who should we hire", "do we need another agent", "is the team right for this project", "staffing", or asks what roles the project is missing.
+description: Review the Sunstack team's staffing against the project and suggest changes, such as new hires for uncovered objectives or missing roles, a second agent for an overloaded role, or retiring idle agents, then carry out the ones the user approves. Use when the user says "sunstack hr", "/sunstack:hr", "which agent should we hire", "does the team need another agent", "is the Sunstack team right for this project", or asks what agent roles the project is missing. Only for projects with a Sunstack team (a sunstack/ folder).
 ---
 
 # Sunstack: hr
@@ -11,6 +11,7 @@ through the fire skill.
 
 ## Rules
 
+- If there is no Sunstack team here (no `sunstack/PROTOCOL.md` in this folder or above), say so in one line and stop; the checkup skill sets one up.
 - Run every `sunstack` command on its own, with nothing chained after it.
 - Ask with AskUserQuestion if you have it, otherwise as numbered options in the conversation;
   then end your turn and wait. No answer or a cancel is not approval.

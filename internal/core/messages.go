@@ -25,10 +25,10 @@ var MessageTypes = []string{"question", "handoff", "fyi", "done", "shutdown"}
 
 // Message is one inbox entry.
 type Message struct {
-	ID, From, To, Session, At, Type, ReplyTo string
-	Body                                     string
-	State                                    string // pending, taken (by this session), taken by <label>
-	path                                     string
+	ID, From, Via, To, Session, At, Type, ReplyTo string
+	Body                                          string
+	State                                         string // pending, taken (by this session), taken by <label>
+	path                                          string
 }
 
 var msgIDRe = regexp.MustCompile(`^[0-9]{8}T[0-9]{6}Z-[a-z0-9._-]+-[0-9a-f]{6}$`)
@@ -66,6 +66,8 @@ func parseMessage(path string) (*Message, error) {
 					m.ID = v
 				case "from":
 					m.From = v
+				case "via":
+					m.Via = v
 				case "to":
 					m.To = v
 				case "session":
@@ -89,7 +91,11 @@ func parseMessage(path string) (*Message, error) {
 
 func (m *Message) text() string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "---\nid: %s\nfrom: %s\nto: %s\n", m.ID, m.From, m.To)
+	fmt.Fprintf(&b, "---\nid: %s\nfrom: %s\n", m.ID, m.From)
+	if m.Via != "" {
+		fmt.Fprintf(&b, "via: %s\n", m.Via)
+	}
+	fmt.Fprintf(&b, "to: %s\n", m.To)
 	if m.Session != "" {
 		fmt.Fprintf(&b, "session: %s\n", m.Session)
 	}
@@ -110,6 +116,7 @@ type SendOptions struct {
 	ReplyTo string
 	From    string // sender agent ID; empty means the user
 	Token   string // the sender's token, required with From
+	Via     string // the agent session that sent it in the user's name, if any
 	NoNudge bool
 }
 
@@ -186,6 +193,9 @@ func (p *Project) Send(o SendOptions) (*SendResult, error) {
 		return nil, fail(ExitFail, "fs", "%v", err)
 	}
 	m := &Message{From: from, To: id, Session: session, At: now(), Type: o.Type, ReplyTo: o.ReplyTo, Body: o.Body}
+	if from == "user" {
+		m.Via = o.Via
+	}
 	// Create the temporary file exclusively, so two senders never share a
 	// name; readers only see the .md after the rename.
 	var tmp string
@@ -215,6 +225,9 @@ func (p *Project) Send(o SendOptions) (*SendResult, error) {
 	if session != "" {
 		fields = append(fields, "session="+session)
 	}
+	if m.Via != "" {
+		fields = append(fields, "via="+strings.ReplaceAll(m.Via, " ", "_"))
+	}
 	p.LogEvent("send", from+" -> "+id, fields...)
 	res := &SendResult{ID: m.ID, To: id, Session: session}
 	if o.NoNudge {
@@ -233,6 +246,7 @@ func (p *Project) nudge(id, session string, m *Message) (string, string) {
 		return "", "no live session; the message waits in the inbox (sunstack spawn starts one)"
 	}
 	sort.Slice(claims, func(i, j int) bool { return claims[i].LastContact > claims[j].LastContact })
+	busy := ""
 	for _, c := range claims {
 		if session != "" && c.Label(id) != session {
 			continue
@@ -244,20 +258,25 @@ func (p *Project) nudge(id, session string, m *Message) (string, string) {
 		if prompt == "" {
 			continue
 		}
-		if err := typeInto(c.TmuxSocket, c.TmuxPane, prompt); err != nil {
+		if err := typeInto(c.TmuxSocket, c.TmuxPane, c.Tool, prompt); err != nil {
+			busy = c.Label(id) + ": " + err.Error()
 			continue
 		}
 		p.LogEvent("nudge", c.Label(id), m.ID)
 		return c.Label(id), ""
+	}
+	if busy != "" {
+		return "", "not nudged (" + busy + "); the message waits in the inbox and shows at that session's next prompt"
 	}
 	return "", "no session with a live Claude Code or Codex pane; the message waits in the inbox and shows at that session's next prompt"
 }
 
 // NudgePrompt is what a nudge types: the check skill, named the way each CLI
 // invokes skills, followed by a sentence (a bare Codex skill mention can be
-// swallowed by its picker).
+// swallowed by its picker). It carries no digits, names or IDs, so even if it
+// ever reached a menu it could not pick a numbered option.
 func NudgePrompt(tool string, m *Message) string {
-	msg := fmt.Sprintf(" new %s message %s from %s", m.Type, m.ID, m.From)
+	msg := " a new " + m.Type + " message is waiting"
 	switch tool {
 	case "claude":
 		return "/sunstack:check" + msg
@@ -294,13 +313,73 @@ func paneRunsTool(socket, pane, tool string) bool {
 	return false
 }
 
-// typeInto types text into a pane and presses Enter. The pause keeps a TUI
-// from reading the Enter as part of a paste.
-func typeInto(socket, pane, text string) error {
+// dialogMarkers are texts of menus, approval prompts and questions in Claude
+// Code and Codex. While one is on screen, typed keys could answer it.
+var dialogMarkers = []string{
+	"enter to confirm", "esc to cancel", "do you want to", "would you like to", "allow command",
+	"yes, proceed", "yes, and", "(y/n)", "press enter", "trust this folder", "trust the contents",
+	"❯ 1.", "› 1.", "-- normal --",
+}
+
+// ReadyForInput reports whether the CLI in the pane shows its normal input
+// box with no menu or approval prompt, so typing lands in the composer.
+func ReadyForInput(tool, screen string) bool {
+	lines := strings.Split(strings.ReplaceAll(screen, "\r", ""), "\n")
+	var tail []string
+	for i := len(lines) - 1; i >= 0 && len(tail) < 15; i-- {
+		if strings.TrimSpace(lines[i]) != "" {
+			tail = append([]string{lines[i]}, tail...)
+		}
+	}
+	low := strings.ToLower(strings.Join(tail, "\n"))
+	for _, m := range dialogMarkers {
+		if strings.Contains(low, m) {
+			return false
+		}
+	}
+	rule := func(l string) bool {
+		t := strings.TrimSpace(l)
+		return strings.HasPrefix(t, "───") || strings.HasSuffix(t, "───")
+	}
+	for i, l := range tail {
+		t := strings.TrimSpace(l)
+		switch tool {
+		case "claude":
+			// The input line sits between the two borders of the input box.
+			if strings.HasPrefix(t, "❯") && i > 0 && i+1 < len(tail) && rule(tail[i-1]) && rule(tail[i+1]) {
+				return true
+			}
+		case "codex":
+			if strings.HasPrefix(t, "›") {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func paneScreen(socket, pane string) string {
+	out, err := exec.Command("tmux", TmuxArgs(socket, "capture-pane", "-p", "-J", "-t", pane)...).Output()
+	if err != nil {
+		return ""
+	}
+	return string(out)
+}
+
+// typeInto types text into a pane and presses Enter, only while the CLI shows
+// its normal input box; it checks again right before Enter. The pause keeps a
+// TUI from reading the Enter as part of a paste.
+func typeInto(socket, pane, tool, text string) error {
+	if !ReadyForInput(tool, paneScreen(socket, pane)) {
+		return fmt.Errorf("the session is showing a prompt or menu")
+	}
 	if err := exec.Command("tmux", TmuxArgs(socket, "send-keys", "-t", pane, "-l", text)...).Run(); err != nil {
 		return err
 	}
 	time.Sleep(400 * time.Millisecond)
+	if !ReadyForInput(tool, paneScreen(socket, pane)) {
+		return fmt.Errorf("a prompt or menu appeared while typing; Enter was not pressed")
+	}
 	return exec.Command("tmux", TmuxArgs(socket, "send-keys", "-t", pane, "Enter")...).Run()
 }
 
@@ -496,4 +575,21 @@ func (p *Project) PendingForSession(session, pane, socket string) []string {
 		}
 	}
 	return out
+}
+
+// CallerLabel names the agent CLI session running a command: its session
+// name if it holds a Sunstack claim, otherwise the CLI's name.
+func (p *Project) CallerLabel(tool, session, pane, socket string) string {
+	if tool == "" {
+		return ""
+	}
+	for _, id := range p.Agents() {
+		claims, _ := p.Claims(id)
+		for _, c := range claims {
+			if (session != "" && c.Session == session) || (c.Session == "" && samePane(c, pane, socket)) {
+				return tool + " session " + c.Label(id)
+			}
+		}
+	}
+	return tool + " session"
 }

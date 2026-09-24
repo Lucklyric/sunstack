@@ -1,6 +1,6 @@
 ---
 name: board
-description: Show and align the Sunstack team's objectives and key results (OKRs) across the user and every agent, with dependencies, stale or overdue entries and directives not yet followed, and help fix what is off. Use when the user says "board", "sunstack board", "/sunstack:board", "OKR", "objectives", "what is everyone working on", "who is blocked", "align the team", or asks to set or change team objectives.
+description: Show and align the Sunstack team's objectives and key results (OKRs) across the user and every agent, with dependencies, stale or overdue entries and directives not yet followed, and help fix what is off. Use when the user says "sunstack board", "/sunstack:board", "the team's OKRs", "what is every agent working on", "which agent is blocked", or asks to set or change the Sunstack team objectives. Only for projects with a Sunstack team (a sunstack/ folder).
 ---
 
 # Sunstack: board
@@ -12,6 +12,7 @@ the date it last changed.
 
 ## Rules
 
+- If there is no Sunstack team here (no `sunstack/PROTOCOL.md` in this folder or above), say so in one line and stop; the checkup skill sets one up.
 - Run every `sunstack` command on its own, with nothing chained after it.
 - Ask with AskUserQuestion if you have it, otherwise as numbered options in the conversation;
   then end your turn and wait. No answer or a cancel is not approval.

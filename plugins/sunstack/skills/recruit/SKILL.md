@@ -1,6 +1,6 @@
 ---
 name: recruit
-description: Add a new agent to this project's Sunstack team from a short description, by hiring from a template, copying the role of an agent already on the team, or drafting a new role for the user to approve. Use when the user says "recruit", "sunstack recruit", "/sunstack:recruit", "hire a ...", "I need an agent that ...", "another researcher", "create a new agent", or describes a role they want on the team.
+description: Add a new agent to this project's Sunstack team from a short description, by hiring from a template, copying the role of an agent already on the team, or drafting a new role for the user to approve. Use when the user says "sunstack recruit", "/sunstack:recruit", "hire an agent that ...", "add another researcher agent", "create a new agent", or describes an agent role they want on the team. Also offers sunstack init when there is no team yet.
 ---
 
 # Sunstack: recruit

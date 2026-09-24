@@ -862,3 +862,40 @@ func TestMessages(t *testing.T) {
 		t.Errorf("sessions: %s", r.out)
 	}
 }
+
+func TestStaleSessionsAndVia(t *testing.T) {
+	p := fixture(t)
+	// A claim whose tmux server is gone is dropped by as and by release --stale.
+	dead := func(id, tok, task string) {
+		dir := filepath.Join(p, "sunstack", "_local", "live", id)
+		must(t, os.MkdirAll(dir, 0o755))
+		must(t, os.WriteFile(filepath.Join(dir, tok+".json"), []byte(`{"tool":"claude","host":"h","token":"`+tok+`","claimed":"2026-09-01T00:00:00Z","last_contact":"2026-09-01T00:00:00Z","tmux_pane":"%9","tmux_socket":"/nonexistent/tmux-sock","task":"`+task+`"}`), 0o644))
+	}
+	dead("reviewer", "aaaaaaaaaaaaaaaa", "old")
+	r := sh(t, p, nil, "as", "reviewer")
+	expect(t, r, 0, "as drops a session whose pane is confirmed closed")
+	tr := field(tokenRe, r.out)
+	dead("builder.bob", "bbbbbbbbbbbbbbbb", "old")
+	r = sh(t, p, nil, "release", "builder.bob_old", "--stale")
+	expect(t, r, 0, "release --stale")
+	if !strings.Contains(r.out, "released builder.bob_old") {
+		t.Errorf("release --stale: %s", r.out)
+	}
+	if r := sh(t, p, nil, "release", "builder.bob", "--stale"); !strings.Contains(r.out, "no session") {
+		t.Errorf("nothing left to drop: %s", r.out)
+	}
+
+	// Messages and directives created by an agent session in the user's name say so.
+	agent := []string{"CLAUDECODE=1", "CLAUDE_CODE_SESSION_ID=s-9"}
+	sh(t, p, agent, "as", "builder.alice", "--task", "ui")
+	expect(t, sh(t, p, agent, "send", "reviewer", "please look"), 0, "send without --from from an agent session")
+	if r := sh(t, p, nil, "check", "reviewer", "--token", tr); !strings.Contains(r.out, "from: user (via claude session builder.alice_ui)") {
+		t.Errorf("via missing: %s", r.out)
+	}
+	must(t, os.WriteFile(filepath.Join(p, "sunstack", "BOARD.md"), []byte("## Objectives\n## User\n## Directives\n"), 0o644))
+	expect(t, sh(t, p, agent, "direct", "Ship on Friday"), 0, "direct from an agent session")
+	b, _ := os.ReadFile(filepath.Join(p, "sunstack", "BOARD.md"))
+	if !strings.Contains(string(b), "(via: claude session builder.alice_ui)") {
+		t.Errorf("directive via missing: %s", b)
+	}
+}

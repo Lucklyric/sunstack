@@ -187,7 +187,7 @@ func (p *Project) Kill(t string) (string, error) {
 	mark, _ := exec.Command("tmux", TmuxArgs(c.TmuxSocket, "show-options", "-p", "-v", "-t", c.TmuxPane, "@sunstack")...).Output()
 	ours := c.Spawned && strings.TrimSpace(string(mark)) == p.Root+"|"+id
 	if !ours && !paneRunsTool(c.TmuxSocket, c.TmuxPane, c.Tool) {
-		return "", fail(ExitFail, "not_running", "pane %s no longer runs %s for %s, so it is left alone; if that session is gone, delete %s to drop its claim", c.TmuxPane, c.Tool, name, c.path)
+		return "", fail(ExitFail, "not_running", "pane %s no longer runs %s for %s, so it is left alone; if that session is gone, close the pane, then sunstack release %s --stale", c.TmuxPane, c.Tool, name, name)
 	}
 	unlock, err := p.lock(id)
 	if err != nil {

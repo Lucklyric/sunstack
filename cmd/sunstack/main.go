@@ -32,6 +32,7 @@ Agent identity (used by the plugin's skills):
   sunstack commit <id> <target> <candidate> <checksum> --token T [--root DIR]
   sunstack commit <id> <target> --delete <checksum> --token T [--root DIR]
   sunstack release <id> --token T [--root DIR]
+  sunstack release <id|id_task> --stale           drop sessions whose tmux pane is confirmed closed (no token needed)
 
 Self-improvement and objectives (the user approves every call; both CLIs prompt for it):
   sunstack amend <id> <pillars.md|AGENT.md> <candidate> <checksum> --summary "..." [--root DIR]
@@ -327,7 +328,7 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 		return nil
 
 	case "release":
-		a, err := parse(rest, "root token", "")
+		a, err := parse(rest, "root token", "stale")
 		if err == nil {
 			err = a.atMost(1, "release")
 		}
@@ -340,6 +341,19 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 		p, err := core.FindProject(a.flags["root"])
 		if err != nil {
 			return err
+		}
+		if a.has("stale") {
+			dropped, err := p.ReleaseStale(a.pos[0])
+			if err != nil {
+				return err
+			}
+			if len(dropped) == 0 {
+				fmt.Fprintln(stdout, "sunstack: no session with a confirmed closed pane")
+			}
+			for _, d := range dropped {
+				fmt.Fprintf(stdout, "sunstack: released %s (its pane is closed)\n", d)
+			}
+			return nil
 		}
 		if err := p.Release(a.pos[0], a.flags["token"]); err != nil {
 			return err
@@ -577,7 +591,8 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 				to = append(to, t)
 			}
 		}
-		key, err := p.Direct(a.pos[0], to)
+		tool, session := detectTool()
+		key, err := p.Direct(a.pos[0], to, p.CallerLabel(tool, session, os.Getenv("TMUX_PANE"), tmuxSocket()))
 		if err != nil {
 			return err
 		}
@@ -668,8 +683,10 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 		if err != nil {
 			return err
 		}
+		tool, session := detectTool()
 		r, err := p.Send(core.SendOptions{To: a.pos[0], Body: a.pos[1], Type: a.flags["type"], ReplyTo: a.flags["reply-to"],
-			From: a.flags["from"], Token: a.flags["token"], NoNudge: a.has("no-nudge")})
+			From: a.flags["from"], Token: a.flags["token"], NoNudge: a.has("no-nudge"),
+			Via: p.CallerLabel(tool, session, os.Getenv("TMUX_PANE"), tmuxSocket())})
 		if err != nil {
 			return err
 		}
@@ -711,7 +728,11 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 				fmt.Fprintln(stdout, "no messages")
 			}
 			for _, m := range ms {
-				fmt.Fprintf(stdout, "===== %s (%s) =====\nfrom: %s\ntype: %s\nat: %s\n", m.ID, m.State, m.From, m.Type, m.At)
+				from := m.From
+				if m.Via != "" {
+					from += " (via " + m.Via + ")"
+				}
+				fmt.Fprintf(stdout, "===== %s (%s) =====\nfrom: %s\ntype: %s\nat: %s\n", m.ID, m.State, from, m.Type, m.At)
 				if m.ReplyTo != "" {
 					fmt.Fprintf(stdout, "reply_to: %s\n", m.ReplyTo)
 				}
@@ -869,7 +890,7 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 		return health(a.flags["root"], stdout)
 
 	case "install", "update", "uninstall":
-		a, err := parse(rest, "", "claude codex yes")
+		a, err := parse(rest, "", "claude codex yes skip-binary")
 		if err != nil {
 			return err
 		}
@@ -877,12 +898,12 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 		if !t.Claude && !t.Codex {
 			return &core.Error{Code: core.ExitFail, Reason: "no_cli", Msg: "neither claude nor codex found on PATH"}
 		}
-		return lifecycle(cmd, t, a.has("yes"), stdin, stdout)
+		return lifecycle(cmd, t, a.has("yes"), a.has("skip-binary"), rest, stdin, stdout)
 	}
 	return &core.Error{Code: core.ExitUsage, Reason: "usage", Msg: "unknown command: " + cmd + " (see sunstack help)"}
 }
 
-func lifecycle(cmd string, t setup.Targets, yes bool, stdin io.Reader, out io.Writer) error {
+func lifecycle(cmd string, t setup.Targets, yes, skipBinary bool, args []string, stdin io.Reader, out io.Writer) error {
 	var failed []string
 	step := func(name string, err error) {
 		if err != nil {
@@ -896,7 +917,7 @@ func lifecycle(cmd string, t setup.Targets, yes bool, stdin io.Reader, out io.Wr
 			step("claude plugin", setup.InstallClaude(out))
 			if setup.HasClaudeRules() {
 				fmt.Fprintf(out, "Claude Code already has the sunstack permission rules\n")
-			} else if yes || setup.Confirm(stdin, out, fmt.Sprintf("Update %s: allow %q (no prompt before each call), and ask before sunstack amend, hire, rename, fire and kill (you approve every rule change and every new or deleted agent)?", setup.ClaudeSettingsPath(), setup.AllowRule), false) {
+			} else if yes || setup.Confirm(stdin, out, fmt.Sprintf("Update %s: allow %q (no prompt before each call), and ask before sunstack amend, hire, rename, fire, kill and direct (you approve every rule change and every new or deleted agent)?", setup.ClaudeSettingsPath(), setup.AllowRule), false) {
 				_, err := setup.SetClaudeRules(true)
 				step("permission rules", err)
 				if err == nil {
@@ -911,22 +932,36 @@ func lifecycle(cmd string, t setup.Targets, yes bool, stdin io.Reader, out io.Wr
 			err := setup.SetCodexRules(true)
 			step("codex rule", err)
 			if err == nil {
-				fmt.Fprintf(out, "wrote %s: Codex asks before sunstack amend, hire, rename, fire and kill\n", setup.CodexRulesPath())
+				fmt.Fprintf(out, "wrote %s: Codex asks before sunstack amend, hire, rename, fire, kill and direct\n", setup.CodexRulesPath())
 			}
 			if setup.CodexAutoReviewsApprovals() {
 				fmt.Fprintln(out, "note: your Codex config sets approvals_reviewer, so Codex approval prompts go to an automatic reviewer, not to you. The rule then cannot guarantee you see each amend; the skill still asks you before every rule change.")
 			}
 		}
 	case "update":
-		if version == "dev" {
+		switch {
+		case skipBinary:
+		case version == "dev":
 			fmt.Fprintln(out, "development build: skipping the binary update")
-		} else if latest, err := setup.LatestVersion(); err != nil {
-			step("check latest release", err)
-		} else if latest != version {
-			fmt.Fprintf(out, "updating sunstack %s -> %s\n", version, latest)
-			step("binary update", setup.SelfUpdate(latest))
-		} else {
-			fmt.Fprintf(out, "sunstack %s is the latest release\n", version)
+		default:
+			if latest, err := setup.LatestVersion(); err != nil {
+				step("check latest release", err)
+			} else if latest != version {
+				fmt.Fprintf(out, "updating sunstack %s -> %s\n", version, latest)
+				if err := setup.SelfUpdate(latest); err != nil {
+					step("binary update", err)
+				} else if exe, err := os.Executable(); err == nil {
+					// Let the new binary update the plugin and apply its own rules.
+					c := exec.Command(exe, append([]string{"update", "--skip-binary"}, args...)...)
+					c.Stdin, c.Stdout, c.Stderr = stdin, out, out
+					if err := c.Run(); err != nil {
+						return &core.Error{Code: core.ExitFail, Reason: "update_failed", Msg: "the new binary could not finish the update: " + err.Error()}
+					}
+					return nil
+				}
+			} else {
+				fmt.Fprintf(out, "sunstack %s is the latest release\n", version)
+			}
 		}
 		if t.Claude {
 			step("claude plugin", setup.UpdateClaude(out))
@@ -992,7 +1027,7 @@ func health(root string, out io.Writer) error {
 	cs = append(cs, core.Check{Level: "ok", Area: "install", Msg: "sunstack " + version})
 	if _, err := exec.LookPath("claude"); err == nil {
 		if setup.HasClaudeRules() {
-			cs = append(cs, core.Check{Level: "ok", Area: "install", Msg: "Claude Code allows sunstack and asks before amend, hire, rename, fire and kill"})
+			cs = append(cs, core.Check{Level: "ok", Area: "install", Msg: "Claude Code allows sunstack and asks before amend, hire, rename, fire, kill and direct"})
 		} else {
 			if setup.HasAllowRule() {
 				cs = append(cs, core.Check{Level: "warn", Area: "migrate", Msg: "Claude Code permission rules are from an older sunstack", Fix: "sunstack update"})
@@ -1004,13 +1039,13 @@ func health(root string, out io.Writer) error {
 	if _, err := exec.LookPath("codex"); err == nil {
 		switch setup.CodexRulesState() {
 		case "current":
-			cs = append(cs, core.Check{Level: "ok", Area: "install", Msg: "Codex asks before amend, hire, rename, fire and kill (" + setup.CodexRulesPath() + ")"})
+			cs = append(cs, core.Check{Level: "ok", Area: "install", Msg: "Codex asks before amend, hire, rename, fire, kill and direct (" + setup.CodexRulesPath() + ")"})
 		case "outdated":
 			cs = append(cs, core.Check{Level: "warn", Area: "migrate", Msg: "Codex rules are from an older sunstack", Fix: "sunstack update"})
 		case "foreign":
 			cs = append(cs, core.Check{Level: "warn", Area: "install", Msg: setup.CodexRulesPath() + " was not written by sunstack", Fix: "merge the sunstack rules by hand"})
 		default:
-			cs = append(cs, core.Check{Level: "warn", Area: "install", Msg: "Codex rules for amend, hire, rename, fire and kill are missing", Fix: "sunstack install --codex"})
+			cs = append(cs, core.Check{Level: "warn", Area: "install", Msg: "Codex rules for amend, hire, rename, fire, kill and direct are missing", Fix: "sunstack install --codex"})
 		}
 		if setup.CodexAutoReviewsApprovals() {
 			cs = append(cs, core.Check{Level: "warn", Area: "install", Msg: "Codex approvals_reviewer sends approval prompts to an automatic reviewer; rule changes rely on the skill asking you"})

@@ -1,6 +1,6 @@
 ---
 name: fire
-description: Remove an agent from this project's Sunstack team after the user approves, checking that its files are committed and nothing is lost. Use when the user says "fire", "sunstack fire", "/sunstack:fire", "remove the <role> agent", "we no longer need <id>", or asks to delete an agent.
+description: Remove an agent from this project's Sunstack team after the user approves, checking that its files are committed and nothing is lost. Use when the user says "sunstack fire", "/sunstack:fire", "remove the <role> agent from the team", "we no longer need <agent id>", or asks to delete a Sunstack agent. Only for projects with a Sunstack team (a sunstack/ folder).
 ---
 
 # Sunstack: fire
@@ -10,6 +10,7 @@ archive. It needs the user's explicit approval.
 
 ## Rules
 
+- If there is no Sunstack team here (no `sunstack/PROTOCOL.md` in this folder or above), say so in one line and stop; the checkup skill sets one up.
 - Run every `sunstack` command on its own, with nothing chained after it.
 - Ask with AskUserQuestion if you have it, otherwise as numbered options in the conversation;
   then end your turn and wait. No answer or a cancel is not approval.

@@ -1,6 +1,6 @@
 ---
 name: as
-description: Take on a Sunstack agent identity (for example builder.alice, or just builder when there is one) in this project, as a new session or alongside other sessions already working as that agent. Use when the user says "as <id>", "sunstack as <id>", "/sunstack:as", "be the builder", "take on whichever agent fits", "join builder.alice", or asks to pick up or switch to a Sunstack agent.
+description: Take on a Sunstack agent identity (for example builder.alice) in this project, as a new session or alongside other sessions already working as that agent. Use when the user says "sunstack as <id>", "/sunstack:as", "take on the builder agent", "join builder.alice", or asks to pick up or switch to a Sunstack agent. Only for projects with a Sunstack team (a sunstack/ folder).
 ---
 
 # Sunstack: as
@@ -11,6 +11,7 @@ as the same agent, like one person on several tasks; each has its own claim and 
 
 ## Before you start
 
+- If there is no Sunstack team here (no `sunstack/PROTOCOL.md` in this folder or above), say so in one line and stop; the checkup skill sets one up.
 - If this session already holds a Sunstack identity, finish it first: run the save skill if
   there is anything worth keeping, then the release skill. Then take on the new one.
 - Run every `sunstack` command on its own, with nothing chained after it (no `; echo ...`),

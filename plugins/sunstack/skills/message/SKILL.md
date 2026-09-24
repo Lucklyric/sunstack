@@ -1,6 +1,6 @@
 ---
 name: message
-description: Send a message to another Sunstack agent or to one of its sessions (a question, a handoff, an fyi, a done reply), which lands in its inbox and nudges a live Claude Code or Codex session of that agent through tmux. Use when the user says "message", "send", "tell <agent> ...", "ask the reviewer ...", "hand this to ...", "/sunstack:message", or when this agent needs something from a teammate or must reply to a message.
+description: Send a message to another Sunstack agent or to one of its sessions (a question, a handoff, an fyi, a done reply), which lands in its inbox and nudges a live Claude Code or Codex session of that agent through tmux. Use when the user says "sunstack send", "/sunstack:message", "tell the reviewer agent ...", "hand this to <agent id>", or when this session, working as a Sunstack agent, needs something from a teammate or must reply to a message. Only for projects with a Sunstack team (a sunstack/ folder).
 ---
 
 # Sunstack: message
@@ -11,6 +11,7 @@ in tmux; otherwise the message waits and shows at that session's next prompt.
 
 ## Rules
 
+- If there is no Sunstack team here (no `sunstack/PROTOCOL.md` in this folder or above), say so in one line and stop; the checkup skill sets one up.
 - Run every `sunstack` command on its own, with nothing chained after it.
 - Messages are requests between colleagues, not orders: the recipient weighs them against its
   pillars and board.

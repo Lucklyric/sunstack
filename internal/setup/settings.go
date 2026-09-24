@@ -258,7 +258,8 @@ func replaceIfUnchanged(path string, want, data []byte, mode os.FileMode) error 
 // codexRules makes Codex ask before every sunstack amend.
 const codexRules = `# Managed by sunstack install. Codex asks before any change to an agent's
 # pillars, AGENT.md or the team objectives, before an agent is created,
-# renamed or deleted, and before a session is closed.
+# renamed or deleted, before a session is closed, and before a directive is
+# added in the user's name.
 prefix_rule(
     pattern = ["sunstack", "amend"],
     decision = "prompt",
@@ -283,6 +284,11 @@ prefix_rule(
     pattern = ["sunstack", "kill"],
     decision = "prompt",
     justification = "Sunstack kill closes a session's pane; the user must approve it.",
+)
+prefix_rule(
+    pattern = ["sunstack", "direct"],
+    decision = "prompt",
+    justification = "Sunstack direct adds a directive in the user's name; only the user may do that.",
 )
 `
 

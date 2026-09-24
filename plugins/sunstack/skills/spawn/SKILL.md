@@ -1,12 +1,13 @@
 ---
 name: spawn
-description: Start a new Claude Code or Codex session as a Sunstack agent in a tmux window, list live sessions, ask a session to finish (dismiss), or close one at once (kill). Use when the user says "spawn", "start a session for <agent>", "open another builder", "get the reviewer working on this", "who is running", "sessions", "dismiss", "stop <agent>", "kill <session>", "close that session", "/sunstack:spawn", or when a message waits for an agent that has no live session.
+description: Start a new Claude Code or Codex session as a Sunstack agent in a tmux window, list live Sunstack sessions, ask a session to finish (dismiss), or close one at once (kill). Use when the user says "sunstack spawn", "/sunstack:spawn", "start a session for <agent id>", "open another builder session", "which Sunstack sessions are running", "sunstack sessions", "dismiss <agent id>", "kill <session name>", or when a message waits for an agent that has no live session. Only for projects with a Sunstack team (a sunstack/ folder).
 ---
 
 # Sunstack: spawn
 
 ## Rules
 
+- If there is no Sunstack team here (no `sunstack/PROTOCOL.md` in this folder or above), say so in one line and stop; the checkup skill sets one up.
 - Run every `sunstack` command on its own, with nothing chained after it.
 - Starting a session starts a paid model session: confirm with the user every time (agent,
   tool, task label, first instruction). Closing one needs a confirm too.

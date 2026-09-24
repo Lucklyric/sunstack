@@ -44,7 +44,7 @@ func (it Item) Ref() string { return it.Owner + "#" + it.Key }
 
 var (
 	itemRe    = regexp.MustCompile(`^- (\d{4}-\d{2}-\d{2}) (O\d+|KR\d+|D\d+)\b\s*(?:\[(O\d+)\])?\s*(.*)$`)
-	attrRe    = regexp.MustCompile(`\((due|needs|to):\s*([^)]*)\)`)
+	attrRe    = regexp.MustCompile(`\((due|needs|to|via):\s*([^)]*)\)`)
 	alignedRe = regexp.MustCompile(`(?m)^aligned:\s*D(\d+)\s*$`)
 )
 
@@ -392,7 +392,7 @@ func (p *Project) BoardText(id string) (string, error) {
 
 // Direct appends a dated directive from the user to BOARD.md. to lists agent
 // IDs or titles; empty means all.
-func (p *Project) Direct(text string, to []string) (string, error) {
+func (p *Project) Direct(text string, to []string, via string) (string, error) {
 	text = strings.Join(strings.Fields(text), " ")
 	if text == "" {
 		return "", fail(ExitUsage, "missing_arguments", "the directive text is empty")
@@ -440,6 +440,9 @@ func (p *Project) Direct(text string, to []string) (string, error) {
 	}
 	key := fmt.Sprintf("D%d", next)
 	entry := fmt.Sprintf("- %s %s %s (to: %s)", today(), key, text, strings.Join(to, ", "))
+	if via != "" {
+		entry += " (via: " + via + ")"
+	}
 	doc = appendToSection(doc, "Directives", entry)
 	if err := writeAtomic(p.teamBoardPath(), doc); err != nil {
 		return "", fail(ExitFail, "fs", "%v", err)

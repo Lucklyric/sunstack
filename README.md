@@ -20,7 +20,7 @@ curl -fsSL https://raw.githubusercontent.com/Lucklyric/sunstack/main/install.sh 
 sunstack install
 ```
 
-The first line puts the `sunstack` binary in `~/.local/bin`. The second adds the plugin to Claude Code and Codex (whichever are on your PATH, or pick one with `--claude` / `--codex`). For Claude Code it also offers permission rules: allow `Bash(sunstack *)`, so you are not asked before every call, and ask before `sunstack amend`, `hire`, `rename`, `fire` and `kill`. For Codex it writes `~/.codex/rules/sunstack.rules` with the same asks.
+The first line puts the `sunstack` binary in `~/.local/bin`. The second adds the plugin to Claude Code and Codex (whichever are on your PATH, or pick one with `--claude` / `--codex`). For Claude Code it also offers permission rules: allow `Bash(sunstack *)`, so you are not asked before every call, and ask before `sunstack amend`, `hire`, `rename`, `fire`, `kill` and `direct`. For Codex it writes `~/.codex/rules/sunstack.rules` with the same asks.
 
 Keep it current with `sunstack update`. Remove it with `sunstack uninstall`.
 
@@ -60,9 +60,11 @@ A message is always a file in the recipient's inbox (`sunstack/_local/inbox/<id>
 
 Several sessions of one agent share its inbox; a session takes a message before working on it, so only one handles it.
 
+A nudge is typed only while the CLI shows its normal input box: never while it shows a menu, a question or an approval prompt (checked again right before Enter), and it carries no digits or names that could pick an option. Otherwise the message waits for the hook or the next check.
+
 ## What needs your approval
 
-Agents update their own boards and context on their own. Changing a pillar, an agent's `AGENT.md` or the team objectives, and creating, renaming or deleting an agent, always waits for you: `sunstack install` sets Claude Code and Codex to ask before `sunstack amend`, `hire`, `rename`, `fire` and `kill`. If your Codex config sets `approvals_reviewer`, Codex sends those prompts to its automatic reviewer instead, and the skills' own questions are what keep you in the loop.
+Agents update their own boards and context on their own. Changing a pillar, an agent's `AGENT.md` or the team objectives, and creating, renaming or deleting an agent, always waits for you: `sunstack install` sets Claude Code and Codex to ask before `sunstack amend`, `hire`, `rename`, `fire`, `kill` and `direct`. If your Codex config sets `approvals_reviewer`, Codex sends those prompts to its automatic reviewer instead, and the skills' own questions are what keep you in the loop.
 
 Every agent is `<title>.<name>`: the title is the role, the name is one agent in it, so a project can have `researcher.macro` and `researcher.equities`. Each has its own `AGENT.md` copy, pillars and context. A new agent's role comes from `~/.sunstack/library/` (your own, saved with `sunstack library save`), then the built-in `builder` and `reviewer`, then another agent of the same role in the project.
 

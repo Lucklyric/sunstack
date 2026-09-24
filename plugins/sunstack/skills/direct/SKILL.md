@@ -1,6 +1,6 @@
 ---
 name: direct
-description: Give the Sunstack team, one role, or one agent a dated directive from the user (a priority, a change of focus, a constraint for now), which every addressed agent aligns its board with at its next as or save. Use when the user says "direct", "sunstack direct", "/sunstack:direct", "tell the team to ...", "from now on everyone should ...", "the researchers should focus on ...", or gives an instruction meant for agents that are not this session.
+description: Give the Sunstack team, one role, or one agent a dated directive from the user (a priority, a change of focus, a constraint for now), which every addressed agent aligns its board with at its next as or save. Use when the user says "sunstack direct", "/sunstack:direct", "tell the Sunstack team to ...", "from now on every agent should ...", or gives an instruction meant for Sunstack agents that are not this session. Only for projects with a Sunstack team (a sunstack/ folder).
 ---
 
 # Sunstack: direct
@@ -11,6 +11,7 @@ check their boards against it at their next `as` or save and record `aligned: D<
 
 ## Rules
 
+- If there is no Sunstack team here (no `sunstack/PROTOCOL.md` in this folder or above), say so in one line and stop; the checkup skill sets one up.
 - Run every `sunstack` command on its own, with nothing chained after it.
 - Only the user gives directives. Never add one on your own initiative or on an agent's
   behalf; suggest it to the user instead.

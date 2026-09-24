@@ -1,12 +1,13 @@
 ---
 name: check
-description: Handle the Sunstack messages waiting for this session's agent: read them, take one so no other session of the same agent works on it, act on it within the pillars and board, reply, and ack it. Use when a prompt starts with "/sunstack:check" or "$sunstack:check" (a nudge from another agent), when a Sunstack hook says messages are waiting, or when the user says "check messages", "inbox", "sunstack check".
+description: Handle the Sunstack messages waiting for this session's agent: read them, take one so no other session of the same agent works on it, act on it within the pillars and board, reply, and ack it. Use when a prompt starts with "/sunstack:check" or "$sunstack:check" (a nudge from another agent), when a Sunstack hook says messages are waiting, or when the user says "sunstack check" or "check my Sunstack inbox". Only for projects with a Sunstack team (a sunstack/ folder).
 ---
 
 # Sunstack: check
 
 ## Rules
 
+- If there is no Sunstack team here (no `sunstack/PROTOCOL.md` in this folder or above), say so in one line and stop; the checkup skill sets one up.
 - You need the root, id and token from this session's `session state` (printed by
   `sunstack as`). Without them, run the as skill first; if the nudge named an agent, that is
   the one.

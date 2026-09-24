@@ -284,6 +284,8 @@ func (p *Project) As(o AsOptions) (*AsResult, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Sessions whose pane is confirmed closed are gone; do not ask to join them.
+	claims, _ = p.pruneStale(id, claims, "")
 	res := &AsResult{ID: id}
 	claimed := now()
 	var replace *Live // a claim this one replaces
@@ -500,4 +502,74 @@ func (p *Project) Release(id, token string) error {
 	}
 	p.LogEvent("release", id)
 	return nil
+}
+
+// paneGone reports whether a claim's tmux pane is confirmed closed: its tmux
+// server's socket is gone, or the server answers and does not list the pane.
+// When tmux cannot be asked, the pane is not assumed gone.
+func paneGone(socket, pane string) bool {
+	if socket == "" || pane == "" {
+		return false
+	}
+	if _, err := os.Stat(socket); os.IsNotExist(err) {
+		return true
+	}
+	if _, err := exec.LookPath("tmux"); err != nil {
+		return false
+	}
+	out, err := exec.Command("tmux", TmuxArgs(socket, "list-panes", "-a", "-F", "#{pane_id}")...).Output()
+	if err != nil {
+		return false
+	}
+	for _, l := range strings.Split(string(out), "\n") {
+		if strings.TrimSpace(l) == pane {
+			return false
+		}
+	}
+	return true
+}
+
+// pruneStale drops claims whose pane is confirmed closed, puts their taken
+// messages back and returns the claims left. Caller holds id's lock.
+func (p *Project) pruneStale(id string, claims []*Live, only string) ([]*Live, []string) {
+	var keep []*Live
+	var dropped []string
+	for _, c := range claims {
+		if (only == "" || c.Label(id) == only) && paneGone(c.TmuxSocket, c.TmuxPane) {
+			if p.removeLive(c) == nil {
+				os.RemoveAll(p.sessionTmp(id, c.Token))
+				dropped = append(dropped, c.Label(id))
+				p.LogEvent("prune", c.Label(id), "pane="+c.TmuxPane)
+				continue
+			}
+		}
+		keep = append(keep, c)
+	}
+	if len(dropped) > 0 {
+		p.requeue(id, keep)
+	}
+	return keep, dropped
+}
+
+// ReleaseStale drops the claims of an agent (or of one session) whose tmux
+// pane is confirmed closed. It needs no token: nobody can still use them.
+func (p *Project) ReleaseStale(target string) ([]string, error) {
+	id, session := target, ""
+	if i := strings.LastIndex(target, "_"); i > 0 && p.HasAgent(target[:i]) {
+		id, session = target[:i], target
+	}
+	if !ValidID(id) || !p.HasAgent(id) {
+		return nil, fail(ExitFail, "not_found", "no agent %s", id)
+	}
+	unlock, err := p.lock(id)
+	if err != nil {
+		return nil, err
+	}
+	defer unlock()
+	claims, err := p.Claims(id)
+	if err != nil {
+		return nil, err
+	}
+	_, dropped := p.pruneStale(id, claims, session)
+	return dropped, nil
 }

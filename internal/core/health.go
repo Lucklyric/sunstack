@@ -109,7 +109,7 @@ func (p *Project) Health() []Check {
 		for i, c := range s.Claims {
 			if s.Where[i] == "pane closed" {
 				cs = append(cs, warn("runtime", fmt.Sprintf("session %s is claimed from pane %s, which is gone", c.Label(s.ID), c.TmuxPane),
-					"take it over with sunstack as "+s.ID+" --takeover --expect "+c.Token+", or delete "+c.path))
+					"sunstack release "+c.Label(s.ID)+" --stale"))
 			}
 		}
 	}
