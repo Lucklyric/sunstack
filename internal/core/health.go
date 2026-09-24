@@ -22,6 +22,7 @@ type Check struct {
 func ok(area, msg string) Check          { return Check{"ok", area, msg, ""} }
 func warn(area, msg, fix string) Check   { return Check{"warn", area, msg, fix} }
 func failed(area, msg, fix string) Check { return Check{"fail", area, msg, fix} }
+func next(area, msg, fix string) Check   { return Check{"next", area, msg, fix} }
 
 // Health runs the read-only project, file and runtime checks (design §6
 // health). It never changes anything.
@@ -117,5 +118,59 @@ func (p *Project) Health() []Check {
 	if st, err := os.Stat(p.EventsPath()); err == nil && st.Size() > 5<<20 {
 		cs = append(cs, warn("runtime", fmt.Sprintf("events.log is %d MB", st.Size()>>20), "archive or truncate it"))
 	}
+	cs = append(cs, p.leftoverTmp()...)
+
+	// Next steps: nothing is wrong, but something is waiting on the user.
+	status := p.Status()
+	if len(status) == 0 {
+		cs = append(cs, next("team", "no agents hired yet", "use the recruit skill, or sunstack hire <title> (see sunstack library)"))
+	}
+	for _, s := range status {
+		if n := len(s.Proposals); n > 0 {
+			cs = append(cs, next("team", fmt.Sprintf("%s has %d rule change(s) waiting for your approval", s.ID, n),
+				"take on "+s.ID+" and save; the save skill asks you about each one"))
+		}
+		if s.Inbox > 0 && s.Claim == nil {
+			cs = append(cs, next("team", fmt.Sprintf("%s has %d unread message(s) and no session", s.ID, s.Inbox),
+				"take on "+s.ID+" to handle them (sunstack inbox "+s.ID+" lists them)"))
+		}
+	}
 	return cs
+}
+
+// leftoverTmp reports staging files that no running session owns: a folder
+// under _local/tmp/ for an agent that is not claimed, or for a shared owner
+// (_team, _recruit) untouched for an hour.
+func (p *Project) leftoverTmp() []Check {
+	var cs []Check
+	dirs, _ := os.ReadDir(p.local("tmp"))
+	for _, d := range dirs {
+		if !d.IsDir() {
+			continue
+		}
+		owner := d.Name()
+		if strings.HasPrefix(owner, "_") {
+			if newestMod(p.local("tmp", owner)).After(time.Now().Add(-time.Hour)) {
+				continue
+			}
+		} else if c, _ := p.ReadLive(owner); c != nil {
+			continue
+		}
+		if files, _ := os.ReadDir(p.local("tmp", owner)); len(files) > 0 {
+			cs = append(cs, warn("runtime", fmt.Sprintf("%d leftover staging file(s) in tmp/%s", len(files), owner),
+				"remove "+p.local("tmp", owner)))
+		}
+	}
+	return cs
+}
+
+func newestMod(dir string) time.Time {
+	var t time.Time
+	files, _ := os.ReadDir(dir)
+	for _, f := range files {
+		if info, err := f.Info(); err == nil && info.ModTime().After(t) {
+			t = info.ModTime()
+		}
+	}
+	return t
 }

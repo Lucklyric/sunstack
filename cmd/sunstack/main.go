@@ -607,7 +607,7 @@ func health(root string, out io.Writer) error {
 	if p, err := core.FindProject(root); err == nil {
 		cs = p.Health()
 	} else {
-		cs = append(cs, core.Check{Level: "fail", Area: "project", Msg: "no sunstack/ here or above", Fix: "sunstack init"})
+		cs = append(cs, core.Check{Level: "fail", Area: "project", Msg: "no sunstack/ here or above", Fix: "sunstack init (sets up sunstack/ in the current folder)"})
 	}
 	cs = append(cs, core.Check{Level: "ok", Area: "install", Msg: "sunstack " + version})
 	if _, err := exec.LookPath("claude"); err == nil {
@@ -640,6 +640,25 @@ func health(root string, out io.Writer) error {
 		}
 		if c.Level == "fail" {
 			failedN++
+		}
+	}
+	// Ranked summary: failures first, then warnings, then waiting work.
+	var steps []string
+	seen := map[string]bool{}
+	for _, level := range []string{"fail", "warn", "next"} {
+		for _, c := range cs {
+			if c.Level == level && c.Fix != "" && !seen[c.Fix] {
+				seen[c.Fix] = true
+				steps = append(steps, fmt.Sprintf("[%s] %s: %s", level, c.Msg, c.Fix))
+			}
+		}
+	}
+	if len(steps) == 0 {
+		fmt.Fprintf(out, "\nnext steps: none, all good\n")
+	} else {
+		fmt.Fprintf(out, "\nnext steps:\n")
+		for i, s := range steps {
+			fmt.Fprintf(out, "%d. %s\n", i+1, s)
 		}
 	}
 	if failedN > 0 {

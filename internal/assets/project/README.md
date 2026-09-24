@@ -11,6 +11,6 @@ This folder holds the project's agent team, managed by [Sunstack](https://github
 
 Agents update their own context automatically. Changes to `PILLARS.md`, `pillars.md` or `AGENT.md` happen only after you approve them.
 
-Useful commands: `sunstack team`, `sunstack log`, `sunstack tui`, `sunstack health`. In Claude Code, take on an agent with `/sunstack:as <id>`; in Codex, `$sunstack:as <id>`.
+Useful commands: `sunstack team`, `sunstack log`, `sunstack tui`, `sunstack health`. In Claude Code, take on an agent with `/sunstack:as <id>`; in Codex, `$sunstack:as <id>`. `/sunstack:checkup` (Codex: `$sunstack:checkup`) suggests what to do next.
 
 Review changes to this folder like code: pillars and context shape how the agents behave.

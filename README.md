@@ -30,6 +30,7 @@ cd your-project
 sunstack init                 # sunstack/, the AGENTS.md block, the .gitignore line
 sunstack hire builder alice   # or ask an agent to recruit one from a description
 sunstack                      # the team dashboard
+sunstack health               # checks, then a ranked list of next steps
 ```
 
 Then, in Claude Code, `/sunstack:as builder.alice` (in Codex, `$sunstack:as builder.alice`).
@@ -48,6 +49,7 @@ Skills, as `/sunstack:<name>` in Claude Code and `$sunstack:<name>` in Codex:
 - `save`: save what it learned, and ask you to approve any rule change
 - `release`: hand the agent back
 - `recruit`: describe a role in a sentence; it drafts the agent for your approval
+- `checkup`: check the setup and team, then walk you through the next steps (init, cleanup, updates, pending approvals, recruiting)
 
 ## What needs your approval
 

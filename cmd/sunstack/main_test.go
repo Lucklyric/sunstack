@@ -424,9 +424,17 @@ func TestTeamCommands(t *testing.T) {
 	if b, _ := os.ReadFile(filepath.Join(p, "sunstack", "PROTOCOL.md")); string(b) != "old\n" {
 		t.Error("plain init must not replace PROTOCOL.md")
 	}
-	if r := sh(t, p, home, "health"); !strings.Contains(r.out, "PROTOCOL.md differs") {
-		t.Errorf("health should flag the old protocol: %q", r.out)
+	if r := sh(t, p, home, "health"); !strings.Contains(r.out, "PROTOCOL.md differs") ||
+		!strings.Contains(r.out, "next steps:") || !strings.Contains(r.out, "[next] no agents hired yet") {
+		t.Errorf("health should flag the old protocol and suggest hiring: %q", r.out)
 	}
+	// Staging files of an unclaimed agent are reported as leftovers.
+	must(t, os.MkdirAll(filepath.Join(p, "sunstack", "_local", "tmp", "builder.gone"), 0o755))
+	must(t, os.WriteFile(filepath.Join(p, "sunstack", "_local", "tmp", "builder.gone", "context.md"), []byte("x"), 0o644))
+	if r := sh(t, p, home, "health"); !strings.Contains(r.out, "leftover staging file(s) in tmp/builder.gone") {
+		t.Errorf("health should report leftover tmp: %q", r.out)
+	}
+	must(t, os.RemoveAll(filepath.Join(p, "sunstack", "_local", "tmp", "builder.gone")))
 	sh(t, p, home, "init", "--refresh")
 	if b, _ := os.ReadFile(filepath.Join(p, "sunstack", "PROTOCOL.md")); !strings.HasPrefix(string(b), "# Sunstack protocol") {
 		t.Errorf("init --refresh should replace PROTOCOL.md: %q", b)
