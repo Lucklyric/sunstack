@@ -3,7 +3,7 @@
 This folder holds the project's agent team, managed by [Sunstack](https://github.com/Lucklyric/sunstack).
 
 - `PILLARS.md`: rules for every agent in this project.
-- `<id>/AGENT.md`: one agent's role and way of working. `<id>` is `<title>` or `<title>.<name>`.
+- `<id>/AGENT.md`: one agent's role and way of working. `<id>` is `<title>.<name>`: the title is the role, the name is this one agent.
 - `<id>/pillars.md`: rules for that agent only (optional).
 - `<id>/context.md` and `<id>/threads/`: what that agent has learned.
 - `PROTOCOL.md`: how agents read and write these files.

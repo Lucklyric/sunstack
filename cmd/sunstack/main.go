@@ -37,7 +37,10 @@ Self-improvement (the user approves every call; both CLIs prompt for it):
 Team (run these yourself):
   sunstack init [--refresh]                       create sunstack/ here, the AGENTS.md block and .gitignore line;
                                                   --refresh also updates PROTOCOL.md and README.md to this version
-  sunstack hire <title> [name] [--file DRAFT]     add an agent from a template, or from an approved draft
+  sunstack hire <title> <name> [--file DRAFT | --from ID]
+                                                  add agent <title>.<name> from a template, an approved draft,
+                                                  or a colleague's role (used when no template exists)
+  sunstack rename <id> <title>.<name>             rename an agent nobody holds, keeping its context
   sunstack fire <id> [--discard]                  delete an agent nobody holds
   sunstack library                                list templates (personal, then built-in)
   sunstack library show <title>                   print a template's AGENT.md
@@ -330,7 +333,7 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 		return nil
 
 	case "hire":
-		a, err := parse(rest, "root file", "")
+		a, err := parse(rest, "root file from", "")
 		if err == nil {
 			err = a.atMost(2, "hire")
 		}
@@ -341,7 +344,7 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 		if err != nil {
 			return err
 		}
-		o := core.HireOptions{File: a.flags["file"]}
+		o := core.HireOptions{File: a.flags["file"], From: a.flags["from"]}
 		if len(a.pos) > 0 {
 			o.Title = a.pos[0]
 		}
@@ -374,6 +377,27 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 			return err
 		}
 		fmt.Fprintf(stdout, "sunstack: fired %s\n", a.pos[0])
+		return nil
+
+	case "rename":
+		a, err := parse(rest, "root", "")
+		if err == nil {
+			err = a.atMost(2, "rename")
+		}
+		if err != nil {
+			return err
+		}
+		if len(a.pos) < 2 {
+			return missing("id and new id")
+		}
+		p, err := core.FindProject(a.flags["root"])
+		if err != nil {
+			return err
+		}
+		if err := p.Rename(a.pos[0], a.pos[1]); err != nil {
+			return err
+		}
+		fmt.Fprintf(stdout, "sunstack: renamed %s to %s (commit the move under sunstack/)\n", a.pos[0], a.pos[1])
 		return nil
 
 	case "library":
@@ -622,7 +646,7 @@ func health(root string, out io.Writer) error {
 		case "current":
 			cs = append(cs, core.Check{Level: "ok", Area: "install", Msg: "Codex asks before amend, hire and fire (" + setup.CodexRulesPath() + ")"})
 		case "outdated":
-			cs = append(cs, core.Check{Level: "warn", Area: "install", Msg: "Codex rules are from an older sunstack", Fix: "sunstack update"})
+			cs = append(cs, core.Check{Level: "warn", Area: "migrate", Msg: "Codex rules are from an older sunstack", Fix: "sunstack update"})
 		case "foreign":
 			cs = append(cs, core.Check{Level: "warn", Area: "install", Msg: setup.CodexRulesPath() + " was not written by sunstack", Fix: "merge the sunstack rules by hand"})
 		default:

@@ -29,12 +29,17 @@ func next(area, msg, fix string) Check   { return Check{"next", area, msg, fix} 
 func (p *Project) Health() []Check {
 	var cs []Check
 	// Project.
+	// Checks in the "migrate" area are what an older project needs to match
+	// this version; the checkup skill offers them together.
 	if b, err := os.ReadFile(filepath.Join(p.Dir, "PROTOCOL.md")); err != nil {
 		cs = append(cs, failed("project", "sunstack/PROTOCOL.md is missing", "sunstack init"))
 	} else if !bytes.Equal(b, assets.Protocol()) {
-		cs = append(cs, warn("project", "sunstack/PROTOCOL.md differs from this sunstack version's", "sunstack init --refresh, then review the git diff"))
+		cs = append(cs, warn("migrate", "sunstack/PROTOCOL.md differs from this sunstack version's", "sunstack init --refresh, then review the git diff"))
 	} else {
 		cs = append(cs, ok("project", "sunstack/ with a current PROTOCOL.md at "+p.Root))
+	}
+	if b, err := os.ReadFile(filepath.Join(p.Dir, "README.md")); err == nil && !bytes.Equal(b, assets.Readme()) {
+		cs = append(cs, warn("migrate", "sunstack/README.md differs from this sunstack version's", "sunstack init --refresh, then review the git diff"))
 	}
 	agents, _, _ := readMaybe(filepath.Join(p.Root, "AGENTS.md"))
 	nb := strings.Count(string(agents), assets.RouteBegin)
@@ -45,7 +50,7 @@ func (p *Project) Health() []Check {
 	case nb == 0:
 		cs = append(cs, failed("project", "AGENTS.md has no sunstack block, so agents are not routed to sunstack/", "sunstack init"))
 	case changed && len(updated) > 0:
-		cs = append(cs, warn("project", "AGENTS.md sunstack block is from an older version", "sunstack init"))
+		cs = append(cs, warn("migrate", "AGENTS.md sunstack block is from an older version", "sunstack init"))
 	default:
 		cs = append(cs, ok("project", "AGENTS.md has one current sunstack block"))
 	}
@@ -126,6 +131,10 @@ func (p *Project) Health() []Check {
 		cs = append(cs, next("team", "no agents hired yet", "use the recruit skill, or sunstack hire <title> (see sunstack library)"))
 	}
 	for _, s := range status {
+		if !strings.Contains(s.ID, ".") {
+			cs = append(cs, warn("migrate", s.ID+" has no name; every agent is now <title>.<name>",
+				"sunstack rename "+s.ID+" "+s.ID+".<name>"))
+		}
 		if n := len(s.Proposals); n > 0 {
 			cs = append(cs, next("team", fmt.Sprintf("%s has %d rule change(s) waiting for your approval", s.ID, n),
 				"take on "+s.ID+" and save; the save skill asks you about each one"))

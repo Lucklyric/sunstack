@@ -456,9 +456,8 @@ func TestTeamCommands(t *testing.T) {
 	if !strings.Contains(r.out, "builder\tbuilt-in") {
 		t.Errorf("hire should list templates: %q", r.out)
 	}
-	expect(t, sh(t, p, home, "hire", "nobody"), 1, "unknown template")
-	expect(t, sh(t, p, home, "hire", "builder"), 0, "hire builder")
-	expect(t, sh(t, p, home, "hire", "builder"), 2, "second builder needs a name")
+	expect(t, sh(t, p, home, "hire", "nobody", "xx"), 1, "unknown template")
+	expect(t, sh(t, p, home, "hire", "builder"), 2, "every agent needs a name")
 	expect(t, sh(t, p, home, "hire", "builder", "alice"), 0, "hire builder.alice")
 	expect(t, sh(t, p, home, "hire", "builder", "alice"), 1, "duplicate id")
 	doc, _ := os.ReadFile(filepath.Join(p, "sunstack", "builder.alice", "AGENT.md"))
@@ -469,20 +468,39 @@ func TestTeamCommands(t *testing.T) {
 	// Recruit: an approved draft becomes a custom agent.
 	draft := filepath.Join(p, "draft.md")
 	must(t, os.WriteFile(draft, []byte("---\ntitle: security-reviewer\n---\n## Role\nReviews security only\n"), 0o644))
-	expect(t, sh(t, p, home, "hire", "security-reviewer", "--file", draft), 0, "hire from a draft")
-	doc, _ = os.ReadFile(filepath.Join(p, "sunstack", "security-reviewer", "AGENT.md"))
+	expect(t, sh(t, p, home, "hire", "security-reviewer", "sec", "--file", draft), 0, "hire from a draft")
+	doc, _ = os.ReadFile(filepath.Join(p, "sunstack", "security-reviewer.sec", "AGENT.md"))
 	if !strings.Contains(string(doc), "from: custom") {
 		t.Errorf("draft hire should be from: custom:\n%s", doc)
 	}
-	expect(t, sh(t, p, home, "hire", "other", "--file", draft), 1, "draft title must match")
+	if _, err := os.Stat(draft); err != nil {
+		t.Error("a draft outside _local/tmp/ belongs to the user and must be kept")
+	}
+	expect(t, sh(t, p, home, "hire", "other", "xx", "--file", draft), 1, "draft title must match")
+
+	// A staged recruit draft is removed once hired; a second analyst copies the
+	// role from the first because there is no template.
+	staged := filepath.Join(p, "sunstack", "_local", "tmp", "_recruit", "analyst-1.md")
+	must(t, os.MkdirAll(filepath.Dir(staged), 0o755))
+	must(t, os.WriteFile(staged, []byte("---\ntitle: analyst\n---\n## Role\nAnalyzes\n"), 0o644))
+	expect(t, sh(t, p, home, "hire", "analyst", "one", "--file", staged), 0, "hire a staged draft")
+	if _, err := os.Stat(filepath.Dir(staged)); !os.IsNotExist(err) {
+		t.Error("the staged draft and its empty folder should be removed after hire")
+	}
+	expect(t, sh(t, p, home, "hire", "analyst", "two"), 0, "hire from a colleague")
+	doc, _ = os.ReadFile(filepath.Join(p, "sunstack", "analyst.two", "AGENT.md"))
+	if !strings.Contains(string(doc), "from: analyst.one") || !strings.Contains(string(doc), "name: two") || !strings.Contains(string(doc), "Analyzes") {
+		t.Errorf("colleague hire:\n%s", doc)
+	}
+	expect(t, sh(t, p, home, "hire", "analyst", "three", "--from", "builder.alice"), 1, "--from must share the title")
 
 	// Personal library round trip.
-	expect(t, sh(t, p, home, "library", "save", "security-reviewer"), 0, "library save")
+	expect(t, sh(t, p, home, "library", "save", "security-reviewer.sec"), 0, "library save")
 	r = sh(t, p, home, "library")
 	if !strings.Contains(r.out, "security-reviewer") || !strings.Contains(r.out, "personal") {
 		t.Errorf("library should list the personal template: %q", r.out)
 	}
-	expect(t, sh(t, p, home, "library", "save", "security-reviewer"), 1, "library save refuses to overwrite")
+	expect(t, sh(t, p, home, "library", "save", "security-reviewer.sec"), 1, "library save refuses to overwrite")
 	expect(t, sh(t, p, home, "hire", "security-reviewer", "bob"), 0, "hire from the personal template")
 
 	// team, pillar, inbox, log.
@@ -497,7 +515,23 @@ func TestTeamCommands(t *testing.T) {
 	if !strings.Contains(r.out, "[team] 2026-09-23 team rule") || !strings.Contains(r.out, "[builder.alice] 2026-09-23 own rule") || strings.Contains(r.out, "not a rule") {
 		t.Errorf("pillar: %q", r.out)
 	}
+	// An unnamed agent from an older version still works, health asks to
+	// migrate it, and rename gives it a name.
+	must(t, os.MkdirAll(filepath.Join(p, "sunstack", "builder"), 0o755))
+	must(t, os.WriteFile(filepath.Join(p, "sunstack", "builder", "AGENT.md"), []byte("---\ntitle: builder\nhired: 2026-09-01\n---\n## Role\nOld\n"), 0o644))
+	must(t, os.WriteFile(filepath.Join(p, "sunstack", "builder", "context.md"), []byte("## Current state\n- 2026-09-01 kept\n"), 0o644))
 	expect(t, sh(t, p, home, "pillar", "builder"), 0, "pillar on the exact id builder")
+	if r := sh(t, p, home, "health"); !strings.Contains(r.out, "migrate  builder has no name") {
+		t.Errorf("health should ask to migrate the unnamed agent: %q", r.out)
+	}
+	expect(t, sh(t, p, home, "rename", "builder", "reviewer.x"), 2, "rename keeps the title")
+	expect(t, sh(t, p, home, "rename", "builder", "builder.alice"), 1, "rename onto an existing id")
+	expect(t, sh(t, p, home, "rename", "builder", "builder.old"), 0, "rename")
+	doc, _ = os.ReadFile(filepath.Join(p, "sunstack", "builder.old", "AGENT.md"))
+	ctx, _ := os.ReadFile(filepath.Join(p, "sunstack", "builder.old", "context.md"))
+	if !strings.Contains(string(doc), "name: old") || !strings.Contains(string(ctx), "kept") {
+		t.Errorf("renamed agent:\n%s\n%s", doc, ctx)
+	}
 	expect(t, sh(t, p, home, "pillar", "nobody"), 1, "pillar unknown id")
 	must(t, os.MkdirAll(filepath.Join(p, "sunstack", "_local", "inbox", "builder.alice"), 0o755))
 	must(t, os.WriteFile(filepath.Join(p, "sunstack", "_local", "inbox", "builder.alice", "m1.md"), []byte("---\nfrom: pm\ntype: handoff   # q\nat: 2026-09-23T10:00:00Z\n---\nbody\n"), 0o644))
@@ -510,7 +544,8 @@ func TestTeamCommands(t *testing.T) {
 		t.Errorf("log --id: %q", r.out)
 	}
 
-	// fire refuses a claimed agent and pending messages.
+	// fire and rename refuse a claimed agent; fire refuses pending messages.
+	expect(t, sh(t, p, home, "rename", "builder.alice", "builder.al"), 4, "rename a claimed agent")
 	expect(t, sh(t, p, home, "fire", "builder.alice"), 4, "fire a claimed agent")
 	sh(t, p, home, "release", "builder.alice", "--token", tok)
 	expect(t, sh(t, p, home, "fire", "builder.alice"), 1, "fire with a pending message")

@@ -1,6 +1,6 @@
 ---
 name: as
-description: Take on a Sunstack agent identity (for example builder or builder.alice) in this project, claiming the ID so no other session uses it at the same time. Use when the user says "as <id>", "sunstack as <id>", "/sunstack:as", "be the builder", or asks to pick up or switch to a Sunstack agent.
+description: Take on a Sunstack agent identity (for example builder.alice, or just builder when there is one) in this project, claiming the ID so no other session uses it at the same time. Use when the user says "as <id>", "sunstack as <id>", "/sunstack:as", "be the builder", or asks to pick up or switch to a Sunstack agent.
 ---
 
 # Sunstack: as

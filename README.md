@@ -37,7 +37,7 @@ Then, in Claude Code, `/sunstack:as builder.alice` (in Codex, `$sunstack:as buil
 
 ## Commands
 
-- **Team:** `init`, `hire`, `fire`, `library`, `library save`, `team`, `log`, `inbox`, `pillar`, `health`, `tui`
+- **Team:** `init`, `hire`, `rename`, `fire`, `library`, `library save`, `team`, `log`, `inbox`, `pillar`, `health`, `tui`
 - **Identity (used by the skills):** `as`, `snapshot`, `commit`, `release`
 - **Self-improvement:** `amend`, always approved by the user
 - **Setup:** `install`, `update`, `uninstall`, `version`
@@ -48,14 +48,14 @@ Skills, as `/sunstack:<name>` in Claude Code and `$sunstack:<name>` in Codex:
 - `as`: take on an agent
 - `save`: save what it learned, and ask you to approve any rule change
 - `release`: hand the agent back
-- `recruit`: describe a role in a sentence; it drafts the agent for your approval
-- `checkup`: check the setup and team, then walk you through the next steps (init, cleanup, updates, pending approvals, recruiting)
+- `recruit`: describe a role in a sentence; it asks for anything missing, then drafts the agent (or copies a teammate's role) for your approval
+- `checkup`: check the setup and team, migrate an older project, suggest which agent fits this session, and walk you through the next steps
 
 ## What needs your approval
 
 Agents update their own context on their own. Changing a pillar or an agent's `AGENT.md`, and creating or deleting an agent, always waits for you: `sunstack install` sets Claude Code and Codex to ask before `sunstack amend`, `hire` and `fire`. If your Codex config sets `approvals_reviewer`, Codex sends those prompts to its automatic reviewer instead, and the skills' own questions are what keep you in the loop.
 
-Role templates come from `~/.sunstack/library/` (your own, saved with `sunstack library save`) and then from the built-in `builder` and `reviewer`.
+Every agent is `<title>.<name>`: the title is the role, the name is one agent in it, so a project can have `researcher.macro` and `researcher.equities`. Each has its own `AGENT.md` copy, pillars and context. A new agent's role comes from `~/.sunstack/library/` (your own, saved with `sunstack library save`), then the built-in `builder` and `reviewer`, then another agent of the same role in the project.
 
 ## Development
 

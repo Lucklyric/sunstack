@@ -237,6 +237,7 @@ func (p *Project) instances(title string) []string {
 type HireOptions struct {
 	Title, Name string
 	File        string // an approved AGENT.md draft (recruit)
+	From        string // copy the role from this agent in the project
 }
 
 // Hire creates sunstack/<id>/ from a template or an approved draft.
@@ -255,9 +256,28 @@ func (p *Project) Hire(o HireOptions) (string, error) {
 	if o.Name != "" && !ValidPart(o.Name) {
 		return "", fail(ExitUsage, "usage", "invalid name: %s", o.Name)
 	}
+	if o.File != "" && o.From != "" {
+		return "", fail(ExitUsage, "usage", "use --file or --from, not both")
+	}
 	var doc []byte
 	from := ""
-	if o.File != "" {
+	colleagues := p.instances(o.Title)
+	if o.From == "" && o.File == "" && len(colleagues) > 0 {
+		if _, _, ok := Template(o.Title); !ok {
+			o.From = colleagues[0]
+		}
+	}
+	switch {
+	case o.From != "":
+		if strings.SplitN(o.From, ".", 2)[0] != o.Title || !p.HasAgent(o.From) {
+			return "", fail(ExitFail, "not_found", "no %s agent %s to copy the role from", o.Title, o.From)
+		}
+		b, err := os.ReadFile(filepath.Join(p.AgentDir(o.From), "AGENT.md"))
+		if err != nil {
+			return "", fail(ExitFail, "fs", "%v", err)
+		}
+		doc, from = b, o.From
+	case o.File != "":
 		b, err := os.ReadFile(o.File)
 		if err != nil {
 			return "", fail(ExitFail, "no_candidate", "draft not found: %s", o.File)
@@ -266,20 +286,18 @@ func (p *Project) Hire(o HireOptions) (string, error) {
 			return "", fail(ExitFail, "invalid_agent", "the draft's frontmatter must have title: %s", o.Title)
 		}
 		doc, from = b, "custom"
-	} else {
+	default:
 		b, _, ok := Template(o.Title)
 		if !ok {
 			return "", fail(ExitFail, "not_found", "no template %s; see sunstack library, or create a new role with the recruit skill", o.Title)
 		}
 		doc = b
 	}
-	id := o.Title
-	if o.Name != "" {
-		id += "." + o.Name
-	} else if len(p.instances(o.Title)) > 0 {
-		return "", &Error{Code: ExitUsage, Reason: "missing_arguments", Msg: o.Title + " already has an instance; give this one a name",
-			Stdout: "missing_arguments: name\n" + strings.Join(p.instances(o.Title), "\n") + "\n"}
+	if o.Name == "" {
+		return "", &Error{Code: ExitUsage, Reason: "missing_arguments", Msg: "every agent needs a name: sunstack hire " + o.Title + " <name>",
+			Stdout: "missing_arguments: name\n" + strings.Join(colleagues, "\n") + "\n"}
 	}
+	id := o.Title + "." + o.Name
 	if err := p.noSymlink(p.AgentDir(id)); err != nil {
 		return "", err
 	}
@@ -307,11 +325,103 @@ func (p *Project) Hire(o HireOptions) (string, error) {
 		return "", fail(ExitFail, "fs", "%v", err)
 	}
 	src := "template=" + o.Title
-	if from == "custom" {
+	switch {
+	case from == "custom":
 		src = "custom"
+		p.removeDraft(o.File)
+	case from != "":
+		src = "from=" + from
 	}
 	p.LogEvent("hire", id, src)
 	return id, nil
+}
+
+// removeDraft deletes an approved draft once it is hired, if it was staged
+// under _local/tmp/; drafts anywhere else belong to the user.
+func (p *Project) removeDraft(file string) {
+	abs, err := filepath.Abs(file)
+	if err != nil {
+		return
+	}
+	dir, err1 := filepath.EvalSymlinks(filepath.Dir(abs))
+	tmp, err2 := filepath.EvalSymlinks(p.local("tmp"))
+	if err1 != nil || err2 != nil {
+		return
+	}
+	if rel, err := filepath.Rel(tmp, dir); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		os.Remove(filepath.Join(dir, filepath.Base(abs)))
+		os.Remove(dir) // only succeeds when the folder is now empty
+	}
+}
+
+// Rename gives an agent a new name within its title, keeping its files,
+// context and pending messages. The agent must not be claimed.
+func (p *Project) Rename(id, to string) error {
+	if !ValidID(id) {
+		return fail(ExitUsage, "usage", "invalid id: %s", id)
+	}
+	title := strings.SplitN(id, ".", 2)[0]
+	parts := strings.Split(to, ".")
+	if len(parts) != 2 || !ValidID(to) || parts[0] != title {
+		return fail(ExitUsage, "usage", "the new id must be %s.<name>; a rename keeps the title", title)
+	}
+	if !p.HasAgent(id) {
+		return fail(ExitFail, "not_found", "no agent %s", id)
+	}
+	first, second := id, to
+	if second < first {
+		first, second = second, first
+	}
+	unlock1, err := p.lock(first)
+	if err != nil {
+		return err
+	}
+	defer unlock1()
+	unlock2, err := p.lock(second)
+	if err != nil {
+		return err
+	}
+	defer unlock2()
+	if !p.HasAgent(id) {
+		return fail(ExitFail, "not_found", "%s was removed while waiting", id)
+	}
+	if _, err := os.Lstat(p.AgentDir(to)); err == nil {
+		return fail(ExitFail, "exists", "%s already exists", to)
+	}
+	if err := p.noSymlink(p.AgentDir(to)); err != nil {
+		return err
+	}
+	cur, err := p.ReadLive(id)
+	if err != nil {
+		return err
+	}
+	if cur != nil {
+		e := fail(ExitClaim, "occupied", "%s is claimed; release it before renaming", id)
+		e.Stdout = cur.ClaimLine() + "\n"
+		return e
+	}
+	agentPath := filepath.Join(p.AgentDir(id), "AGENT.md")
+	doc, err := os.ReadFile(agentPath)
+	if err != nil {
+		return fail(ExitFail, "fs", "%v", err)
+	}
+	doc, err = setFrontmatter(doc, [][2]string{{"name", parts[1]}})
+	if err != nil {
+		return err
+	}
+	if err := writeAtomic(agentPath, doc); err != nil {
+		return fail(ExitFail, "fs", "%v", err)
+	}
+	if err := os.Rename(p.AgentDir(id), p.AgentDir(to)); err != nil {
+		return fail(ExitFail, "fs", "%v", err)
+	}
+	for _, sub := range []string{"inbox", "tmp"} {
+		if _, err := os.Stat(p.local(sub, id)); err == nil {
+			os.Rename(p.local(sub, id), p.local(sub, to))
+		}
+	}
+	p.LogEvent("rename", id, "to="+to)
+	return nil
 }
 
 // uncommitted lists changed, untracked and ignored files under rel. known is
