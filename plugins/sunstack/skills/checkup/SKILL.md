@@ -48,8 +48,8 @@ Suggest what this session should be, from what the user has been doing in this c
   suggest the agent that fits (save and release first, then take it on).
 - **An agent fits and is free**: suggest `/sunstack:as <id>` (Codex: `$sunstack:as <id>`),
   with one line on why.
-- **The fitting agent is claimed by another session**: say where (`sunstack team` shows it)
-  and suggest another agent of the same role, or recruiting one.
+- **The fitting agent already has sessions**: say where (`sunstack team` shows them and their
+  task labels) and suggest joining it for a different key result, or another agent.
 - **No agent fits**: suggest recruiting one for this work, with a one-line role idea.
 - **Nothing to go on** (a fresh session): skip this step, or ask in one question what the user
   is about to work on.
@@ -63,14 +63,20 @@ answer, then run `sunstack health` again and offer the next.
 by an older Sunstack. Group them as one "migrate to this version" step: list each change, then
 do them in this order, one approval for the batch unless a change needs its own input:
 
-1. `sunstack update` when the Codex rules are from an older version (the user may need to run
-   it in a terminal; the rest continues after).
-2. `sunstack init --refresh`, then show `git diff` of `sunstack/` and `AGENTS.md`.
-3. Unnamed agents: every agent is now `<title>.<name>`. For each one, suggest a name from its
+1. `sunstack update` when the Claude Code or Codex rules are from an older version (the user
+   may need to run it in a terminal, and a second time if the first run updated the binary;
+   the rest continues after).
+2. `sunstack init --refresh`, then show `git diff` of `sunstack/` and `AGENTS.md`. This also
+   creates a missing `BOARD.md`.
+3. Agents without a `board.md`: `sunstack tidy --all` creates them. Tell the user that each
+   agent fills its board at its next save, and that the team objectives come from the user
+   (the board skill helps set them). Older `context.md` files may still have `Current state`
+   and `Threads` sections; the agent moves that content to its board at its next save.
+4. Unnamed agents: every agent is now `<title>.<name>`. For each one, suggest a name from its
    role and context (`researcher` → `researcher.lead`), ask the user to confirm or type their
    own, then `sunstack rename <id> <title>.<name>`. A claimed agent must be released first;
    skip it and say so.
-4. Run `sunstack health` again and show that the `migrate` lines are gone; suggest committing
+5. Run `sunstack health` again and show that the `migrate` lines are gone; suggest committing
    `sunstack/`.
 
 Old IDs keep working until they are renamed, so the user may skip migration.
@@ -96,6 +102,8 @@ How to do each kind of step:
 - **context.md too long**: suggest taking on that agent and saving, which compacts it.
 - **no agents hired yet**: run `sunstack library`, ask what the user needs, then follow the
   recruit skill (`/sunstack:recruit`, Codex: `$sunstack:recruit`).
+- **board lines** (blocked, stale, overdue, not aligned, no objective): summarize them and
+  hand over to the board skill.
 - **rule changes waiting for approval / unread messages**: suggest taking on that agent
   (`/sunstack:as <id>`, Codex: `$sunstack:as <id>`); its save step asks about each proposal.
 

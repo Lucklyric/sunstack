@@ -22,8 +22,9 @@ const (
 )
 
 // AskRules are the sunstack commands the user always approves: changing an
-// agent's rules, and creating or deleting an agent (design §6).
-var AskRules = []string{AskRule, "Bash(sunstack hire *)", "Bash(sunstack fire *)"}
+// agent's rules or the team objectives, and creating, renaming or deleting an
+// agent (design §6).
+var AskRules = []string{AskRule, "Bash(sunstack hire *)", "Bash(sunstack rename *)", "Bash(sunstack fire *)"}
 
 // Targets says which CLIs to act on.
 type Targets struct{ Claude, Codex bool }

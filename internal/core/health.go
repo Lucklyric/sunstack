@@ -54,6 +54,9 @@ func (p *Project) Health() []Check {
 	default:
 		cs = append(cs, ok("project", "AGENTS.md has one current sunstack block"))
 	}
+	if _, err := os.Stat(p.teamBoardPath()); err != nil {
+		cs = append(cs, warn("migrate", "sunstack/BOARD.md is missing (the team's objectives and directives)", "sunstack init"))
+	}
 	gi, _, _ := readMaybe(filepath.Join(p.Root, ".gitignore"))
 	if hasLine(gi, "sunstack/_local/") {
 		cs = append(cs, ok("project", ".gitignore keeps sunstack/_local/ out of git"))
@@ -103,9 +106,11 @@ func (p *Project) Health() []Check {
 		if s.ClaimErr != nil {
 			cs = append(cs, failed("runtime", s.ClaimErr.Error(), "inspect the file, then delete it to free "+s.ID))
 		}
-		if s.Claim != nil && s.Where == "pane closed" {
-			cs = append(cs, warn("runtime", fmt.Sprintf("%s is claimed from pane %s, which is gone", s.ID, s.Claim.TmuxPane),
-				"take it over with sunstack as "+s.ID+" --takeover, or release it"))
+		for i, c := range s.Claims {
+			if s.Where[i] == "pane closed" {
+				cs = append(cs, warn("runtime", fmt.Sprintf("session %s is claimed from pane %s, which is gone", c.Label(s.ID), c.TmuxPane),
+					"take it over with sunstack as "+s.ID+" --takeover --expect "+c.Token+", or delete "+c.path))
+			}
 		}
 	}
 	inboxes, _ := os.ReadDir(p.local("inbox"))
@@ -125,6 +130,15 @@ func (p *Project) Health() []Check {
 	}
 	cs = append(cs, p.leftoverTmp()...)
 
+	// Boards.
+	boards := p.LoadBoards()
+	for _, id := range boards.Missing {
+		cs = append(cs, warn("migrate", id+" has no board.md", "sunstack tidy "+id))
+	}
+	for _, is := range boards.Issues(time.Now()) {
+		cs = append(cs, next("board", is, "see sunstack board; the agent updates its board at its next save"))
+	}
+
 	// Next steps: nothing is wrong, but something is waiting on the user.
 	status := p.Status()
 	if len(status) == 0 {
@@ -139,7 +153,7 @@ func (p *Project) Health() []Check {
 			cs = append(cs, next("team", fmt.Sprintf("%s has %d rule change(s) waiting for your approval", s.ID, n),
 				"take on "+s.ID+" and save; the save skill asks you about each one"))
 		}
-		if s.Inbox > 0 && s.Claim == nil {
+		if s.Inbox > 0 && len(s.Claims) == 0 {
 			cs = append(cs, next("team", fmt.Sprintf("%s has %d unread message(s) and no session", s.ID, s.Inbox),
 				"take on "+s.ID+" to handle them (sunstack inbox "+s.ID+" lists them)"))
 		}
@@ -162,7 +176,7 @@ func (p *Project) leftoverTmp() []Check {
 			if newestMod(p.local("tmp", owner)).After(time.Now().Add(-time.Hour)) {
 				continue
 			}
-		} else if c, _ := p.ReadLive(owner); c != nil {
+		} else if cs, _ := p.Claims(owner); len(cs) > 0 {
 			continue
 		}
 		if files, _ := os.ReadDir(p.local("tmp", owner)); len(files) > 0 {

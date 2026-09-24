@@ -132,10 +132,10 @@ func TestClaimResumeTakeover(t *testing.T) {
 	r := sh(t, p, []string{"CLAUDECODE=1", "CLAUDE_CODE_SESSION_ID=s-1"}, "as", "builder.alice")
 	expect(t, r, 0, "claim")
 	t1 := field(tokenRe, r.out)
-	if t1 == "" || !strings.Contains(r.out, "PILLARS.md (team)") || !strings.Contains(r.out, "protocol: 1") {
+	if t1 == "" || !strings.Contains(r.out, "PILLARS.md (team)") || !strings.Contains(r.out, "protocol: 2") {
 		t.Fatalf("bundle incomplete: %s", r.out)
 	}
-	live, _ := os.ReadFile(filepath.Join(p, "sunstack", "_local", "live", "builder.alice.json"))
+	live, _ := os.ReadFile(filepath.Join(p, "sunstack", "_local", "live", "builder.alice", t1+".json"))
 	if !strings.Contains(string(live), `"tool": "claude"`) || !strings.Contains(string(live), `"session": "s-1"`) {
 		t.Errorf("tool/session not detected: %s", live)
 	}
@@ -234,7 +234,7 @@ func TestConcurrentClaims(t *testing.T) {
 func TestSnapshotCommit(t *testing.T) {
 	p := fixture(t)
 	tok := field(tokenRe, sh(t, p, nil, "as", "builder.alice").out)
-	tmp := filepath.Join(p, "sunstack", "_local", "tmp", "builder.alice")
+	tmp := filepath.Join(p, "sunstack", "_local", "tmp", "builder.alice", tok)
 	ctx := filepath.Join(p, "sunstack", "builder.alice", "context.md")
 
 	r := sh(t, p, nil, "snapshot", "builder.alice", "context.md", "--token", tok)
@@ -282,7 +282,7 @@ func TestSnapshotCommit(t *testing.T) {
 func TestGuards(t *testing.T) {
 	p := fixture(t)
 	tok := field(tokenRe, sh(t, p, nil, "as", "builder.alice").out)
-	tmp := filepath.Join(p, "sunstack", "_local", "tmp", "builder.alice")
+	tmp := filepath.Join(p, "sunstack", "_local", "tmp", "builder.alice", tok)
 	sh(t, p, nil, "snapshot", "builder.alice", "context.md", "--token", tok)
 
 	outside := filepath.Join(p, "outside.md")
@@ -344,7 +344,7 @@ func TestMissingArguments(t *testing.T) {
 	expect(t, sh(t, p, nil, "nope"), 2, "unknown command")
 	r := sh(t, p, nil, "version")
 	expect(t, r, 0, "version")
-	if !strings.Contains(r.out, "protocol: 1") {
+	if !strings.Contains(r.out, "protocol: 2") {
 		t.Errorf("version output: %q", r.out)
 	}
 }
@@ -506,7 +506,7 @@ func TestTeamCommands(t *testing.T) {
 	// team, pillar, inbox, log.
 	tok := field(tokenRe, sh(t, p, append(home, "TMUX_PANE=%0"), "as", "builder.alice").out)
 	r = sh(t, p, home, "team")
-	if !strings.Contains(r.out, "builder.alice") || !strings.Contains(r.out, "claimed by") {
+	if !strings.Contains(r.out, "builder.alice") || !strings.Contains(r.out, "1 session(s)") {
 		t.Errorf("team: %q", r.out)
 	}
 	must(t, os.WriteFile(filepath.Join(p, "sunstack", "PILLARS.md"), []byte("<!-- - not a rule -->\n- 2026-09-23 team rule\n"), 0o644))
@@ -602,7 +602,7 @@ func TestReviewFixes(t *testing.T) {
 
 		// A symlinked candidate file is refused.
 		tok := field(tokenRe, sh(t, p, nil, "as", "builder.bob").out)
-		tmp := filepath.Join(p, "sunstack", "_local", "tmp", "builder.bob")
+		tmp := filepath.Join(p, "sunstack", "_local", "tmp", "builder.bob", tok)
 		sh(t, p, nil, "snapshot", "builder.bob", "context.md", "--token", tok)
 		secret := filepath.Join(outside, "secret")
 		must(t, os.WriteFile(secret, []byte("secret\n"), 0o644))
@@ -632,5 +632,140 @@ func TestReviewFixes(t *testing.T) {
 	r = sh(t, p, nil, "library", "show", "builder")
 	if r.code != 0 || !strings.Contains(r.out, "## Role") {
 		t.Errorf("library show: %d %q", r.code, r.out)
+	}
+}
+
+func TestMultiSession(t *testing.T) {
+	p := fixture(t)
+	r := sh(t, p, nil, "as", "builder.alice", "--task", "auth")
+	expect(t, r, 0, "first session")
+	t1 := field(tokenRe, r.out)
+	if !strings.Contains(r.out, "session_name: builder.alice_auth") {
+		t.Errorf("session name missing: %s", r.out)
+	}
+	expect(t, sh(t, p, nil, "as", "builder.alice", "--task", "this-is-too-long"), 2, "task over 10 characters")
+	r = sh(t, p, nil, "as", "builder.alice")
+	expect(t, r, 4, "second session needs --join")
+	if !strings.Contains(r.stderr, "active") || !strings.Contains(r.out, "task=auth") {
+		t.Errorf("active refusal: %s %s", r.out, r.stderr)
+	}
+	r = sh(t, p, nil, "as", "builder.alice", "--join", "--task", "docs")
+	expect(t, r, 0, "join")
+	t2 := field(tokenRe, r.out)
+	if t2 == t1 || !strings.Contains(r.out, "builder.alice_auth") {
+		t.Errorf("join must get its own token and list the other session: %s", r.out)
+	}
+	// Each session stages candidates in its own folder.
+	s1 := sh(t, p, nil, "snapshot", "builder.alice", "board.md", "--token", t1).out
+	s2 := sh(t, p, nil, "snapshot", "builder.alice", "board.md", "--token", t2).out
+	if !strings.Contains(s1, t1) || !strings.Contains(s2, t2) {
+		t.Errorf("candidate dirs should be per session:\n%s\n%s", s1, s2)
+	}
+	expect(t, sh(t, p, nil, "fire", "builder.alice", "--discard"), 4, "fire with active sessions")
+	expect(t, sh(t, p, nil, "release", "builder.alice", "--token", t1), 0, "release one session")
+	expect(t, sh(t, p, nil, "snapshot", "builder.alice", "context.md", "--token", t2), 0, "the other session keeps working")
+	expect(t, sh(t, p, nil, "snapshot", "builder.alice", "context.md", "--token", t1), 4, "released token is gone")
+	if r := sh(t, p, nil, "team"); !strings.Contains(r.out, "1 session(s)") || !strings.Contains(r.out, "builder.alice_docs") {
+		t.Errorf("team after one release: %s", r.out)
+	}
+
+	// A claim file from protocol 1 still counts, and resuming moves it.
+	legacy := filepath.Join(p, "sunstack", "_local", "live", "reviewer.json")
+	must(t, os.MkdirAll(filepath.Dir(legacy), 0o755))
+	must(t, os.WriteFile(legacy, []byte(`{"tool":"claude","host":"h","token":"00112233445566aa","claimed":"2026-09-01T00:00:00Z","last_contact":"2026-09-01T00:00:00Z"}`), 0o644))
+	expect(t, sh(t, p, nil, "as", "reviewer"), 4, "a legacy claim is honored")
+	expect(t, sh(t, p, nil, "as", "reviewer", "--token", "00112233445566aa"), 0, "resume a legacy claim")
+	if _, err := os.Stat(legacy); !os.IsNotExist(err) {
+		t.Error("the legacy claim file should move to the per-session layout")
+	}
+}
+
+func TestBoards(t *testing.T) {
+	p := t.TempDir()
+	home := []string{"SUNSTACK_HOME=" + filepath.Join(p, ".home")}
+	expect(t, sh(t, p, home, "init"), 0, "init")
+	if _, err := os.Stat(filepath.Join(p, "sunstack", "BOARD.md")); err != nil {
+		t.Fatal("init should create BOARD.md")
+	}
+	expect(t, sh(t, p, home, "hire", "builder", "alice"), 0, "hire")
+	expect(t, sh(t, p, home, "hire", "reviewer", "bob"), 0, "hire")
+	if _, err := os.Stat(filepath.Join(p, "sunstack", "builder.alice", "board.md")); err != nil {
+		t.Fatal("hire should create board.md")
+	}
+
+	// Objectives change through amend --team BOARD.md.
+	r := sh(t, p, home, "snapshot", "--team", "BOARD.md")
+	expect(t, r, 0, "snapshot team board")
+	sum := field(sumRe, r.out)
+	teamTmp := filepath.Join(p, "sunstack", "_local", "tmp", "_team")
+	day := "2026-09-24"
+	board := "## Objectives\n- " + day + " O1 Ship v1 (due: 2026-12-01)\n## User\n- " + day + " KR1 [O1] Approve the release plan\n## Directives\n"
+	must(t, os.WriteFile(filepath.Join(teamTmp, "b.md"), []byte(board), 0o644))
+	expect(t, sh(t, p, home, "amend", "--team", "BOARD.md", filepath.Join(teamTmp, "b.md"), sum, "--summary", "set O1"), 0, "amend BOARD.md")
+
+	r = sh(t, p, home, "direct", "Focus on (tests)")
+	expect(t, r, 2, "parentheses are refused")
+	r = sh(t, p, home, "direct", "Focus on tests first", "--to", "builder")
+	expect(t, r, 0, "direct")
+	if !strings.Contains(r.out, "D1") {
+		t.Errorf("direct: %s", r.out)
+	}
+	expect(t, sh(t, p, home, "direct", "x", "--to", "nobody"), 1, "unknown addressee")
+
+	// An agent writes its board through snapshot and commit.
+	tok := field(tokenRe, sh(t, p, home, "as", "builder.alice", "--task", "tests").out)
+	r = sh(t, p, home, "as", "reviewer.bob")
+	if !strings.Contains(r.out, "O1 Ship v1") || strings.Contains(r.out, "directives not aligned yet") {
+		t.Errorf("reviewer bundle should load BOARD.md and not list D1 (addressed to builder) as unaligned: %s", r.out)
+	}
+	if r := sh(t, p, home, "as", "builder.alice", "--token", tok); !strings.Contains(r.out, "directives not aligned yet") || !strings.Contains(r.out, "D1 ") {
+		t.Errorf("builder bundle should list D1 as unaligned: %s", r.out)
+	}
+	r = sh(t, p, home, "snapshot", "builder.alice", "board.md", "--token", tok)
+	cand := filepath.Join(p, "sunstack", "_local", "tmp", "builder.alice", tok, "board.md")
+	old := "2026-01-02"
+	doc := "aligned: D1\n## Now\n- " + day + " KR1 [O1] Test suite green (needs: reviewer.bob#KR1)\n- " + old + " KR2 [O9] Old work\n## Next\n- no date here\n## Done\n- " + old + " KR0 [O1] Scaffold\n"
+	must(t, os.WriteFile(cand, []byte(doc), 0o644))
+	expect(t, sh(t, p, home, "commit", "builder.alice", "board.md", cand, field(sumRe, r.out), "--token", tok), 0, "commit board")
+
+	r = sh(t, p, home, "board")
+	expect(t, r, 0, "board")
+	for _, want := range []string{
+		"O1 2026-09-24 Ship v1", "builder.alice#KR1", "user#KR1",
+		"builder.alice#KR1 needs reviewer.bob#KR1, which does not exist",
+		"builder.alice#KR2 serves O9, which is not an objective",
+		"builder.alice#KR2 has not been updated since " + old,
+		"builder.alice/board.md has 1 undated",
+	} {
+		if !strings.Contains(r.out, want) {
+			t.Errorf("board output lacks %q:\n%s", want, r.out)
+		}
+	}
+	if strings.Contains(r.out, "not aligned yet: builder.alice") {
+		t.Errorf("builder.alice aligned with D1: %s", r.out)
+	}
+
+	// tidy archives old Done entries by month; the board keeps the rest.
+	r = sh(t, p, home, "tidy", "builder.alice")
+	expect(t, r, 0, "tidy")
+	b, _ := os.ReadFile(filepath.Join(p, "sunstack", "builder.alice", "board.md"))
+	a, _ := os.ReadFile(filepath.Join(p, "sunstack", "builder.alice", "archive", "2026-01.md"))
+	if strings.Contains(string(b), "Scaffold") || !strings.Contains(string(a), "KR0 [O1] Scaffold") || !strings.Contains(string(b), "Old work") {
+		t.Errorf("tidy:\nboard:\n%s\narchive:\n%s", b, a)
+	}
+	if r := sh(t, p, home, "as", "builder.alice", "--token", tok); !strings.Contains(r.out, "archive (not loaded") {
+		t.Errorf("bundle should mention the archive: %s", r.out)
+	}
+	expect(t, sh(t, p, home, "snapshot", "builder.alice", "archive/2026-01.md", "--token", tok), 0, "archive is a commit target")
+	expect(t, sh(t, p, home, "snapshot", "builder.alice", "archive/jan.md", "--token", tok), 2, "archive names are months")
+
+	// health: a missing board is a migration step.
+	must(t, os.Remove(filepath.Join(p, "sunstack", "reviewer.bob", "board.md")))
+	if r := sh(t, p, home, "health"); !strings.Contains(r.out, "reviewer.bob has no board.md") {
+		t.Errorf("health: %s", r.out)
+	}
+	expect(t, sh(t, p, home, "tidy", "--all"), 0, "tidy --all")
+	if _, err := os.Stat(filepath.Join(p, "sunstack", "reviewer.bob", "board.md")); err != nil {
+		t.Error("tidy should create a missing board")
 	}
 }

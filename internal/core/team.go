@@ -16,7 +16,7 @@ import (
 // Init creates sunstack/ in dir and maintains the AGENTS.md routing block and
 // the .gitignore line. Re-running only fills in what is missing (design §6);
 // with refresh it also replaces PROTOCOL.md and README.md, which Sunstack owns,
-// with this version's text. PILLARS.md is never replaced.
+// with this version's text. PILLARS.md and BOARD.md are never replaced.
 func Init(dir string, refresh bool) ([]string, error) {
 	root, err := filepath.Abs(dir)
 	if err != nil {
@@ -41,10 +41,11 @@ func Init(dir string, refresh bool) ([]string, error) {
 		{"README.md", assets.Readme()},
 		{"PROTOCOL.md", assets.Protocol()},
 		{"PILLARS.md", []byte(assets.PillarsTemplate)},
+		{"BOARD.md", []byte(assets.TeamBoardTemplate)},
 	} {
 		path := filepath.Join(ss, f.name)
 		cur, exists, _ := readMaybe(path)
-		if exists && (!refresh || f.name == "PILLARS.md" || bytes.Equal(cur, f.data)) {
+		if exists && (!refresh || f.name == "PILLARS.md" || f.name == "BOARD.md" || bytes.Equal(cur, f.data)) {
 			continue
 		}
 		if err := writeAtomic(path, f.data); err != nil {
@@ -321,6 +322,9 @@ func (p *Project) Hire(o HireOptions) (string, error) {
 	if err := writeAtomic(filepath.Join(p.AgentDir(id), "context.md"), []byte(assets.ContextTemplate)); err != nil {
 		return "", fail(ExitFail, "fs", "%v", err)
 	}
+	if err := writeAtomic(p.boardPath(id), []byte(assets.BoardTemplate)); err != nil {
+		return "", fail(ExitFail, "fs", "%v", err)
+	}
 	if err := writeAtomic(filepath.Join(p.AgentDir(id), "AGENT.md"), doc); err != nil {
 		return "", fail(ExitFail, "fs", "%v", err)
 	}
@@ -391,13 +395,13 @@ func (p *Project) Rename(id, to string) error {
 	if err := p.noSymlink(p.AgentDir(to)); err != nil {
 		return err
 	}
-	cur, err := p.ReadLive(id)
+	claims, err := p.Claims(id)
 	if err != nil {
 		return err
 	}
-	if cur != nil {
-		e := fail(ExitClaim, "occupied", "%s is claimed; release it before renaming", id)
-		e.Stdout = cur.ClaimLine() + "\n"
+	if len(claims) > 0 {
+		e := fail(ExitClaim, "occupied", "%s has %d active session(s); release them before renaming", id, len(claims))
+		e.Stdout = claimLines(claims)
 		return e
 	}
 	agentPath := filepath.Join(p.AgentDir(id), "AGENT.md")
@@ -456,13 +460,13 @@ func (p *Project) Fire(id string, discard bool) error {
 	if !p.HasAgent(id) {
 		return fail(ExitFail, "not_found", "%s was removed while waiting", id)
 	}
-	cur, err := p.ReadLive(id)
+	claims, err := p.Claims(id)
 	if err != nil {
 		return err
 	}
-	if cur != nil {
-		e := fail(ExitClaim, "occupied", "%s is claimed; release it (or take it over) before firing", id)
-		e.Stdout = cur.ClaimLine() + "\n"
+	if len(claims) > 0 {
+		e := fail(ExitClaim, "occupied", "%s has %d active session(s); release them (or take it over) before firing", id, len(claims))
+		e.Stdout = claimLines(claims)
 		return e
 	}
 	if !discard {
@@ -583,9 +587,9 @@ func (p *Project) Pillars(id string) (string, error) {
 // AgentStatus is one row of the team view.
 type AgentStatus struct {
 	ID, Title, Duty string
-	Claim           *Live
-	ClaimErr        error  // the claim file exists but cannot be read
-	Where           string // tmux session:window.pane, "pane closed", "tmux unavailable", or ""
+	Claims          []*Live  // sessions working as this agent, oldest first
+	ClaimErr        error    // a claim file exists but cannot be read
+	Where           []string // per claim: tmux session:window.pane, "pane closed", "tmux unavailable", or ""
 	Inbox           int
 	Proposals       []string
 	Threads         []string
@@ -617,7 +621,7 @@ func TmuxWhere(socket, pane string) string {
 		}
 	}
 	out, err := exec.Command("tmux", TmuxArgs(socket, "display-message", "-p", "-t", pane, "#{session_name}:#{window_index}.#{pane_index}")...).Output()
-	if err != nil || len(bytes.TrimSpace(out)) == 0 {
+	if err != nil || len(bytes.TrimSpace(out)) == 0 || bytes.HasPrefix(out, []byte(":")) {
 		return "pane closed"
 	}
 	return strings.TrimSpace(string(out))
@@ -629,10 +633,10 @@ func (p *Project) Status() []AgentStatus {
 	for _, id := range p.Agents() {
 		agent, _ := os.ReadFile(filepath.Join(p.AgentDir(id), "AGENT.md"))
 		ctx, _ := os.ReadFile(filepath.Join(p.AgentDir(id), "context.md"))
-		claim, claimErr := p.ReadLive(id)
+		claims, claimErr := p.Claims(id)
 		s := AgentStatus{
 			ID: id, Title: strings.SplitN(id, ".", 2)[0], Duty: Duty(agent),
-			Claim: claim, ClaimErr: claimErr,
+			Claims: claims, ClaimErr: claimErr,
 			Inbox:        len(listNames(p.local("inbox", id), ".md")),
 			Proposals:    section(ctx, "Proposals"),
 			ContextLines: bytes.Count(ctx, []byte("\n")),
@@ -641,8 +645,8 @@ func (p *Project) Status() []AgentStatus {
 		for _, t := range listNames(filepath.Join(p.AgentDir(id), "threads"), ".md") {
 			s.Threads = append(s.Threads, strings.TrimSuffix(t, ".md"))
 		}
-		if s.Claim != nil {
-			s.Where = TmuxWhere(s.Claim.TmuxSocket, s.Claim.TmuxPane)
+		for _, c := range s.Claims {
+			s.Where = append(s.Where, TmuxWhere(c.TmuxSocket, c.TmuxPane))
 		}
 		out = append(out, s)
 	}
@@ -653,7 +657,7 @@ func (p *Project) Status() []AgentStatus {
 func (p *Project) TeamText() string {
 	st := p.Status()
 	if len(st) == 0 {
-		return "no agents hired yet; run sunstack hire <title> [name], or use the recruit skill\n"
+		return "no agents hired yet; run sunstack hire <title> <name>, or use the recruit skill\n"
 	}
 	var b strings.Builder
 	title := ""
@@ -663,17 +667,21 @@ func (p *Project) TeamText() string {
 			fmt.Fprintf(&b, "%s\n", title)
 		}
 		state := "free"
-		if s.ClaimErr != nil {
+		switch {
+		case s.ClaimErr != nil:
 			state = "claim file damaged (see sunstack health)"
-		} else if c := s.Claim; c != nil {
-			state = fmt.Sprintf("claimed by %s on %s", c.Tool, c.Host)
-			if s.Where != "" {
-				state += " at " + s.Where
-			}
-			state += ", last contact " + c.LastContact
+		case len(s.Claims) > 0:
+			state = fmt.Sprintf("%d session(s)", len(s.Claims))
 		}
 		fmt.Fprintf(&b, "  %-22s %s\n", s.ID, state)
 		fmt.Fprintf(&b, "  %-22s %s\n", "", s.Duty)
+		for i, c := range s.Claims {
+			line := fmt.Sprintf("session %s: %s on %s", c.Label(s.ID), c.Tool, c.Host)
+			if s.Where[i] != "" {
+				line += " at " + s.Where[i]
+			}
+			fmt.Fprintf(&b, "  %-22s %s, last contact %s\n", "", line, c.LastContact)
+		}
 		fmt.Fprintf(&b, "  %-22s inbox %d, proposals %d, threads %d\n", "", s.Inbox, len(s.Proposals), len(s.Threads))
 	}
 	return b.String()

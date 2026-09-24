@@ -130,22 +130,26 @@ func (m *model) current() *core.AgentStatus {
 	return &m.agents[m.sel]
 }
 
-// goToPane switches the tmux client to the selected agent's pane.
+// latest is the most recent session working as a, or -1.
+func latest(a *core.AgentStatus) int { return len(a.Claims) - 1 }
+
+// goToPane switches the tmux client to the pane of the selected agent's most
+// recent session.
 func (m *model) goToPane() string {
 	a := m.current()
-	if a == nil || a.Claim == nil || a.Claim.TmuxPane == "" {
+	if a == nil || latest(a) < 0 || a.Claims[latest(a)].TmuxPane == "" {
 		return "no tmux pane recorded for this agent"
 	}
-	if a.Where == "pane closed" {
+	c, where := a.Claims[latest(a)], a.Where[latest(a)]
+	if where == "pane closed" {
 		return "that pane is gone"
 	}
-	pane := a.Claim.TmuxPane
-	for _, args := range [][]string{{"select-window", "-t", pane}, {"select-pane", "-t", pane}, {"switch-client", "-t", pane}} {
-		if err := exec.Command("tmux", core.TmuxArgs(a.Claim.TmuxSocket, args...)...).Run(); err != nil {
+	for _, args := range [][]string{{"select-window", "-t", c.TmuxPane}, {"select-pane", "-t", c.TmuxPane}, {"switch-client", "-t", c.TmuxPane}} {
+		if err := exec.Command("tmux", core.TmuxArgs(c.TmuxSocket, args...)...).Run(); err != nil {
 			return "tmux: " + err.Error()
 		}
 	}
-	return "switched to " + a.Where
+	return "switched to " + where
 }
 
 func resumeCmd(l *core.Live) string {
@@ -168,7 +172,10 @@ func (m *model) copyResume() string {
 	if a == nil {
 		return ""
 	}
-	cmd := resumeCmd(a.Claim)
+	if latest(a) < 0 {
+		return "no session recorded for this agent"
+	}
+	cmd := resumeCmd(a.Claims[latest(a)])
 	if cmd == "" {
 		return "no session recorded for this agent"
 	}
@@ -241,13 +248,14 @@ func (m *model) teamView() string {
 		dot, state := cDim.Render("○"), cDim.Render("free")
 		if a.ClaimErr != nil {
 			dot, state = cWarn.Render("?"), cWarn.Render("claim file damaged")
-		} else if a.Claim != nil {
+		} else if n := len(a.Claims); n > 0 {
 			dot = cOn.Render("●")
-			state = a.Claim.Tool
-			if a.Where == "pane closed" {
-				state += " " + cWarn.Render("pane closed")
-			} else if a.Where != "" {
-				state += " " + a.Where
+			state = fmt.Sprintf("%d session(s)", n)
+			for _, w := range a.Where {
+				if w == "pane closed" {
+					state += " " + cWarn.Render("pane closed")
+					break
+				}
 			}
 		}
 		line := fmt.Sprintf("%s %-20s %s", dot, a.ID, state)
@@ -277,15 +285,16 @@ func (m *model) details(width int) []string {
 		return nil
 	}
 	out := []string{cHeader.Render(a.ID), wrap(a.Duty, width-2), ""}
-	if c := a.Claim; c != nil {
-		out = append(out, fmt.Sprintf("claimed by %s on %s, last contact %s", c.Tool, c.Host, c.LastContact))
-		if a.Where != "" {
-			out = append(out, "tmux: "+a.Where)
+	for i, c := range a.Claims {
+		out = append(out, fmt.Sprintf("session %s: %s on %s, last contact %s", c.Label(a.ID), c.Tool, c.Host, c.LastContact))
+		if a.Where[i] != "" {
+			out = append(out, "  tmux: "+a.Where[i])
 		}
 		if r := resumeCmd(c); r != "" {
-			out = append(out, "resume: "+r)
+			out = append(out, "  resume: "+r)
 		}
-	} else {
+	}
+	if len(a.Claims) == 0 {
 		out = append(out, cDim.Render("free"))
 	}
 	out = append(out, "", cHeader.Render("Pillars"))
@@ -296,10 +305,14 @@ func (m *model) details(width int) []string {
 		out = append(out, "", cHeader.Render("Proposals (waiting for your approval)"))
 		out = append(out, a.Proposals...)
 	}
-	ctx, _ := os.ReadFile(filepath.Join(m.p.AgentDir(a.ID), "context.md"))
-	if st := sectionLines(ctx, "Current state"); len(st) > 0 {
-		out = append(out, "", cHeader.Render("Current state"))
-		out = append(out, st...)
+	board, _ := os.ReadFile(filepath.Join(m.p.AgentDir(a.ID), "board.md"))
+	if now := sectionLines(board, "Now"); len(now) > 0 {
+		out = append(out, "", cHeader.Render("Now"))
+		out = append(out, now...)
+	}
+	if nx := sectionLines(board, "Next"); len(nx) > 0 {
+		out = append(out, "", cHeader.Render("Next"))
+		out = append(out, nx...)
 	}
 	if len(a.Threads) > 0 {
 		out = append(out, "", cHeader.Render("Threads"), strings.Join(a.Threads, ", "))

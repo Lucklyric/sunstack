@@ -20,17 +20,19 @@ type target struct {
 	amended bool   // pillars or AGENT.md: user-approved, via amend
 }
 
+var archiveRe = regexp.MustCompile(`^archive/\d{4}-\d{2}\.md$`)
+
 // resolveTarget accepts:
 //
-//	<id> context.md | threads/<topic>.md     agent experience (commit)
-//	<id> pillars.md | AGENT.md               agent rules (amend)
-//	TeamID PILLARS.md                        team rules (amend)
+//	<id> context.md | board.md | threads/<topic>.md | archive/<YYYY-MM>.md   agent experience (commit)
+//	<id> pillars.md | AGENT.md                                               agent rules (amend)
+//	TeamID PILLARS.md | BOARD.md                                             team rules and objectives (amend)
 func (p *Project) resolveTarget(id, rel string) (*target, error) {
 	if id == TeamID {
-		if rel != "PILLARS.md" {
-			return nil, fail(ExitUsage, "usage", "the team target is PILLARS.md, got: %s", rel)
+		if rel != "PILLARS.md" && rel != "BOARD.md" {
+			return nil, fail(ExitUsage, "usage", "the team targets are PILLARS.md and BOARD.md, got: %s", rel)
 		}
-		t := &target{path: filepath.Join(p.Dir, "PILLARS.md"), rel: "PILLARS.md", owner: TeamID, amended: true}
+		t := &target{path: filepath.Join(p.Dir, rel), rel: rel, owner: TeamID, amended: true}
 		return t, p.noSymlink(t.path)
 	}
 	if !ValidID(id) {
@@ -38,7 +40,7 @@ func (p *Project) resolveTarget(id, rel string) (*target, error) {
 	}
 	t := &target{rel: rel, owner: id}
 	switch {
-	case rel == "context.md":
+	case rel == "context.md" || rel == "board.md" || archiveRe.MatchString(rel):
 	case rel == "pillars.md" || rel == "AGENT.md":
 		t.amended = true
 	case strings.HasPrefix(rel, "threads/") && strings.HasSuffix(rel, ".md"):
@@ -47,7 +49,7 @@ func (p *Project) resolveTarget(id, rel string) (*target, error) {
 			return nil, fail(ExitUsage, "usage", "invalid thread topic: %s", topic)
 		}
 	default:
-		return nil, fail(ExitUsage, "usage", "target must be context.md, threads/<topic>.md, pillars.md or AGENT.md, got: %s", rel)
+		return nil, fail(ExitUsage, "usage", "target must be context.md, board.md, threads/<topic>.md, archive/<YYYY-MM>.md, pillars.md or AGENT.md, got: %s", rel)
 	}
 	if !p.HasAgent(id) {
 		return nil, fail(ExitFail, "not_found", "no agent %s", id)
@@ -74,17 +76,19 @@ func (p *Project) Snapshot(id, rel, token string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	candDir := p.TmpDir(t.owner)
 	if !t.amended {
 		if token == "" {
 			return "", fail(ExitClaim, "token", "missing --token")
 		}
-		cur, err := p.ReadLive(id)
+		claims, err := p.Claims(id)
 		if err != nil {
 			return "", err
 		}
-		if cur == nil || cur.Token != token {
-			return "", fail(ExitClaim, "token", "token does not match the current claim on %s", id)
+		if findToken(claims, token) == nil {
+			return "", fail(ExitClaim, "token", "token does not match any claim on %s", id)
 		}
+		candDir = p.sessionTmp(id, token)
 	}
 	b, ok, err := readMaybe(t.path)
 	if err != nil {
@@ -93,20 +97,20 @@ func (p *Project) Snapshot(id, rel, token string) (string, error) {
 	if HasConflictMarkers(b) {
 		return "", fail(ExitFail, "conflict", "merge conflict markers in %s; resolve them first", t.rel)
 	}
-	if err := os.MkdirAll(p.TmpDir(t.owner), 0o755); err != nil {
+	if err := os.MkdirAll(candDir, 0o755); err != nil {
 		return "", fail(ExitFail, "fs", "%v", err)
 	}
-	return snapshotText(Checksum(b, ok), p.TmpDir(t.owner), b), nil
+	return snapshotText(Checksum(b, ok), candDir, b), nil
 }
 
-// readCandidate checks the candidate sits directly in the owner's tmp dir and
-// carries no conflict markers.
-func (p *Project) readCandidate(owner, path string) ([]byte, error) {
+// readCandidate checks the candidate sits directly in want (the session's or
+// the owner's tmp dir) and carries no conflict markers.
+func (p *Project) readCandidate(want, path string) ([]byte, error) {
 	// Resolve the directory: a symlinked tmp dir resolves elsewhere and fails
 	// the comparison; the file itself is checked by noSymlink below.
 	dir, err := filepath.EvalSymlinks(filepath.Dir(path))
-	if err != nil || dir != p.TmpDir(owner) {
-		return nil, fail(ExitUsage, "usage", "candidate must sit directly in %s (no subfolder)", p.TmpDir(owner))
+	if err != nil || dir != want {
+		return nil, fail(ExitUsage, "usage", "candidate must sit directly in %s (no subfolder)", want)
 	}
 	abs := filepath.Join(dir, filepath.Base(path))
 	if err := p.noSymlink(abs); err != nil {
@@ -171,7 +175,7 @@ func (p *Project) Commit(o CommitOptions) error {
 	}
 	var cand []byte
 	if !o.Delete {
-		if cand, err = p.readCandidate(o.ID, o.Candidate); err != nil {
+		if cand, err = p.readCandidate(p.sessionTmp(o.ID, o.Token), o.Candidate); err != nil {
 			return err
 		}
 	}
@@ -187,7 +191,7 @@ func (p *Project) Commit(o CommitOptions) error {
 	if err != nil {
 		return err
 	}
-	if err := swap(t, o.Sum, cand, o.Delete, p.TmpDir(o.ID)); err != nil {
+	if err := swap(t, o.Sum, cand, o.Delete, p.sessionTmp(o.ID, o.Token)); err != nil {
 		return err
 	}
 	if !o.Delete {
@@ -224,7 +228,7 @@ func (p *Project) Amend(o AmendOptions) error {
 	if strings.TrimSpace(o.Summary) == "" {
 		return fail(ExitUsage, "usage", "--summary is required: one line saying what changes, for the event log")
 	}
-	cand, err := p.readCandidate(t.owner, o.Candidate)
+	cand, err := p.readCandidate(p.TmpDir(t.owner), o.Candidate)
 	if err != nil {
 		return err
 	}

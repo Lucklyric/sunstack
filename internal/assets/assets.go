@@ -39,14 +39,35 @@ func Titles() []string {
 	return out
 }
 
-// ContextTemplate is a new agent's empty context.md.
-const ContextTemplate = `## Current state
-## Decisions
+// ContextTemplate is a new agent's empty context.md: what it has learned.
+// What it is doing lives on its board.
+const ContextTemplate = `## Decisions
 ## Pitfalls
 ## Open questions
 ## Proposals
 ## Processed messages
-## Threads
+`
+
+// BoardTemplate is a new agent's empty board.md.
+const BoardTemplate = `<!-- This agent's board. Every entry starts with the date it was last updated.
+Key result: - <date> KR<n> [O<n>] <what, measurable> (due: <date>) (needs: <id>#KR<n>, user#KR<n>)
+Done: move it to Done and set the date it finished. sunstack tidy archives old Done entries.
+aligned: the last directive (D<n> in BOARD.md) this board has been checked against. -->
+aligned: D0
+## Now
+## Next
+## Done
+`
+
+// TeamBoardTemplate is a new project's BOARD.md.
+const TeamBoardTemplate = `<!-- Team board. Every entry starts with the date it was last updated.
+Objectives and the user's own key results change only with the user's approval (sunstack amend --team BOARD.md).
+Objective: - <date> O<n> <outcome> (due: <date>)
+User key result: - <date> KR<n> [O<n>] <what> (due: <date>) (needs: <id>#KR<n>); add (done) when finished.
+Directives are added with sunstack direct. -->
+## Objectives
+## User
+## Directives
 `
 
 // PillarsTemplate is a new project's PILLARS.md.
@@ -64,8 +85,8 @@ const RoutingBlock = RouteBegin + `
 ## Sunstack
 This project's agent team lives in sunstack/; the protocol is sunstack/PROTOCOL.md.
 - Read and write the agent files in sunstack/ only after this session has taken on an identity with sunstack as, and then follow the protocol.
-- Any session may run the management and read-only commands (sunstack init, team, log, inbox, health, pillar, library, as).
-- Creating or deleting an agent (sunstack hire, sunstack fire) and changing pillars or AGENT.md (sunstack amend) need the user's explicit approval first.
+- Any session may run the management and read-only commands (sunstack init, team, board, log, inbox, health, pillar, library, as, tidy).
+- Creating, renaming or deleting an agent (sunstack hire, rename, fire) and changing pillars, AGENT.md or the team objectives (sunstack amend) need the user's explicit approval first. Directives (sunstack direct) come only from the user.
 - Before ending or switching identity, run the Sunstack save skill, then sunstack release.
 - If you are unsure of your identity or token (for example after compaction), ask the user and run as again. Never guess.
 - Subagents take on no identity and never write sunstack/; when delegating, state the applicable pillars and role limits in the task.

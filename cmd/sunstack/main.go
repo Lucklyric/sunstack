@@ -22,17 +22,25 @@ var version = "dev"
 const usage = `sunstack — agent-team layer for Claude Code and Codex
 
 Agent identity (used by the plugin's skills):
-  sunstack as <id|title> [--token T] [--takeover --expect CLAIM] [--tool claude|codex] [--root DIR]
-  sunstack snapshot <id> <context.md|threads/<topic>.md> --token T [--root DIR]
+  sunstack as <id|title> [--task LABEL] [--join] [--token T] [--takeover --expect CLAIM] [--tool claude|codex] [--root DIR]
+                                                  several sessions may work as one agent: --join adds this one;
+                                                  --task (up to 10 characters) names it <id>_<task>
+  sunstack snapshot <id> <context.md|board.md|threads/<topic>.md|archive/<YYYY-MM>.md> --token T [--root DIR]
   sunstack snapshot <id> <pillars.md|AGENT.md> [--root DIR]      rule files, no token needed
-  sunstack snapshot --team [--root DIR]                           team PILLARS.md
+  sunstack snapshot --team [BOARD.md] [--root DIR]                team PILLARS.md (default) or BOARD.md
   sunstack commit <id> <target> <candidate> <checksum> --token T [--root DIR]
   sunstack commit <id> <target> --delete <checksum> --token T [--root DIR]
   sunstack release <id> --token T [--root DIR]
 
-Self-improvement (the user approves every call; both CLIs prompt for it):
+Self-improvement and objectives (the user approves every call; both CLIs prompt for it):
   sunstack amend <id> <pillars.md|AGENT.md> <candidate> <checksum> --summary "..." [--root DIR]
-  sunstack amend --team <candidate> <checksum> --summary "..." [--root DIR]
+  sunstack amend --team [BOARD.md] <candidate> <checksum> --summary "..." [--root DIR]
+
+Boards:
+  sunstack board [id]                             objectives, key results by objective, directives, and what
+                                                  needs attention (stale, overdue, blocked, not aligned)
+  sunstack direct "<text>" [--to ID,TITLE,...]    add a dated directive from the user to BOARD.md (default: all)
+  sunstack tidy <id> | --team | --all             archive old finished entries by month; creates a missing board
 
 Team (run these yourself):
   sunstack init [--refresh]                       create sunstack/ here, the AGENTS.md block and .gitignore line;
@@ -126,6 +134,14 @@ func missing(what string) error {
 	return &core.Error{Code: core.ExitUsage, Reason: "missing_arguments", Msg: "missing " + what, Stdout: "missing_arguments: " + what + "\n"}
 }
 
+// teamFile picks the team target: PILLARS.md by default, or BOARD.md.
+func teamFile(pos []string) string {
+	if len(pos) > 0 {
+		return pos[0]
+	}
+	return "PILLARS.md"
+}
+
 // detectTool names the calling agent CLI from its environment.
 func detectTool() (tool, session string) {
 	if s := os.Getenv("CLAUDE_CODE_SESSION_ID"); s != "" || os.Getenv("CLAUDECODE") != "" {
@@ -173,7 +189,7 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 		return nil
 
 	case "as":
-		a, err := parse(rest, "root token expect tool", "takeover")
+		a, err := parse(rest, "root token expect tool task", "takeover join")
 		if err == nil {
 			err = a.atMost(1, "as")
 		}
@@ -195,6 +211,7 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 		r, err := p.As(core.AsOptions{
 			Arg: arg, Tool: tool, Token: a.flags["token"], Takeover: a.has("takeover"),
 			Expect: a.flags["expect"], Pane: os.Getenv("TMUX_PANE"), Socket: tmuxSocket(), Session: session,
+			Join: a.has("join"), Task: a.flags["task"],
 		})
 		if err != nil {
 			return err
@@ -208,10 +225,10 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 			return err
 		}
 		if a.has("team") {
-			if err := a.atMost(0, "snapshot --team"); err != nil {
+			if err := a.atMost(1, "snapshot --team"); err != nil {
 				return err
 			}
-			a.pos = []string{core.TeamID, "PILLARS.md"}
+			a.pos = []string{core.TeamID, teamFile(a.pos)}
 		}
 		if err := a.atMost(2, "snapshot"); err != nil {
 			return err
@@ -268,7 +285,12 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 			return err
 		}
 		if a.has("team") {
-			a.pos = append([]string{core.TeamID, "PILLARS.md"}, a.pos...)
+			// amend --team [BOARD.md|PILLARS.md] <candidate> <checksum>
+			file := "PILLARS.md"
+			if len(a.pos) == 3 {
+				file, a.pos = a.pos[0], a.pos[1:]
+			}
+			a.pos = append([]string{core.TeamID, file}, a.pos...)
 		}
 		if err := a.atMost(4, "amend"); err != nil {
 			return err
@@ -494,6 +516,93 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 		}
 		return nil
 
+	case "board":
+		a, err := parse(rest, "root", "")
+		if err == nil {
+			err = a.atMost(1, "board")
+		}
+		if err != nil {
+			return err
+		}
+		p, err := core.FindProject(a.flags["root"])
+		if err != nil {
+			return err
+		}
+		id := ""
+		if len(a.pos) > 0 {
+			id = a.pos[0]
+		}
+		out, err := p.BoardText(id)
+		if err != nil {
+			return err
+		}
+		fmt.Fprint(stdout, out)
+		return nil
+
+	case "direct":
+		a, err := parse(rest, "root to", "")
+		if err == nil {
+			err = a.atMost(1, "direct")
+		}
+		if err != nil {
+			return err
+		}
+		if len(a.pos) < 1 {
+			return missing("directive text")
+		}
+		p, err := core.FindProject(a.flags["root"])
+		if err != nil {
+			return err
+		}
+		var to []string
+		for _, t := range strings.Split(a.flags["to"], ",") {
+			if t = strings.TrimSpace(t); t != "" {
+				to = append(to, t)
+			}
+		}
+		key, err := p.Direct(a.pos[0], to)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(stdout, "sunstack: added %s to BOARD.md; agents align with it at their next as or save\n", key)
+		return nil
+
+	case "tidy":
+		a, err := parse(rest, "root", "all team")
+		if err == nil {
+			err = a.atMost(1, "tidy")
+		}
+		if err != nil {
+			return err
+		}
+		p, err := core.FindProject(a.flags["root"])
+		if err != nil {
+			return err
+		}
+		var owners []string
+		switch {
+		case a.has("all"):
+			owners = append([]string{core.TeamID}, p.Agents()...)
+		case a.has("team"):
+			owners = []string{core.TeamID}
+		case len(a.pos) == 1:
+			owners = a.pos
+		default:
+			return missing("id, --team or --all")
+		}
+		for _, o := range owners {
+			n, err := p.Tidy(o)
+			if err != nil {
+				return err
+			}
+			name := o
+			if o == core.TeamID {
+				name = "team"
+			}
+			fmt.Fprintf(stdout, "sunstack: tidied %s, %d entr(ies) archived\n", name, n)
+		}
+		return nil
+
 	case "tui":
 		a, err := parse(rest, "root", "")
 		if err != nil {
@@ -540,7 +649,7 @@ func lifecycle(cmd string, t setup.Targets, yes bool, stdin io.Reader, out io.Wr
 			step("claude plugin", setup.InstallClaude(out))
 			if setup.HasClaudeRules() {
 				fmt.Fprintf(out, "Claude Code already has the sunstack permission rules\n")
-			} else if yes || setup.Confirm(stdin, out, fmt.Sprintf("Update %s: allow %q (no prompt before each call), and ask before sunstack amend, hire and fire (you approve every rule change and every new or deleted agent)?", setup.ClaudeSettingsPath(), setup.AllowRule), false) {
+			} else if yes || setup.Confirm(stdin, out, fmt.Sprintf("Update %s: allow %q (no prompt before each call), and ask before sunstack amend, hire, rename and fire (you approve every rule change and every new or deleted agent)?", setup.ClaudeSettingsPath(), setup.AllowRule), false) {
 				_, err := setup.SetClaudeRules(true)
 				step("permission rules", err)
 				if err == nil {
@@ -555,7 +664,7 @@ func lifecycle(cmd string, t setup.Targets, yes bool, stdin io.Reader, out io.Wr
 			err := setup.SetCodexRules(true)
 			step("codex rule", err)
 			if err == nil {
-				fmt.Fprintf(out, "wrote %s: Codex asks before sunstack amend, hire and fire\n", setup.CodexRulesPath())
+				fmt.Fprintf(out, "wrote %s: Codex asks before sunstack amend, hire, rename and fire\n", setup.CodexRulesPath())
 			}
 			if setup.CodexAutoReviewsApprovals() {
 				fmt.Fprintln(out, "note: your Codex config sets approvals_reviewer, so Codex approval prompts go to an automatic reviewer, not to you. The rule then cannot guarantee you see each amend; the skill still asks you before every rule change.")
@@ -636,21 +745,25 @@ func health(root string, out io.Writer) error {
 	cs = append(cs, core.Check{Level: "ok", Area: "install", Msg: "sunstack " + version})
 	if _, err := exec.LookPath("claude"); err == nil {
 		if setup.HasClaudeRules() {
-			cs = append(cs, core.Check{Level: "ok", Area: "install", Msg: "Claude Code allows sunstack and asks before amend, hire and fire"})
+			cs = append(cs, core.Check{Level: "ok", Area: "install", Msg: "Claude Code allows sunstack and asks before amend, hire, rename and fire"})
 		} else {
-			cs = append(cs, core.Check{Level: "warn", Area: "install", Msg: "Claude Code permission rules are missing", Fix: "sunstack install --claude"})
+			if setup.HasAllowRule() {
+				cs = append(cs, core.Check{Level: "warn", Area: "migrate", Msg: "Claude Code permission rules are from an older sunstack", Fix: "sunstack update"})
+			} else {
+				cs = append(cs, core.Check{Level: "warn", Area: "install", Msg: "Claude Code permission rules are missing", Fix: "sunstack install --claude"})
+			}
 		}
 	}
 	if _, err := exec.LookPath("codex"); err == nil {
 		switch setup.CodexRulesState() {
 		case "current":
-			cs = append(cs, core.Check{Level: "ok", Area: "install", Msg: "Codex asks before amend, hire and fire (" + setup.CodexRulesPath() + ")"})
+			cs = append(cs, core.Check{Level: "ok", Area: "install", Msg: "Codex asks before amend, hire, rename and fire (" + setup.CodexRulesPath() + ")"})
 		case "outdated":
 			cs = append(cs, core.Check{Level: "warn", Area: "migrate", Msg: "Codex rules are from an older sunstack", Fix: "sunstack update"})
 		case "foreign":
 			cs = append(cs, core.Check{Level: "warn", Area: "install", Msg: setup.CodexRulesPath() + " was not written by sunstack", Fix: "merge the sunstack rules by hand"})
 		default:
-			cs = append(cs, core.Check{Level: "warn", Area: "install", Msg: "Codex rules for amend, hire and fire are missing", Fix: "sunstack install --codex"})
+			cs = append(cs, core.Check{Level: "warn", Area: "install", Msg: "Codex rules for amend, hire, rename and fire are missing", Fix: "sunstack install --codex"})
 		}
 		if setup.CodexAutoReviewsApprovals() {
 			cs = append(cs, core.Check{Level: "warn", Area: "install", Msg: "Codex approvals_reviewer sends approval prompts to an automatic reviewer; rule changes rely on the skill asking you"})
@@ -671,8 +784,8 @@ func health(root string, out io.Writer) error {
 	seen := map[string]bool{}
 	for _, level := range []string{"fail", "warn", "next"} {
 		for _, c := range cs {
-			if c.Level == level && c.Fix != "" && !seen[c.Fix] {
-				seen[c.Fix] = true
+			if c.Level == level && c.Fix != "" && !seen[c.Msg+c.Fix] {
+				seen[c.Msg+c.Fix] = true
 				steps = append(steps, fmt.Sprintf("[%s] %s: %s", level, c.Msg, c.Fix))
 			}
 		}

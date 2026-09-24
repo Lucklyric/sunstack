@@ -5,12 +5,15 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 )
 
-// Live is a claim record in _local/live/<id>.json (design §5).
+// Live is one session's claim on an agent ID, in _local/live/<id>/<token>.json.
+// Several sessions may work as the same agent, each with its own claim.
 type Live struct {
 	Tool        string `json:"tool"`
 	Host        string `json:"host"`
@@ -20,15 +23,32 @@ type Live struct {
 	Session     string `json:"session,omitempty"`
 	TmuxPane    string `json:"tmux_pane,omitempty"`
 	TmuxSocket  string `json:"tmux_socket,omitempty"`
+	Task        string `json:"task,omitempty"`       // what this session works on, up to 10 characters
+	PaneTitle   string `json:"pane_title,omitempty"` // the tmux pane title before as, restored on release
+
+	path string // where it was read from
 }
 
-func (p *Project) livePath(id string) string { return p.local("live", id+".json") }
+// Label names a session: <id>_<task>, or just <id> when it has no task.
+func (l *Live) Label(id string) string {
+	if l.Task == "" {
+		return id
+	}
+	return id + "_" + l.Task
+}
 
-// ReadLive returns the claim on id, or nil when there is none. A claim file
-// that exists but cannot be read or parsed is an error, never "free": state
-// changes stop until it is repaired.
-func (p *Project) ReadLive(id string) (*Live, error) {
-	path := p.livePath(id)
+var taskRe = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,9}$`)
+
+// ValidTask checks a session task label: lowercase, digits and -, 1 to 10 characters.
+func ValidTask(s string) bool { return taskRe.MatchString(s) }
+
+func (p *Project) claimDir(id string) string { return p.local("live", id) }
+
+// legacyClaim is the single-claim file of protocol 1, still read so claims
+// made by an older version keep working until they are released.
+func (p *Project) legacyClaim(id string) string { return p.local("live", id+".json") }
+
+func (p *Project) readClaim(id, path string) (*Live, error) {
 	if err := p.noSymlink(path); err != nil {
 		return nil, err
 	}
@@ -37,18 +57,80 @@ func (p *Project) ReadLive(id string) (*Live, error) {
 		return nil, nil
 	}
 	if err != nil {
-		return nil, fail(ExitFail, "bad_claim", "cannot read the claim on %s: %v", id, err)
+		return nil, fail(ExitFail, "bad_claim", "cannot read a claim on %s: %v", id, err)
 	}
 	var l Live
-	if json.Unmarshal(b, &l) != nil || l.Token == "" {
+	if json.Unmarshal(b, &l) != nil || !tokenRe.MatchString(l.Token) {
 		return nil, fail(ExitFail, "bad_claim", "the claim file %s is damaged; check it, then delete it to free %s", path, id)
 	}
+	l.path = path
 	return &l, nil
 }
 
+var tokenRe = regexp.MustCompile(`^[0-9a-f]{16}$`)
+
+// Claims lists the sessions working as id, oldest first. A claim file that
+// exists but cannot be read or parsed is an error, never "free": state
+// changes stop until it is repaired.
+func (p *Project) Claims(id string) ([]*Live, error) {
+	var out []*Live
+	if l, err := p.readClaim(id, p.legacyClaim(id)); err != nil {
+		return nil, err
+	} else if l != nil {
+		out = append(out, l)
+	}
+	if err := p.noSymlink(p.claimDir(id)); err != nil {
+		return nil, err
+	}
+	for _, n := range listNames(p.claimDir(id), ".json") {
+		l, err := p.readClaim(id, filepath.Join(p.claimDir(id), n))
+		if err != nil {
+			return nil, err
+		}
+		if l != nil {
+			out = append(out, l)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Claimed < out[j].Claimed })
+	return out, nil
+}
+
+func findToken(claims []*Live, token string) *Live {
+	for _, c := range claims {
+		if token != "" && c.Token == token {
+			return c
+		}
+	}
+	return nil
+}
+
+// writeLive stores l under its token, moving a legacy claim file if needed.
 func (p *Project) writeLive(id string, l *Live) error {
 	b, _ := json.MarshalIndent(l, "", "  ")
-	return writeAtomic(p.livePath(id), append(b, '\n'))
+	path := filepath.Join(p.claimDir(id), l.Token+".json")
+	if err := writeAtomic(path, append(b, '\n')); err != nil {
+		return err
+	}
+	if l.path != "" && l.path != path {
+		os.Remove(l.path)
+	}
+	l.path = path
+	return nil
+}
+
+func (p *Project) removeLive(l *Live) error {
+	if err := os.Remove(l.path); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
+}
+
+func claimLines(claims []*Live) string {
+	var b strings.Builder
+	for _, c := range claims {
+		b.WriteString(c.ClaimLine() + "\n")
+	}
+	return b.String()
 }
 
 // ClaimLine describes an existing claim for the user and for --expect.
@@ -57,7 +139,11 @@ func (l *Live) ClaimLine() string {
 	if pane == "" {
 		pane = "-"
 	}
-	return fmt.Sprintf("claim=%s tool=%s host=%s pane=%s last_contact=%s", l.Token, l.Tool, l.Host, pane, l.LastContact)
+	task := l.Task
+	if task == "" {
+		task = "-"
+	}
+	return fmt.Sprintf("claim=%s task=%s tool=%s host=%s pane=%s last_contact=%s", l.Token, task, l.Tool, l.Host, pane, l.LastContact)
 }
 
 // AsOptions are the inputs of `sunstack as`.
@@ -67,6 +153,8 @@ type AsOptions struct {
 	Token    string // resume with this token
 	Takeover bool
 	Expect   string // token shown in the refusal
+	Join     bool   // work as this agent alongside the sessions already on it
+	Task     string // short label for what this session works on
 	Pane     string // $TMUX_PANE
 	Socket   string // tmux server socket, from $TMUX
 	Session  string // CLI session id, when known
@@ -74,12 +162,14 @@ type AsOptions struct {
 
 // AsResult is a successful claim.
 type AsResult struct {
-	ID    string
-	Mode  string // claimed | resumed | taken_over
-	Token string
+	ID     string
+	Mode   string // claimed | joined | resumed | taken_over
+	Token  string
+	Task   string
+	Others []*Live // other sessions working as this agent
 }
 
-// Roster lists "id<TAB>free|claimed|unknown" lines.
+// Roster lists "id<TAB>free|active:<n>|unknown<TAB>role" lines.
 func (p *Project) Roster(prefix string) string {
 	var b strings.Builder
 	for _, id := range p.Agents() {
@@ -87,10 +177,10 @@ func (p *Project) Roster(prefix string) string {
 			continue
 		}
 		state := "free"
-		if l, err := p.ReadLive(id); err != nil {
+		if cs, err := p.Claims(id); err != nil {
 			state = "unknown"
-		} else if l != nil {
-			state = "claimed"
+		} else if len(cs) > 0 {
+			state = fmt.Sprintf("active:%d", len(cs))
 		}
 		agent, _ := os.ReadFile(filepath.Join(p.AgentDir(id), "AGENT.md"))
 		fmt.Fprintf(&b, "%s\t%s\t%s\n", id, state, Duty(agent))
@@ -169,6 +259,9 @@ func samePane(l *Live, pane, socket string) bool {
 
 // As claims, resumes or takes over an agent ID (design §6, §7).
 func (p *Project) As(o AsOptions) (*AsResult, error) {
+	if o.Task != "" && !ValidTask(o.Task) {
+		return nil, fail(ExitUsage, "usage", "invalid task %q: lowercase letters, digits and -, at most 10 characters", o.Task)
+	}
 	id, err := p.resolve(o.Arg)
 	if err != nil {
 		return nil, err
@@ -186,37 +279,51 @@ func (p *Project) As(o AsOptions) (*AsResult, error) {
 		return nil, fail(ExitFail, "not_found", "%s was removed while waiting", id)
 	}
 
-	cur, err := p.ReadLive(id)
+	claims, err := p.Claims(id)
 	if err != nil {
 		return nil, err
 	}
 	res := &AsResult{ID: id}
 	claimed := now()
-	switch {
-	case cur == nil:
-		res.Mode, res.Token = "claimed", NewToken()
-	case o.Token != "":
-		if o.Token != cur.Token {
-			return nil, fail(ExitClaim, "token", "token does not match the current claim on %s (taken over?)", id)
+	var replace *Live // a claim this one replaces
+	var pane *Live
+	for _, c := range claims {
+		if samePane(c, o.Pane, o.Socket) {
+			pane = c
 		}
-		res.Mode, res.Token, claimed = "resumed", cur.Token, cur.Claimed
+	}
+	switch {
+	case o.Token != "":
+		mine := findToken(claims, o.Token)
+		if mine == nil {
+			return nil, fail(ExitClaim, "token", "token does not match any claim on %s (taken over or released?)", id)
+		}
+		res.Mode, res.Token, claimed, replace = "resumed", mine.Token, mine.Claimed, mine
+		if o.Task == "" {
+			o.Task = mine.Task
+		}
 	case o.Takeover:
 		if o.Expect == "" {
 			return nil, fail(ExitUsage, "usage", "--takeover needs --expect <claim shown in the refusal>")
 		}
-		if o.Expect != cur.Token {
-			e := fail(ExitClaim, "occupied", "the claim on %s changed since it was shown; confirm again with the new claim line", id)
-			e.Stdout = cur.ClaimLine() + "\n"
+		replace = findToken(claims, o.Expect)
+		if replace == nil {
+			e := fail(ExitClaim, "occupied", "the claim %s on %s is gone or changed; confirm again with a current claim line", o.Expect, id)
+			e.Stdout = claimLines(claims)
 			return nil, e
 		}
 		res.Mode, res.Token = "taken_over", NewToken()
-	case samePane(cur, o.Pane, o.Socket):
-		e := fail(ExitClaim, "occupied_same_pane", "%s is claimed from this same tmux pane; confirm with the user, then rerun with --takeover --expect %s", id, cur.Token)
-		e.Stdout = cur.ClaimLine() + "\n"
+	case len(claims) == 0:
+		res.Mode, res.Token = "claimed", NewToken()
+	case pane != nil:
+		e := fail(ExitClaim, "occupied_same_pane", "%s is claimed from this same tmux pane; confirm with the user, then rerun with --takeover --expect %s", id, pane.Token)
+		e.Stdout = pane.ClaimLine() + "\n"
 		return nil, e
+	case o.Join:
+		res.Mode, res.Token = "joined", NewToken()
 	default:
-		e := fail(ExitClaim, "occupied", "%s is claimed by another session; only take over (--takeover --expect %s) if the user confirms no other session should continue", id, cur.Token)
-		e.Stdout = cur.ClaimLine() + "\n"
+		e := fail(ExitClaim, "active", "%d other session(s) are working as %s; with the user's OK, join them (--join) or pick another agent", len(claims), id)
+		e.Stdout = claimLines(claims)
 		return nil, e
 	}
 
@@ -225,18 +332,48 @@ func (p *Project) As(o AsOptions) (*AsResult, error) {
 		host = host[:i]
 	}
 	l := &Live{Tool: o.Tool, Host: host, Token: res.Token, Claimed: claimed, LastContact: now(),
-		Session: o.Session, TmuxPane: o.Pane, TmuxSocket: o.Socket}
+		Session: o.Session, TmuxPane: o.Pane, TmuxSocket: o.Socket, Task: o.Task}
+	res.Task = o.Task
+	for _, c := range claims {
+		if c != replace {
+			res.Others = append(res.Others, c)
+		}
+	}
 	if l.Tool == "" {
 		l.Tool = "unknown"
+	}
+	if replace != nil {
+		l.path = replace.path // resumed: rewritten in place; taken over: replaced
+		if res.Mode == "taken_over" {
+			p.removeLive(replace)
+			os.RemoveAll(p.sessionTmp(id, replace.Token))
+			l.path = ""
+		}
+	}
+	if l.TmuxPane != "" && l.TmuxSocket != "" {
+		// Remember the pane's title so release can put it back.
+		if replace != nil && replace.PaneTitle != "" && replace.TmuxPane == l.TmuxPane {
+			l.PaneTitle = replace.PaneTitle
+		} else if out, err := exec.Command("tmux", TmuxArgs(l.TmuxSocket, "display-message", "-p", "-t", l.TmuxPane, "#{pane_title}")...).Output(); err == nil {
+			l.PaneTitle = strings.TrimSpace(string(out))
+		}
 	}
 	if err := p.writeLive(id, l); err != nil {
 		return nil, fail(ExitFail, "fs", "%v", err)
 	}
 	fields := []string{"tool=" + l.Tool}
+	if l.Task != "" {
+		fields = append(fields, "task="+l.Task)
+	}
 	if l.TmuxPane != "" {
 		fields = append(fields, "pane="+l.TmuxPane)
+		// Name the pane after the session so tmux shows who works there; only
+		// when we know which tmux server the pane lives on.
+		if l.TmuxSocket != "" {
+			exec.Command("tmux", TmuxArgs(l.TmuxSocket, "select-pane", "-t", l.TmuxPane, "-T", l.Label(id))...).Run()
+		}
 	}
-	p.LogEvent(map[string]string{"claimed": "claim", "resumed": "resume", "taken_over": "takeover"}[res.Mode], id, fields...)
+	p.LogEvent(map[string]string{"claimed": "claim", "joined": "join", "resumed": "resume", "taken_over": "takeover"}[res.Mode], id, fields...)
 	return res, nil
 }
 
@@ -254,9 +391,27 @@ func (p *Project) Bundle(r *AsResult) string {
 	}
 	section("PROTOCOL.md", filepath.Join(p.Dir, "PROTOCOL.md"))
 	section("PILLARS.md (team)", filepath.Join(p.Dir, "PILLARS.md"))
+	section("BOARD.md (team: objectives, the user's key results, directives)", p.teamBoardPath())
 	section(r.ID+"/AGENT.md", filepath.Join(p.AgentDir(r.ID), "AGENT.md"))
 	section(r.ID+"/pillars.md", filepath.Join(p.AgentDir(r.ID), "pillars.md"))
+	section(r.ID+"/board.md", p.boardPath(r.ID))
 	section(r.ID+"/context.md", filepath.Join(p.AgentDir(r.ID), "context.md"))
+	boards := p.LoadBoards()
+	if un := boards.Unaligned(r.ID); len(un) > 0 {
+		b.WriteString("\n===== directives not aligned yet (check your board against each, then set aligned: to the last) =====\n")
+		for _, d := range un {
+			fmt.Fprintf(&b, "%s %s %s\n", d.Key, d.Date, d.Text)
+		}
+	}
+	if len(r.Others) > 0 {
+		b.WriteString("\n===== other sessions working as this agent (work on a different key result; merge on mismatch) =====\n")
+		for _, c := range r.Others {
+			fmt.Fprintf(&b, "%s: %s on %s, last contact %s\n", c.Label(r.ID), c.Tool, c.Host, c.LastContact)
+		}
+	}
+	if months := listNames(p.archiveDir(r.ID), ".md"); len(months) > 0 {
+		fmt.Fprintf(&b, "\n===== archive (not loaded; read %s/archive/<month>.md only when you need history) =====\n%s\n", r.ID, strings.Join(months, ", "))
+	}
 	b.WriteString("\n===== threads =====\n")
 	for _, n := range listNames(filepath.Join(p.AgentDir(r.ID), "threads"), ".md") {
 		b.WriteString(strings.TrimSuffix(n, ".md") + "\n")
@@ -265,15 +420,21 @@ func (p *Project) Bundle(r *AsResult) string {
 	for _, n := range listNames(p.local("inbox", r.ID), ".md") {
 		b.WriteString(n + "\n")
 	}
+	task := r.Task
+	if task == "" {
+		task = "-"
+	}
 	fmt.Fprintf(&b, `
 ===== session state =====
 root: %s
 id: %s
 token: %s
+task: %s
+session_name: %s
 protocol: %d
 Pass --root, the id and --token explicitly on every later snapshot, commit and release.
 Before ending or switching identity, run the Sunstack save skill, then sunstack release.
-`, p.Root, r.ID, r.Token, ProtocolVersion)
+`, p.Root, r.ID, r.Token, task, (&Live{Task: r.Task}).Label(r.ID), ProtocolVersion)
 	return b.String()
 }
 
@@ -289,25 +450,26 @@ func listNames(dir, suffix string) []string {
 	return out
 }
 
+// sessionTmp is one session's scratch space for candidates.
+func (p *Project) sessionTmp(id, token string) string { return p.local("tmp", id, token) }
+
 // requireToken must be called with the ID lock held.
 func (p *Project) requireToken(id, token string) (*Live, error) {
 	if token == "" {
 		return nil, fail(ExitClaim, "token", "missing --token; run as again (design §7)")
 	}
-	cur, err := p.ReadLive(id)
+	claims, err := p.Claims(id)
 	if err != nil {
 		return nil, err
 	}
+	cur := findToken(claims, token)
 	if cur == nil {
-		return nil, fail(ExitClaim, "token", "%s is not claimed; run as first", id)
-	}
-	if cur.Token != token {
-		return nil, fail(ExitClaim, "token", "token does not match the current claim on %s (taken over?)", id)
+		return nil, fail(ExitClaim, "token", "token does not match any claim on %s (taken over or released?)", id)
 	}
 	return cur, nil
 }
 
-// Release drops the claim held with token (design §6).
+// Release drops this session's claim; other sessions on the same ID keep theirs.
 func (p *Project) Release(id, token string) error {
 	if !ValidID(id) {
 		return fail(ExitUsage, "usage", "invalid id: %s", id)
@@ -317,13 +479,21 @@ func (p *Project) Release(id, token string) error {
 		return err
 	}
 	defer unlock()
-	if _, err := p.requireToken(id, token); err != nil {
+	cur, err := p.requireToken(id, token)
+	if err != nil {
 		return err
 	}
-	if err := os.Remove(p.livePath(id)); err != nil && !os.IsNotExist(err) {
+	if err := p.removeLive(cur); err != nil {
 		return fail(ExitFail, "fs", "%v", err)
 	}
-	os.RemoveAll(p.local("tmp", id))
+	if cur.TmuxPane != "" && cur.TmuxSocket != "" && cur.PaneTitle != "" {
+		exec.Command("tmux", TmuxArgs(cur.TmuxSocket, "select-pane", "-t", cur.TmuxPane, "-T", cur.PaneTitle)...).Run()
+	}
+	os.RemoveAll(p.sessionTmp(id, token))
+	if rest, _ := p.Claims(id); len(rest) == 0 {
+		os.RemoveAll(p.local("tmp", id))
+		os.Remove(p.claimDir(id))
+	}
 	p.LogEvent("release", id)
 	return nil
 }

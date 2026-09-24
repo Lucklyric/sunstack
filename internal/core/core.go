@@ -17,7 +17,7 @@ import (
 )
 
 // ProtocolVersion changes only when file formats or exit codes change.
-const ProtocolVersion = 1
+const ProtocolVersion = 2
 
 // Exit codes (design §8).
 const (

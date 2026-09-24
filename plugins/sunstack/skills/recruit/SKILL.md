@@ -112,6 +112,9 @@ approval of the command itself; that prompt is expected.
 
 ## 6. Optional follow-ups
 
+- Suggest one to three first key results for the new agent, each tagged with a team objective
+  from `sunstack board`. They are written by the agent's first session (`/sunstack:as <id>`,
+  then save), not by you.
 - If the user also wants rules only for this agent, propose them as pillars and follow the save
   skill's approval step (`sunstack amend "<id>" pillars.md ...`).
 - For a new role, ask whether to keep it as a personal template for other projects. On yes:
