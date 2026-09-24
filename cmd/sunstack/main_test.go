@@ -769,6 +769,15 @@ func TestBoards(t *testing.T) {
 	expect(t, sh(t, p, home, "snapshot", "builder.alice", "archive/2026-01.md", "--token", tok), 0, "archive is a commit target")
 	expect(t, sh(t, p, home, "snapshot", "builder.alice", "archive/jan.md", "--token", tok), 2, "archive names are months")
 
+	// hr: load, uncovered objectives, gaps, unused templates, project signals.
+	r = sh(t, p, home, "hr")
+	expect(t, r, 0, "hr")
+	for _, want := range []string{"builder.alice", "now 2", "reviewer.bob", "Templates not on the team", "files looked at"} {
+		if !strings.Contains(r.out, want) {
+			t.Errorf("hr lacks %q:\n%s", want, r.out)
+		}
+	}
+
 	// health: a missing board is a migration step.
 	must(t, os.Remove(filepath.Join(p, "sunstack", "reviewer.bob", "board.md")))
 	if r := sh(t, p, home, "health"); !strings.Contains(r.out, "reviewer.bob has no board.md") {
@@ -845,7 +854,9 @@ func TestMessages(t *testing.T) {
 	if r := sh(t, p, nil, "check", "builder.alice", "--token", tb); !strings.Contains(r.out, "type: shutdown") {
 		t.Errorf("shutdown message: %s", r.out)
 	}
-	expect(t, sh(t, p, nil, "dismiss", "builder.alice_docs", "--force"), 1, "force only closes spawned panes")
+	expect(t, sh(t, p, nil, "kill", "builder.alice_docs"), 1, "kill needs a known tmux pane")
+	expect(t, sh(t, p, nil, "kill", "builder.alice"), 1, "kill resolves the one session")
+	expect(t, sh(t, p, nil, "dismiss", "builder.alice_docs", "--force"), 2, "dismiss has no --force; kill does that")
 	expect(t, sh(t, p, nil, "spawn", "reviewer"), 1, "spawn needs tmux")
 	if r := sh(t, p, nil, "sessions"); !strings.Contains(r.out, "builder.alice_docs") || !strings.Contains(r.out, "reviewer") {
 		t.Errorf("sessions: %s", r.out)

@@ -1,7 +1,7 @@
 {
   "name": "sunstack",
   "description": "Agent-team layer for Claude Code and Codex: role agents, project pillars, dated team and agent boards (OKRs), persistent context, several sessions per agent, and messaging between agents through files and tmux, all as plain files in the project.",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "author": {
     "name": "0xasun"
   },

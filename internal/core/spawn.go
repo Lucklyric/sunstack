@@ -105,67 +105,102 @@ func orDash(s string) string {
 	return s
 }
 
-// Dismiss asks a session to finish (a shutdown message to it, with a nudge).
-// With force it closes the pane instead, only for a session sunstack spawned
-// in a pane still marked as its own; the claim is dropped and its taken
-// messages go back to the inbox.
-func (p *Project) Dismiss(target string, force bool) (string, error) {
-	id, session, err := p.resolveRecipient(target)
+// target resolves an ID or a session name to exactly one live session.
+func (p *Project) target(t string) (string, *Live, error) {
+	id, session, err := p.resolveRecipient(t)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 	claims, err := p.Claims(id)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 	var c *Live
 	for _, x := range claims {
 		if session == "" || x.Label(id) == session {
 			if c != nil {
-				return "", fail(ExitUsage, "missing_arguments", "%s has several sessions; name one (<id>_<task>, see sunstack sessions)", id)
+				e := fail(ExitUsage, "missing_arguments", "%s has several sessions; name one", id)
+				e.Stdout = "missing_arguments: session\n"
+				for _, y := range claims {
+					e.Stdout += y.Label(id) + "\n"
+				}
+				return "", nil, e
 			}
 			c = x
 		}
 	}
 	if c == nil {
-		return "", fail(ExitFail, "not_found", "%s has no live session", target)
+		return "", nil, fail(ExitFail, "not_found", "%s has no live session", t)
+	}
+	return id, c, nil
+}
+
+// Dismiss asks a session to finish: a shutdown message to it, with a nudge.
+func (p *Project) Dismiss(t string) (string, error) {
+	id, c, err := p.target(t)
+	if err != nil {
+		return "", err
 	}
 	name := c.Label(id)
-	if !force {
-		if c.Task == "" && len(claims) > 1 {
-			return "", fail(ExitUsage, "usage", "that session has no task label, so it cannot be addressed alone; use --force for a spawned one, or ask it in its pane")
-		}
-		to := id
-		if c.Task != "" {
-			to = name
-		}
-		res, err := p.Send(SendOptions{To: to, Type: "shutdown", Body: "Please finish: save, reply done, release, then stop."})
-		if err != nil {
-			return "", err
-		}
-		p.LogEvent("dismiss", name, res.ID)
-		if res.Nudged != "" {
-			return fmt.Sprintf("asked %s to finish (message %s); it replies done when it has", name, res.ID), nil
-		}
-		return fmt.Sprintf("left a shutdown message %s for %s; %s", res.ID, name, res.Note), nil
+	to := id
+	if c.Task != "" {
+		to = name
+	} else if claims, _ := p.Claims(id); len(claims) > 1 {
+		return "", fail(ExitUsage, "usage", "that session has no task label, so a message cannot reach it alone; ask it in its pane, or use sunstack kill")
 	}
-	if !c.Spawned {
-		return "", fail(ExitFail, "not_spawned", "%s was not started by sunstack spawn; close it yourself", name)
+	res, err := p.Send(SendOptions{To: to, Type: "shutdown", Body: "Please finish: save, reply done, release, then stop."})
+	if err != nil {
+		return "", err
 	}
-	mark, err := exec.Command("tmux", TmuxArgs(c.TmuxSocket, "show-options", "-p", "-v", "-t", c.TmuxPane, "@sunstack")...).Output()
-	if err != nil || strings.TrimSpace(string(mark)) != p.Root+"|"+id {
-		return "", fail(ExitFail, "not_spawned", "pane %s is no longer the one sunstack opened for %s; close it yourself", c.TmuxPane, name)
+	p.LogEvent("dismiss", name, res.ID)
+	if res.Nudged != "" {
+		return fmt.Sprintf("asked %s to finish (message %s); it replies done when it has", name, res.ID), nil
+	}
+	return fmt.Sprintf("left a shutdown message %s for %s; %s", res.ID, name, res.Note), nil
+}
+
+// KillPlan describes what kill would close, for the confirmation.
+func (p *Project) KillPlan(t string) (string, error) {
+	id, c, err := p.target(t)
+	if err != nil {
+		return "", err
+	}
+	if c.TmuxPane == "" || c.TmuxSocket == "" {
+		return "", fail(ExitFail, "no_pane", "%s is not in a tmux pane sunstack knows; close it yourself", c.Label(id))
+	}
+	return fmt.Sprintf("close tmux pane %s (%s) running %s as %s, drop its claim, and put its taken messages back", c.TmuxPane, TmuxWhere(c.TmuxSocket, c.TmuxPane), c.Tool, c.Label(id)), nil
+}
+
+// Kill closes one session's tmux pane at once, whoever started it, then
+// drops its claim and requeues its taken messages. Unsaved work in that
+// session is lost. It refuses a pane that no longer runs the recorded CLI,
+// unless sunstack spawned it and the pane still carries its mark.
+func (p *Project) Kill(t string) (string, error) {
+	id, c, err := p.target(t)
+	if err != nil {
+		return "", err
+	}
+	name := c.Label(id)
+	if c.TmuxPane == "" || c.TmuxSocket == "" {
+		return "", fail(ExitFail, "no_pane", "%s is not in a tmux pane sunstack knows; close it yourself", name)
+	}
+	mark, _ := exec.Command("tmux", TmuxArgs(c.TmuxSocket, "show-options", "-p", "-v", "-t", c.TmuxPane, "@sunstack")...).Output()
+	ours := c.Spawned && strings.TrimSpace(string(mark)) == p.Root+"|"+id
+	if !ours && !paneRunsTool(c.TmuxSocket, c.TmuxPane, c.Tool) {
+		return "", fail(ExitFail, "not_running", "pane %s no longer runs %s for %s, so it is left alone; if that session is gone, delete %s to drop its claim", c.TmuxPane, c.Tool, name, c.path)
 	}
 	unlock, err := p.lock(id)
 	if err != nil {
 		return "", err
 	}
 	defer unlock()
-	exec.Command("tmux", TmuxArgs(c.TmuxSocket, "kill-pane", "-t", c.TmuxPane)...).Run()
+	if err := exec.Command("tmux", TmuxArgs(c.TmuxSocket, "kill-pane", "-t", c.TmuxPane)...).Run(); err != nil {
+		return "", fail(ExitFail, "tmux", "could not close pane %s: %v", c.TmuxPane, err)
+	}
 	p.removeLive(c)
 	os.RemoveAll(p.sessionTmp(id, c.Token))
 	rest, _ := p.Claims(id)
 	p.requeue(id, rest)
-	p.LogEvent("dismiss", name, "force")
+	p.LogEvent("kill", name, "pane="+c.TmuxPane)
 	return "closed " + name + " (pane " + c.TmuxPane + ")", nil
 }

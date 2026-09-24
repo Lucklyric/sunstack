@@ -22,7 +22,8 @@ Commands and skills (Claude Code `/sunstack:<skill>`, Codex `$sunstack:<skill>`)
 - Give the team a directive: `sunstack direct`, skill `direct`
 - Add, rename or remove an agent: `sunstack hire`, `rename`, `fire`; skills `recruit` and `fire`
 - Talk between agents: `sunstack send`, `check`, `take`, `ack`; skills `message` and `check`
-- Start or stop agent sessions in tmux: `sunstack sessions`, `spawn`, `dismiss`; skill `spawn`
+- Start or stop agent sessions in tmux: `sunstack sessions`, `spawn`, `dismiss`, `kill`; skill `spawn`
+- Review staffing and suggest hires: `sunstack hr`, skill `hr`
 - Watch the team: `sunstack team`, `sunstack log`, `sunstack tui`
 
 Review changes to this folder like code: pillars, boards and context shape how the agents behave.

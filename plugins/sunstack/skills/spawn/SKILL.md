@@ -1,6 +1,6 @@
 ---
 name: spawn
-description: Start a new Claude Code or Codex session as a Sunstack agent in a tmux window, list live sessions, or ask a session to finish (dismiss). Use when the user says "spawn", "start a session for <agent>", "open another builder", "get the reviewer working on this", "who is running", "sessions", "dismiss", "stop <agent>", "/sunstack:spawn", or when a message waits for an agent that has no live session.
+description: Start a new Claude Code or Codex session as a Sunstack agent in a tmux window, list live sessions, ask a session to finish (dismiss), or close one at once (kill). Use when the user says "spawn", "start a session for <agent>", "open another builder", "get the reviewer working on this", "who is running", "sessions", "dismiss", "stop <agent>", "kill <session>", "close that session", "/sunstack:spawn", or when a message waits for an agent that has no live session.
 ---
 
 # Sunstack: spawn
@@ -50,6 +50,26 @@ sunstack dismiss "<id or id_task>"
 ```
 
 This sends a `shutdown` message (and a nudge). The session saves, replies `done`, and
-releases. `dismiss --force` closes the pane at once, only for a session `spawn` started and
-only after the user confirms losing unsaved work; for any other session, tell the user to
-close it themselves.
+releases. Prefer this: nothing is lost.
+
+## Close a session now (kill)
+
+Only when the user asks for it, or a session is stuck and the user agrees. It closes that
+one session's tmux pane at once; unsaved work in it is lost.
+
+1. Name the exact session (`sunstack sessions`); if the agent has several, ask which.
+2. Tell the user what will close and that unsaved work is lost; ask: close / cancel.
+3. On yes:
+
+   ```sh
+   sunstack kill "<id_task>" --yes
+   ```
+
+   Claude Code and Codex also ask before running it. The claim is dropped and messages the
+   session had taken go back to the inbox.
+   - **1 `no_pane`**: the session is not in a tmux pane sunstack knows; the user closes it.
+   - **1 `not_running`**: the pane no longer runs that CLI, so it is left alone; tell the user.
+   - **2 `missing_arguments`**: several sessions; ask which.
+
+From a terminal, the user can run `sunstack kill <id_task>` directly; it asks for
+confirmation.

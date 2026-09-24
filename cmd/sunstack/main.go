@@ -54,7 +54,10 @@ Sessions and messages:
   sunstack ack <id> <msg> --token T               archive a handled message
   sunstack spawn <id|title> [--tool claude|codex] [--task LABEL] [--note "..."]
                                                   open a tmux window and start a session as that agent
-  sunstack dismiss <id|id_task> [--force]         ask a session to finish; --force closes a spawned pane
+  sunstack dismiss <id|id_task>                   ask a session to finish (a shutdown message)
+  sunstack kill <id_task|id> [--yes]              close that one session's tmux pane now (asks first; unsaved work is lost)
+  sunstack hr                                     staffing facts: load, idle agents, uncovered objectives, gaps,
+                                                  unused templates, what the project is made of
 
 Team (run these yourself):
   sunstack init [--refresh]                       create sunstack/ here, the AGENTS.md block and .gitignore line;
@@ -756,7 +759,7 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 		return nil
 
 	case "dismiss":
-		a, err := parse(rest, "root", "force")
+		a, err := parse(rest, "root", "")
 		if err == nil {
 			err = a.atMost(1, "dismiss")
 		}
@@ -770,11 +773,61 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 		if err != nil {
 			return err
 		}
-		msg, err := p.Dismiss(a.pos[0], a.has("force"))
+		msg, err := p.Dismiss(a.pos[0])
 		if err != nil {
 			return err
 		}
 		fmt.Fprintf(stdout, "sunstack: %s\n", msg)
+		return nil
+
+	case "kill":
+		a, err := parse(rest, "root", "yes")
+		if err == nil {
+			err = a.atMost(1, "kill")
+		}
+		if err != nil {
+			return err
+		}
+		if len(a.pos) < 1 {
+			return missing("session name (sunstack sessions lists them)")
+		}
+		p, err := core.FindProject(a.flags["root"])
+		if err != nil {
+			return err
+		}
+		plan, err := p.KillPlan(a.pos[0])
+		if err != nil {
+			return err
+		}
+		if !a.has("yes") {
+			if !setup.IsTerminal(os.Stdin) {
+				return &core.Error{Code: core.ExitUsage, Reason: "confirm", Msg: "this will " + plan + "; rerun with --yes once the user has confirmed"}
+			}
+			if !setup.Confirm(stdin, stdout, "This will "+plan+". Unsaved work in that session is lost. Continue?", false) {
+				fmt.Fprintln(stdout, "sunstack: nothing closed")
+				return nil
+			}
+		}
+		msg, err := p.Kill(a.pos[0])
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(stdout, "sunstack: %s\n", msg)
+		return nil
+
+	case "hr":
+		a, err := parse(rest, "root", "")
+		if err == nil {
+			err = a.atMost(0, "hr")
+		}
+		if err != nil {
+			return err
+		}
+		p, err := core.FindProject(a.flags["root"])
+		if err != nil {
+			return err
+		}
+		fmt.Fprint(stdout, p.HR(time.Now()).Text())
 		return nil
 
 	case "hook":
@@ -843,7 +896,7 @@ func lifecycle(cmd string, t setup.Targets, yes bool, stdin io.Reader, out io.Wr
 			step("claude plugin", setup.InstallClaude(out))
 			if setup.HasClaudeRules() {
 				fmt.Fprintf(out, "Claude Code already has the sunstack permission rules\n")
-			} else if yes || setup.Confirm(stdin, out, fmt.Sprintf("Update %s: allow %q (no prompt before each call), and ask before sunstack amend, hire, rename and fire (you approve every rule change and every new or deleted agent)?", setup.ClaudeSettingsPath(), setup.AllowRule), false) {
+			} else if yes || setup.Confirm(stdin, out, fmt.Sprintf("Update %s: allow %q (no prompt before each call), and ask before sunstack amend, hire, rename, fire and kill (you approve every rule change and every new or deleted agent)?", setup.ClaudeSettingsPath(), setup.AllowRule), false) {
 				_, err := setup.SetClaudeRules(true)
 				step("permission rules", err)
 				if err == nil {
@@ -858,7 +911,7 @@ func lifecycle(cmd string, t setup.Targets, yes bool, stdin io.Reader, out io.Wr
 			err := setup.SetCodexRules(true)
 			step("codex rule", err)
 			if err == nil {
-				fmt.Fprintf(out, "wrote %s: Codex asks before sunstack amend, hire, rename and fire\n", setup.CodexRulesPath())
+				fmt.Fprintf(out, "wrote %s: Codex asks before sunstack amend, hire, rename, fire and kill\n", setup.CodexRulesPath())
 			}
 			if setup.CodexAutoReviewsApprovals() {
 				fmt.Fprintln(out, "note: your Codex config sets approvals_reviewer, so Codex approval prompts go to an automatic reviewer, not to you. The rule then cannot guarantee you see each amend; the skill still asks you before every rule change.")
@@ -939,7 +992,7 @@ func health(root string, out io.Writer) error {
 	cs = append(cs, core.Check{Level: "ok", Area: "install", Msg: "sunstack " + version})
 	if _, err := exec.LookPath("claude"); err == nil {
 		if setup.HasClaudeRules() {
-			cs = append(cs, core.Check{Level: "ok", Area: "install", Msg: "Claude Code allows sunstack and asks before amend, hire, rename and fire"})
+			cs = append(cs, core.Check{Level: "ok", Area: "install", Msg: "Claude Code allows sunstack and asks before amend, hire, rename, fire and kill"})
 		} else {
 			if setup.HasAllowRule() {
 				cs = append(cs, core.Check{Level: "warn", Area: "migrate", Msg: "Claude Code permission rules are from an older sunstack", Fix: "sunstack update"})
@@ -951,13 +1004,13 @@ func health(root string, out io.Writer) error {
 	if _, err := exec.LookPath("codex"); err == nil {
 		switch setup.CodexRulesState() {
 		case "current":
-			cs = append(cs, core.Check{Level: "ok", Area: "install", Msg: "Codex asks before amend, hire, rename and fire (" + setup.CodexRulesPath() + ")"})
+			cs = append(cs, core.Check{Level: "ok", Area: "install", Msg: "Codex asks before amend, hire, rename, fire and kill (" + setup.CodexRulesPath() + ")"})
 		case "outdated":
 			cs = append(cs, core.Check{Level: "warn", Area: "migrate", Msg: "Codex rules are from an older sunstack", Fix: "sunstack update"})
 		case "foreign":
 			cs = append(cs, core.Check{Level: "warn", Area: "install", Msg: setup.CodexRulesPath() + " was not written by sunstack", Fix: "merge the sunstack rules by hand"})
 		default:
-			cs = append(cs, core.Check{Level: "warn", Area: "install", Msg: "Codex rules for amend, hire, rename and fire are missing", Fix: "sunstack install --codex"})
+			cs = append(cs, core.Check{Level: "warn", Area: "install", Msg: "Codex rules for amend, hire, rename, fire and kill are missing", Fix: "sunstack install --codex"})
 		}
 		if setup.CodexAutoReviewsApprovals() {
 			cs = append(cs, core.Check{Level: "warn", Area: "install", Msg: "Codex approvals_reviewer sends approval prompts to an automatic reviewer; rule changes rely on the skill asking you"})
