@@ -779,3 +779,75 @@ func TestBoards(t *testing.T) {
 		t.Error("tidy should create a missing board")
 	}
 }
+
+var msgRe = regexp.MustCompile(`sent (\S+) to`)
+
+func TestMessages(t *testing.T) {
+	p := fixture(t)
+	env := []string{"CLAUDECODE=1", "CLAUDE_CODE_SESSION_ID=sess-a"}
+	ta := field(tokenRe, sh(t, p, env, "as", "builder.alice", "--task", "api").out)
+	tb := field(tokenRe, sh(t, p, nil, "as", "builder.alice", "--join", "--task", "docs").out)
+	tr := field(tokenRe, sh(t, p, nil, "as", "reviewer").out)
+
+	r := sh(t, p, nil, "send", "builder.alice", "Please review the API change", "--type", "question", "--from", "reviewer", "--token", tr)
+	expect(t, r, 0, "send to an agent")
+	m1 := field(msgRe, r.out)
+	if !strings.Contains(r.out, "waits in the inbox") && !strings.Contains(r.out, "no session with a live") {
+		t.Errorf("no tmux here, so nobody is nudged: %s", r.out)
+	}
+	expect(t, sh(t, p, nil, "send", "builder.alice", "x", "--from", "reviewer", "--token", "0000000000000000"), 4, "sender token checked")
+	expect(t, sh(t, p, nil, "send", "builder.alice", "x", "--type", "order"), 2, "unknown type")
+	r = sh(t, p, nil, "send", "builder.alice_docs", "Only for the docs session")
+	expect(t, r, 0, "send to a session name")
+	m2 := field(msgRe, r.out)
+	expect(t, sh(t, p, nil, "send", "builder.alice_nope", "x"), 1, "unknown session")
+
+	// The prompt hook tells session A about what waits for it.
+	hook := exec.Command(bin, "hook")
+	hook.Env = cleanEnv()
+	hook.Stdin = strings.NewReader(`{"session_id":"sess-a","cwd":"` + filepath.ToSlash(p) + `"}`)
+	out, _ := hook.Output()
+	if !strings.Contains(string(out), "builder.alice_api has 1 message(s) waiting") || !strings.Contains(string(out), "additionalContext") {
+		t.Errorf("hook output: %s", out)
+	}
+
+	// Session A sees the agent's message but not the one for session B.
+	r = sh(t, p, nil, "check", "builder.alice", "--token", ta)
+	if !strings.Contains(r.out, m1) || strings.Contains(r.out, m2) || !strings.Contains(r.out, "Please review") {
+		t.Errorf("check for A: %s", r.out)
+	}
+	expect(t, sh(t, p, nil, "take", "builder.alice", m2, "--token", ta), 4, "A cannot take B's message")
+	expect(t, sh(t, p, nil, "take", "builder.alice", m1, "--token", ta), 0, "A takes the message")
+	expect(t, sh(t, p, nil, "take", "builder.alice", m1, "--token", tb), 4, "B cannot take it too")
+	if r := sh(t, p, nil, "inbox", "builder.alice"); !strings.Contains(r.out, "taken by builder.alice_api") {
+		t.Errorf("inbox should show who took it: %s", r.out)
+	}
+
+	// Releasing A puts its taken message back for B.
+	expect(t, sh(t, p, nil, "release", "builder.alice", "--token", ta), 0, "release A")
+	r = sh(t, p, nil, "check", "builder.alice", "--token", tb)
+	if !strings.Contains(r.out, m1+" (pending)") || !strings.Contains(r.out, m2) {
+		t.Errorf("after A's release, B sees both: %s", r.out)
+	}
+	expect(t, sh(t, p, nil, "ack", "builder.alice", m1, "--token", tb), 0, "B acks without taking first")
+	expect(t, sh(t, p, nil, "ack", "builder.alice", m1, "--token", tb), 1, "already acked")
+	if _, err := os.Stat(filepath.Join(p, "sunstack", "_local", "log", "messages", m1+".md")); err != nil {
+		t.Error("acked message should be archived")
+	}
+
+	// A reply carries reply_to; dismiss leaves a shutdown message for a session.
+	expect(t, sh(t, p, nil, "send", "reviewer", "Looks fine", "--type", "done", "--reply-to", m1, "--from", "builder.alice", "--token", tb), 0, "reply")
+	if r := sh(t, p, nil, "check", "reviewer", "--token", tr); !strings.Contains(r.out, "reply_to: "+m1) {
+		t.Errorf("reply: %s", r.out)
+	}
+	r = sh(t, p, nil, "dismiss", "builder.alice_docs")
+	expect(t, r, 0, "dismiss")
+	if r := sh(t, p, nil, "check", "builder.alice", "--token", tb); !strings.Contains(r.out, "type: shutdown") {
+		t.Errorf("shutdown message: %s", r.out)
+	}
+	expect(t, sh(t, p, nil, "dismiss", "builder.alice_docs", "--force"), 1, "force only closes spawned panes")
+	expect(t, sh(t, p, nil, "spawn", "reviewer"), 1, "spawn needs tmux")
+	if r := sh(t, p, nil, "sessions"); !strings.Contains(r.out, "builder.alice_docs") || !strings.Contains(r.out, "reviewer") {
+		t.Errorf("sessions: %s", r.out)
+	}
+}

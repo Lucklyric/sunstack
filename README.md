@@ -2,7 +2,7 @@
 
 Sunstack is a plugin for Claude Code and Codex that manages the agent layer of a project. It lets you hire a team of role agents (builder, reviewer, and others), give the team and each agent project-level constraints called pillars, and align everyone, you included, on dated objectives and key results. Each agent keeps a board of what it is doing and a persistent context of what it has learned.
 
-> **Status:** early. The team, identity, self-improvement and dashboard commands work; agent-to-agent messaging (`send`, `check`, `spawn`) is next.
+> **Status:** early. Team, identity, boards, self-improvement, messaging and the dashboard work.
 
 ## Principles
 
@@ -45,8 +45,19 @@ Skills run as `/sunstack:<name>` in Claude Code and `$sunstack:<name>` in Codex.
 - **Objectives and alignment:** `board`, `amend --team BOARD.md` → skill `board`; `direct` → skill `direct`
 - **Self-improvement:** `amend` → skill `save` (you approve every change)
 - **Team members:** `hire`, `library` → skill `recruit`; `fire` → skill `fire`; `rename` → skill `checkup`
+- **Messages:** `send` → skill `message`; `check`, `take`, `ack` → skill `check`
+- **Sessions:** `sessions`, `spawn`, `dismiss` → skill `spawn`
 - **Watch:** `team`, `log`, `inbox`, `pillar`, `tui` (also a bare `sunstack`)
-- **Planned:** `send`, `check`, `ack`, `spawn`, `dismiss`
+
+## How agents reach each other
+
+A message is always a file in the recipient's inbox (`sunstack/_local/inbox/<id>/`), so it works everywhere and is never lost. Getting the recipient to look at it depends on where it runs:
+
+- **A live Claude Code or Codex session in tmux:** `send` types a one-line nudge (`/sunstack:check …` or `$sunstack:check …`) into its pane. It only types into a pane whose foreground program is that CLI, never into a shell.
+- **A Claude Code session elsewhere:** the plugin's prompt hook tells it about waiting messages at its next prompt.
+- **No live session:** the message waits; `sunstack spawn` starts a session for the agent in a new tmux window, with your approval.
+
+Several sessions of one agent share its inbox; a session takes a message before working on it, so only one handles it.
 
 ## What needs your approval
 

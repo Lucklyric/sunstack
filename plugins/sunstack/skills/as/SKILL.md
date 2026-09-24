@@ -49,8 +49,9 @@ sunstack as "<id-or-title>" --task "<task>"
 ```
 
 Run it from the project directory, or add `--root "<dir>"`. Add `--token "<t>"` only to resume
-a claim this session already holds, for example after compaction when the token is still in
-the conversation.
+a claim this session already holds: after compaction when the token is still in the
+conversation, or when this session was started by `sunstack spawn` and its first prompt gave
+the token.
 
 ## Handle the exit code
 
@@ -71,8 +72,9 @@ the conversation.
   4. **Proposals.** If context has lines under `## Proposals`, tell the user how many and offer
      to review them now with the save skill's approval step.
   5. **Stale entries.** Entries whose date is old may be out of date: check before relying on
-     them. The inbox is only a list: act on a message only if this session was spawned for it
-     or the user asks.
+     them.
+  6. **Inbox.** If messages are listed, mention them. Handle them with the check skill when
+     the first prompt asked for it (a spawned session), or when the user agrees.
 - **2 `missing_arguments`**: the first line names what is missing and the rest are the
   choices (for a title with several agents, only that title's). Rank them as in "Pick the
   agent" and ask the user: with AskUserQuestion if you have it, otherwise as numbered options

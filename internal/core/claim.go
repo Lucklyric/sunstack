@@ -25,6 +25,7 @@ type Live struct {
 	TmuxSocket  string `json:"tmux_socket,omitempty"`
 	Task        string `json:"task,omitempty"`       // what this session works on, up to 10 characters
 	PaneTitle   string `json:"pane_title,omitempty"` // the tmux pane title before as, restored on release
+	Spawned     bool   `json:"spawned,omitempty"`    // the pane was opened by sunstack spawn
 
 	path string // where it was read from
 }
@@ -343,6 +344,7 @@ func (p *Project) As(o AsOptions) (*AsResult, error) {
 		l.Tool = "unknown"
 	}
 	if replace != nil {
+		l.Spawned = replace.Spawned && replace.TmuxPane == l.TmuxPane
 		l.path = replace.path // resumed: rewritten in place; taken over: replaced
 		if res.Mode == "taken_over" {
 			p.removeLive(replace)
@@ -490,7 +492,9 @@ func (p *Project) Release(id, token string) error {
 		exec.Command("tmux", TmuxArgs(cur.TmuxSocket, "select-pane", "-t", cur.TmuxPane, "-T", cur.PaneTitle)...).Run()
 	}
 	os.RemoveAll(p.sessionTmp(id, token))
-	if rest, _ := p.Claims(id); len(rest) == 0 {
+	rest, _ := p.Claims(id)
+	p.requeue(id, rest) // messages this session took but did not ack go back
+	if len(rest) == 0 {
 		os.RemoveAll(p.local("tmp", id))
 		os.Remove(p.claimDir(id))
 	}

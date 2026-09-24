@@ -152,18 +152,7 @@ func (m *model) goToPane() string {
 	return "switched to " + where
 }
 
-func resumeCmd(l *core.Live) string {
-	if l == nil || l.Session == "" {
-		return ""
-	}
-	switch l.Tool {
-	case "claude":
-		return "claude --resume " + l.Session
-	case "codex":
-		return "codex resume " + l.Session
-	}
-	return ""
-}
+func resumeCmd(l *core.Live) string { return core.ResumeCommand(l) }
 
 // copyResume puts the resume command on the clipboard through OSC 52, which
 // works over SSH and inside tmux (with set-clipboard on).

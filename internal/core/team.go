@@ -712,30 +712,33 @@ func (p *Project) Events(id string) []string {
 func (p *Project) EventsPath() string { return p.local("log", "events.log") }
 
 // InboxEntry is one pending message.
-type InboxEntry struct{ File, From, Type, At string }
+type InboxEntry struct{ File, From, Type, At, State string }
 
-// Inbox lists pending messages of id without changing anything.
+// Inbox lists id's messages, pending and taken, without changing anything.
 func (p *Project) Inbox(id string) []InboxEntry {
 	var out []InboxEntry
-	for _, n := range listNames(p.local("inbox", id), ".md") {
-		b, _ := os.ReadFile(p.local("inbox", id, n))
-		e := InboxEntry{File: n}
-		for _, l := range strings.Split(string(b), "\n") {
-			k, v, ok := strings.Cut(l, ":")
-			if !ok {
+	add := func(dir, state string) {
+		for _, n := range listNames(dir, ".md") {
+			m, err := parseMessage(filepath.Join(dir, n))
+			if err != nil {
 				continue
 			}
-			v = strings.TrimSpace(strings.SplitN(v, "#", 2)[0])
-			switch strings.TrimSpace(k) {
-			case "from":
-				e.From = v
-			case "type":
-				e.Type = v
-			case "at":
-				e.At = v
-			}
+			out = append(out, InboxEntry{File: n, From: m.From, Type: m.Type, At: m.At, State: state})
 		}
-		out = append(out, e)
+	}
+	add(p.inboxDir(id), "pending")
+	claims, _ := p.Claims(id)
+	labels := map[string]string{}
+	for _, c := range claims {
+		labels[c.Token] = c.Label(id)
+	}
+	dirs, _ := os.ReadDir(p.local("inbox", id, ".taken"))
+	for _, d := range dirs {
+		who := labels[d.Name()]
+		if who == "" {
+			who = "a released session (requeued at the next check)"
+		}
+		add(p.takenDir(id, d.Name()), "taken by "+who)
 	}
 	return out
 }

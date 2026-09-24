@@ -1,0 +1,16 @@
+{
+  "description": "Sunstack: at each prompt, tell a session holding a Sunstack identity about messages waiting for it.",
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "command -v sunstack >/dev/null 2>&1 && sunstack hook || true",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}

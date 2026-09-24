@@ -3,6 +3,7 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -41,6 +42,19 @@ Boards:
                                                   needs attention (stale, overdue, blocked, not aligned)
   sunstack direct "<text>" [--to ID,TITLE,...]    add a dated directive from the user to BOARD.md (default: all)
   sunstack tidy <id> | --team | --all             archive old finished entries by month; creates a missing board
+
+Sessions and messages:
+  sunstack sessions [--json]                      every live session: name, tool, host, tmux place, resume command
+  sunstack send <id|title|id_task> "<text>" [--type question|handoff|fyi|done|shutdown] [--reply-to MSG]
+                [--from ID --token T] [--no-nudge]
+                                                  write a message to the agent's inbox, then type a one-line nudge
+                                                  into a live Claude Code or Codex pane of that agent (tmux)
+  sunstack check <id> --token T                   messages this session may handle (pending, and taken by it)
+  sunstack take <id> <msg> --token T              take a message so no other session works on it
+  sunstack ack <id> <msg> --token T               archive a handled message
+  sunstack spawn <id|title> [--tool claude|codex] [--task LABEL] [--note "..."]
+                                                  open a tmux window and start a session as that agent
+  sunstack dismiss <id|id_task> [--force]         ask a session to finish; --force closes a spawned pane
 
 Team (run these yourself):
   sunstack init [--refresh]                       create sunstack/ here, the AGENTS.md block and .gitignore line;
@@ -495,7 +509,7 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 				fmt.Fprintf(stdout, "%s has no pending messages\n", a.pos[0])
 			}
 			for _, e := range entries {
-				fmt.Fprintf(stdout, "%s  %-8s from %-16s %s\n", e.At, e.Type, e.From, e.File)
+				fmt.Fprintf(stdout, "%s  %-8s from %-16s %s  %s\n", e.At, e.Type, e.From, e.File, e.State)
 			}
 		case "pillar":
 			if n := len(a.pos); n > 1 || (a.has("team") && n > 0) {
@@ -601,6 +615,186 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 			}
 			fmt.Fprintf(stdout, "sunstack: tidied %s, %d entr(ies) archived\n", name, n)
 		}
+		return nil
+
+	case "sessions":
+		a, err := parse(rest, "root", "json")
+		if err == nil {
+			err = a.atMost(0, "sessions")
+		}
+		if err != nil {
+			return err
+		}
+		p, err := core.FindProject(a.flags["root"])
+		if err != nil {
+			return err
+		}
+		ss := p.Sessions()
+		if a.has("json") {
+			b, _ := json.MarshalIndent(ss, "", "  ")
+			fmt.Fprintln(stdout, string(b))
+			return nil
+		}
+		if len(ss) == 0 {
+			fmt.Fprintln(stdout, "no live sessions")
+		}
+		for _, s := range ss {
+			where := s.Where
+			if where == "" {
+				where = "not in tmux"
+			}
+			fmt.Fprintf(stdout, "%-28s %-7s %-16s %-24s last contact %s\n", s.Name, s.Tool, s.Host, where, s.LastContact)
+			if s.Resume != "" {
+				fmt.Fprintf(stdout, "%-28s resume: %s\n", "", s.Resume)
+			}
+		}
+		return nil
+
+	case "send":
+		a, err := parse(rest, "root type reply-to from token", "no-nudge")
+		if err == nil {
+			err = a.atMost(2, "send")
+		}
+		if err != nil {
+			return err
+		}
+		if len(a.pos) < 2 {
+			return missing("recipient and message text")
+		}
+		p, err := core.FindProject(a.flags["root"])
+		if err != nil {
+			return err
+		}
+		r, err := p.Send(core.SendOptions{To: a.pos[0], Body: a.pos[1], Type: a.flags["type"], ReplyTo: a.flags["reply-to"],
+			From: a.flags["from"], Token: a.flags["token"], NoNudge: a.has("no-nudge")})
+		if err != nil {
+			return err
+		}
+		to := r.To
+		if r.Session != "" {
+			to = r.Session
+		}
+		fmt.Fprintf(stdout, "sunstack: sent %s to %s\n", r.ID, to)
+		if r.Nudged != "" {
+			fmt.Fprintf(stdout, "nudged session %s\n", r.Nudged)
+		} else {
+			fmt.Fprintf(stdout, "%s\n", r.Note)
+		}
+		return nil
+
+	case "check", "take", "ack":
+		a, err := parse(rest, "root token", "")
+		if err == nil {
+			err = a.atMost(map[string]int{"check": 1, "take": 2, "ack": 2}[cmd], cmd)
+		}
+		if err != nil {
+			return err
+		}
+		need := map[string]int{"check": 1, "take": 2, "ack": 2}[cmd]
+		if len(a.pos) < need {
+			return missing(map[string]string{"check": "id", "take": "id message-id", "ack": "id message-id"}[cmd])
+		}
+		p, err := core.FindProject(a.flags["root"])
+		if err != nil {
+			return err
+		}
+		switch cmd {
+		case "check":
+			ms, err := p.Check(a.pos[0], a.flags["token"])
+			if err != nil {
+				return err
+			}
+			if len(ms) == 0 {
+				fmt.Fprintln(stdout, "no messages")
+			}
+			for _, m := range ms {
+				fmt.Fprintf(stdout, "===== %s (%s) =====\nfrom: %s\ntype: %s\nat: %s\n", m.ID, m.State, m.From, m.Type, m.At)
+				if m.ReplyTo != "" {
+					fmt.Fprintf(stdout, "reply_to: %s\n", m.ReplyTo)
+				}
+				fmt.Fprintf(stdout, "\n%s\n", strings.TrimRight(m.Body, "\n"))
+			}
+		case "take":
+			if err := p.Take(a.pos[0], a.flags["token"], a.pos[1]); err != nil {
+				return err
+			}
+			fmt.Fprintf(stdout, "sunstack: took %s\n", a.pos[1])
+		case "ack":
+			if err := p.Ack(a.pos[0], a.flags["token"], a.pos[1]); err != nil {
+				return err
+			}
+			fmt.Fprintf(stdout, "sunstack: acked %s\n", a.pos[1])
+		}
+		return nil
+
+	case "spawn":
+		a, err := parse(rest, "root tool task note", "")
+		if err == nil {
+			err = a.atMost(1, "spawn")
+		}
+		if err != nil {
+			return err
+		}
+		if len(a.pos) < 1 {
+			return missing("id")
+		}
+		p, err := core.FindProject(a.flags["root"])
+		if err != nil {
+			return err
+		}
+		tool := a.flags["tool"]
+		if tool == "" {
+			if tool, _ = detectTool(); tool == "" {
+				tool = "claude"
+			}
+		}
+		r, err := p.Spawn(core.SpawnOptions{Arg: a.pos[0], Tool: tool, Task: a.flags["task"], Socket: tmuxSocket(), Note: a.flags["note"]})
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(stdout, "sunstack: started %s (%s) in a new tmux window, pane %s\n", r.Name, tool, r.Pane)
+		return nil
+
+	case "dismiss":
+		a, err := parse(rest, "root", "force")
+		if err == nil {
+			err = a.atMost(1, "dismiss")
+		}
+		if err != nil {
+			return err
+		}
+		if len(a.pos) < 1 {
+			return missing("id or session name")
+		}
+		p, err := core.FindProject(a.flags["root"])
+		if err != nil {
+			return err
+		}
+		msg, err := p.Dismiss(a.pos[0], a.has("force"))
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(stdout, "sunstack: %s\n", msg)
+		return nil
+
+	case "hook":
+		// Called by the plugin's UserPromptSubmit hook; never fails the prompt.
+		var in struct {
+			SessionID string `json:"session_id"`
+			Cwd       string `json:"cwd"`
+		}
+		_ = json.NewDecoder(stdin).Decode(&in)
+		p, err := core.FindProject(in.Cwd)
+		if err != nil {
+			return nil
+		}
+		lines := p.PendingForSession(in.SessionID, os.Getenv("TMUX_PANE"), tmuxSocket())
+		if len(lines) == 0 {
+			return nil
+		}
+		ctx := "[sunstack] " + strings.Join(lines, "; ") + ". Use the Sunstack check skill to handle them when it fits the current work."
+		b, _ := json.Marshal(map[string]any{"hookSpecificOutput": map[string]string{"hookEventName": "UserPromptSubmit", "additionalContext": ctx}})
+		fmt.Fprintln(stdout, string(b))
 		return nil
 
 	case "tui":
