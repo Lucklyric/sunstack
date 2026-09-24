@@ -559,6 +559,16 @@ func TestTeamCommands(t *testing.T) {
 		t.Errorf("health: %q", r.out)
 	}
 	expect(t, sh(t, t.TempDir(), home, "health"), 1, "health outside a project fails")
+
+	// A folder that merely happens to be named sunstack is not a team.
+	other := t.TempDir()
+	must(t, os.MkdirAll(filepath.Join(other, "sunstack", "notes"), 0o755))
+	must(t, os.WriteFile(filepath.Join(other, "sunstack", "README.md"), []byte("my notes\n"), 0o644))
+	expect(t, sh(t, filepath.Join(other, "sunstack", "notes"), home, "team"), 1, "a sunstack folder without PROTOCOL.md is not a team")
+	expect(t, sh(t, other, home, "init"), 1, "init refuses a non-team sunstack folder")
+	if _, err := os.Stat(filepath.Join(other, "sunstack", "PROTOCOL.md")); err == nil {
+		t.Error("init wrote into a folder that is not a team")
+	}
 }
 
 func TestReviewFixes(t *testing.T) {

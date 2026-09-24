@@ -67,7 +67,8 @@ type Project struct {
 	Dir  string // <root>/sunstack
 }
 
-// FindProject walks up from start to the nearest directory holding sunstack/.
+// FindProject walks up from start to the nearest directory holding a
+// sunstack/ folder with PROTOCOL.md.
 func FindProject(start string) (*Project, error) {
 	if start == "" {
 		var err error
@@ -87,13 +88,15 @@ func FindProject(start string) (*Project, error) {
 			if st.Mode()&os.ModeSymlink != 0 {
 				return nil, fail(ExitFail, "symlink", "%s is a symlink; sunstack/ must be a real directory", filepath.Join(d, "sunstack"))
 			}
-			if st.IsDir() {
+			// A folder named sunstack is a team only once init has put
+			// PROTOCOL.md in it; any other folder of that name is skipped.
+			if _, err := os.Stat(filepath.Join(d, "sunstack", "PROTOCOL.md")); err == nil && st.IsDir() {
 				return &Project{Root: d, Dir: filepath.Join(d, "sunstack")}, nil
 			}
 		}
 		parent := filepath.Dir(d)
 		if parent == d {
-			return nil, fail(ExitFail, "no_root", "no sunstack/ found from %s upward; run sunstack init first", start)
+			return nil, fail(ExitFail, "no_root", "no sunstack/ team (with PROTOCOL.md) found from %s upward; run sunstack init first", start)
 		}
 		d = parent
 	}

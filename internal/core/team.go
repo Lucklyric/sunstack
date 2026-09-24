@@ -34,6 +34,11 @@ func Init(dir string, refresh bool) ([]string, error) {
 		return nil, err
 	}
 	ss := filepath.Join(root, "sunstack")
+	if entries, err := os.ReadDir(ss); err == nil && len(entries) > 0 {
+		if _, err := os.Stat(filepath.Join(ss, "PROTOCOL.md")); err != nil {
+			return nil, fail(ExitFail, "not_a_team", "%s already exists and is not a Sunstack team (no PROTOCOL.md); nothing was written. Run init in another folder, or move that folder", ss)
+		}
+	}
 	for _, f := range []struct {
 		name string
 		data []byte
