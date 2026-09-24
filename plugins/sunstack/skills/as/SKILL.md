@@ -1,6 +1,6 @@
 ---
 name: as
-description: Take on a Sunstack agent identity (for example builder.alice, or just builder when there is one) in this project, claiming the ID so no other session uses it at the same time. Use when the user says "as <id>", "sunstack as <id>", "/sunstack:as", "be the builder", or asks to pick up or switch to a Sunstack agent.
+description: Take on a Sunstack agent identity (for example builder.alice, or just builder when there is one) in this project, claiming the ID so no other session uses it at the same time. Use when the user says "as <id>", "sunstack as <id>", "/sunstack:as", "be the builder", "take on whichever agent fits", or asks to pick up or switch to a Sunstack agent.
 ---
 
 # Sunstack: as
@@ -17,6 +17,24 @@ you decide what to ask the user and how to act afterwards.
 - If the shell says `sunstack` is not found, tell the user to install it and stop:
   `curl -fsSL https://raw.githubusercontent.com/Lucklyric/sunstack/main/install.sh | sh`,
   then `sunstack install`.
+
+## Pick the agent
+
+If the user named an ID or a title, use it. If not (a bare `/sunstack:as`, "be whoever fits",
+"take on an agent"), run `sunstack as` with no argument: it exits 2 and lists every agent as
+`<id>  <free|claimed>  <role line>`. Then choose from the conversation:
+
+- Rank the free agents by how well their role fits what this session is working on: the task
+  the user described, the files and topics so far, the kind of work (research, building,
+  reviewing, planning). Claimed agents belong to other sessions; list them last and only as
+  information.
+- Ask with the best fit first, marked as recommended, each option with one line on why it fits
+  or not. Offer at most four; if more are free, keep the best three plus "another one".
+- If nothing has happened in this session yet, ask in one question what the user is about to
+  work on, then rank.
+- If no free agent fits, say so and offer the recruit skill instead of a poor match.
+
+This is a question, not a decision: end your turn and wait for the choice.
 
 ## Run
 
@@ -39,8 +57,9 @@ the conversation.
   If the context has lines under `## Proposals` (rule changes waiting for the user), tell the
   user how many, and offer to review them now with the save skill's approval step.
 - **2 `missing_arguments`**: the first line names what is missing and the rest are the
-  choices. Ask the user: with AskUserQuestion if you have it, otherwise as numbered options in
-  the conversation, and wait for the reply. Then run the command again with the answer. No
+  choices (for a title with several agents, only that title's). Rank them as in "Pick the
+  agent" and ask the user: with AskUserQuestion if you have it, otherwise as numbered options
+  in the conversation, and wait for the reply. Then run the command again with the answer. No
   answer, a cancel, or the user moving on is not a choice: stop.
 - **2 `usage`**: show the error, then fix the arguments or ask the user. Do not loop.
 - **4 `occupied_same_pane`**: this same tmux pane holds the claim, most likely this session
@@ -52,6 +71,7 @@ the conversation.
   rerun says the claim changed, it prints the new claim line: show it and ask again.
 - **4 `token`**: the token you passed is no longer valid (someone took over). Do not retry
   with a guessed token; tell the user and ask whether to take over.
+- **1 `empty_team`**: nobody is hired yet; offer the recruit skill.
 - **1**: show the error (for example merge conflict markers, or no `sunstack/` folder). Do not
   work around it.
 

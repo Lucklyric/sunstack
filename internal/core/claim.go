@@ -92,7 +92,8 @@ func (p *Project) Roster(prefix string) string {
 		} else if l != nil {
 			state = "claimed"
 		}
-		fmt.Fprintf(&b, "%s\t%s\n", id, state)
+		agent, _ := os.ReadFile(filepath.Join(p.AgentDir(id), "AGENT.md"))
+		fmt.Fprintf(&b, "%s\t%s\t%s\n", id, state, Duty(agent))
 	}
 	return b.String()
 }
@@ -102,7 +103,7 @@ func (p *Project) resolve(arg string) (string, error) {
 	if arg == "" {
 		r := p.Roster("")
 		if r == "" {
-			return "", fail(ExitFail, "empty_team", "no agents hired yet; run sunstack hire first")
+			return "", fail(ExitFail, "empty_team", "no agents hired yet; use the recruit skill, or sunstack hire <title> <name>")
 		}
 		return "", &Error{Code: ExitUsage, Reason: "missing_arguments", Msg: "choose an id", Stdout: "missing_arguments: id\n" + r}
 	}
