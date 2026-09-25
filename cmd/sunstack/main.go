@@ -148,6 +148,16 @@ func tmuxSocket() string {
 	return ""
 }
 
+// tmuxServer is the tmux server's process ID, the second field of $TMUX. It
+// tells a restarted server (whose pane IDs start over) from the one a claim
+// was made on.
+func tmuxServer() string {
+	if f := strings.Split(os.Getenv("TMUX"), ","); len(f) >= 2 {
+		return f[1]
+	}
+	return ""
+}
+
 func missing(what string) error {
 	return &core.Error{Code: core.ExitUsage, Reason: "missing_arguments", Msg: "missing " + what, Stdout: "missing_arguments: " + what + "\n"}
 }
@@ -228,7 +238,7 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 		}
 		r, err := p.As(core.AsOptions{
 			Arg: arg, Tool: tool, Token: a.flags["token"], Takeover: a.has("takeover"),
-			Expect: a.flags["expect"], Pane: os.Getenv("TMUX_PANE"), Socket: tmuxSocket(), Session: session,
+			Expect: a.flags["expect"], Pane: os.Getenv("TMUX_PANE"), Socket: tmuxSocket(), Server: tmuxServer(), Session: session,
 			Join: a.has("join"), Task: a.flags["task"],
 		})
 		if err != nil {
@@ -772,7 +782,7 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 				tool = "claude"
 			}
 		}
-		r, err := p.Spawn(core.SpawnOptions{Arg: a.pos[0], Tool: tool, Task: a.flags["task"], Socket: tmuxSocket(), Note: a.flags["note"]})
+		r, err := p.Spawn(core.SpawnOptions{Arg: a.pos[0], Tool: tool, Task: a.flags["task"], Socket: tmuxSocket(), Server: tmuxServer(), Note: a.flags["note"]})
 		if err != nil {
 			return err
 		}

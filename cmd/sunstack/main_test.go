@@ -899,3 +899,21 @@ func TestStaleSessionsAndVia(t *testing.T) {
 		t.Errorf("directive via missing: %s", b)
 	}
 }
+
+// A claim made on an earlier tmux server is gone even if its pane ID exists
+// again on the new server.
+func TestRestartedTmuxServer(t *testing.T) {
+	out, err := exec.Command("tmux", "display-message", "-p", "#{socket_path} #{pid}").Output()
+	f := strings.Fields(string(out))
+	if err != nil || len(f) != 2 {
+		t.Skip("no running tmux server")
+	}
+	p := fixture(t)
+	dir := filepath.Join(p, "sunstack", "_local", "live", "reviewer")
+	must(t, os.MkdirAll(dir, 0o755))
+	must(t, os.WriteFile(filepath.Join(dir, "cccccccccccccccc.json"), []byte(`{"tool":"claude","host":"h","token":"cccccccccccccccc","claimed":"2026-09-01T00:00:00Z","last_contact":"2026-09-01T00:00:00Z","tmux_pane":"%0","tmux_socket":"`+f[0]+`","tmux_server":"1","task":"old"}`), 0o644))
+	expect(t, sh(t, p, nil, "kill", "reviewer_old", "--yes"), 1, "kill refuses a pane ID from an earlier server")
+	if r := sh(t, p, nil, "release", "reviewer_old", "--stale"); !strings.Contains(r.out, "released reviewer_old") {
+		t.Errorf("a claim from an earlier server is stale: %s", r.out)
+	}
+}

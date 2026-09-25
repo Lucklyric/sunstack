@@ -251,7 +251,7 @@ func (p *Project) nudge(id, session string, m *Message) (string, string) {
 		if session != "" && c.Label(id) != session {
 			continue
 		}
-		if c.TmuxPane == "" || c.TmuxSocket == "" || !paneRunsTool(c.TmuxSocket, c.TmuxPane, c.Tool) {
+		if c.TmuxPane == "" || c.TmuxSocket == "" || !sameServer(c) || !paneRunsTool(c.TmuxSocket, c.TmuxPane, c.Tool) {
 			continue
 		}
 		prompt := NudgePrompt(c.Tool, m)
@@ -314,48 +314,70 @@ func paneRunsTool(socket, pane, tool string) bool {
 }
 
 // dialogMarkers are texts of menus, approval prompts and questions in Claude
-// Code and Codex. While one is on screen, typed keys could answer it.
+// Code and Codex. While one is on screen, typed keys could answer it: Codex
+// menus even react to single letters before Enter.
 var dialogMarkers = []string{
-	"enter to confirm", "esc to cancel", "do you want to", "would you like to", "allow command",
-	"yes, proceed", "yes, and", "(y/n)", "press enter", "trust this folder", "trust the contents",
-	"❯ 1.", "› 1.", "-- normal --",
+	"enter to confirm", "enter to continue", "esc to cancel", "esc to go back", "do you want to",
+	"would you like to", "allow command", "yes, proceed", "yes, and", "(y/n)", "press enter",
+	"trust this folder", "trust the contents", "-- normal --",
+}
+
+// menuLine is the highlighted option of a numbered menu, such as
+// "› 2. Trust all"; a numbered list in ordinary output has no cursor.
+var menuLine = regexp.MustCompile(`^\s*[›❯]\s*[0-9]+\.\s`)
+
+// screenTail returns the last non-blank lines of a pane capture.
+func screenTail(screen string, n int) []string {
+	lines := strings.Split(strings.ReplaceAll(screen, "\r", ""), "\n")
+	var tail []string
+	for i := len(lines) - 1; i >= 0 && len(tail) < n; i-- {
+		if strings.TrimSpace(lines[i]) != "" {
+			tail = append([]string{lines[i]}, tail...)
+		}
+	}
+	return tail
+}
+
+// inputLine finds the CLI's input line and returns what is typed in it.
+func inputLine(tool string, tail []string) (string, bool) {
+	rule := func(l string) bool {
+		t := strings.TrimSpace(l)
+		return strings.HasPrefix(t, "───") || strings.HasSuffix(t, "───")
+	}
+	for i := len(tail) - 1; i >= 0; i-- {
+		t := strings.TrimSpace(tail[i])
+		switch tool {
+		case "claude":
+			// The input line sits between the two borders of the input box.
+			if strings.HasPrefix(t, "❯") && i > 0 && i+1 < len(tail) && rule(tail[i-1]) && rule(tail[i+1]) {
+				return strings.TrimSpace(strings.TrimPrefix(t, "❯")), true
+			}
+		case "codex":
+			if strings.HasPrefix(t, "›") {
+				return strings.TrimSpace(strings.TrimPrefix(t, "›")), true
+			}
+		}
+	}
+	return "", false
 }
 
 // ReadyForInput reports whether the CLI in the pane shows its normal input
 // box with no menu or approval prompt, so typing lands in the composer.
 func ReadyForInput(tool, screen string) bool {
-	lines := strings.Split(strings.ReplaceAll(screen, "\r", ""), "\n")
-	var tail []string
-	for i := len(lines) - 1; i >= 0 && len(tail) < 15; i-- {
-		if strings.TrimSpace(lines[i]) != "" {
-			tail = append([]string{lines[i]}, tail...)
-		}
-	}
+	tail := screenTail(screen, 15)
 	low := strings.ToLower(strings.Join(tail, "\n"))
 	for _, m := range dialogMarkers {
 		if strings.Contains(low, m) {
 			return false
 		}
 	}
-	rule := func(l string) bool {
-		t := strings.TrimSpace(l)
-		return strings.HasPrefix(t, "───") || strings.HasSuffix(t, "───")
-	}
-	for i, l := range tail {
-		t := strings.TrimSpace(l)
-		switch tool {
-		case "claude":
-			// The input line sits between the two borders of the input box.
-			if strings.HasPrefix(t, "❯") && i > 0 && i+1 < len(tail) && rule(tail[i-1]) && rule(tail[i+1]) {
-				return true
-			}
-		case "codex":
-			if strings.HasPrefix(t, "›") {
-				return true
-			}
+	for _, l := range tail {
+		if menuLine.MatchString(l) {
+			return false
 		}
 	}
-	return false
+	_, ok := inputLine(tool, tail)
+	return ok
 }
 
 func paneScreen(socket, pane string) string {
@@ -367,8 +389,10 @@ func paneScreen(socket, pane string) string {
 }
 
 // typeInto types text into a pane and presses Enter, only while the CLI shows
-// its normal input box; it checks again right before Enter. The pause keeps a
-// TUI from reading the Enter as part of a paste.
+// its normal input box. Before Enter it checks the screen again and that the
+// input line holds exactly the text: if the user had a draft there, the text
+// is erased and Enter is not pressed, so their draft is never sent. The pause
+// keeps a TUI from reading the Enter as part of a paste.
 func typeInto(socket, pane, tool, text string) error {
 	if !ReadyForInput(tool, paneScreen(socket, pane)) {
 		return fmt.Errorf("the session is showing a prompt or menu")
@@ -377,8 +401,15 @@ func typeInto(socket, pane, tool, text string) error {
 		return err
 	}
 	time.Sleep(400 * time.Millisecond)
-	if !ReadyForInput(tool, paneScreen(socket, pane)) {
+	screen := paneScreen(socket, pane)
+	got, ok := inputLine(tool, screenTail(screen, 15))
+	if !ReadyForInput(tool, screen) || !ok {
 		return fmt.Errorf("a prompt or menu appeared while typing; Enter was not pressed")
+	}
+	if got != text {
+		n := fmt.Sprint(len([]rune(text)))
+		exec.Command("tmux", TmuxArgs(socket, "send-keys", "-t", pane, "-N", n, "BSpace")...).Run()
+		return fmt.Errorf("the input box held a draft; it was left as it was")
 	}
 	return exec.Command("tmux", TmuxArgs(socket, "send-keys", "-t", pane, "Enter")...).Run()
 }

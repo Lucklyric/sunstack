@@ -23,9 +23,10 @@ type Live struct {
 	Session     string `json:"session,omitempty"`
 	TmuxPane    string `json:"tmux_pane,omitempty"`
 	TmuxSocket  string `json:"tmux_socket,omitempty"`
-	Task        string `json:"task,omitempty"`       // what this session works on, up to 10 characters
-	PaneTitle   string `json:"pane_title,omitempty"` // the tmux pane title before as, restored on release
-	Spawned     bool   `json:"spawned,omitempty"`    // the pane was opened by sunstack spawn
+	Task        string `json:"task,omitempty"`        // what this session works on, up to 10 characters
+	PaneTitle   string `json:"pane_title,omitempty"`  // the tmux pane title before as, restored on release
+	Spawned     bool   `json:"spawned,omitempty"`     // the pane was opened by sunstack spawn
+	TmuxServer  string `json:"tmux_server,omitempty"` // tmux server PID when claimed; pane IDs restart with a new server
 
 	path string // where it was read from
 }
@@ -158,6 +159,7 @@ type AsOptions struct {
 	Task     string // short label for what this session works on
 	Pane     string // $TMUX_PANE
 	Socket   string // tmux server socket, from $TMUX
+	Server   string // tmux server PID, from $TMUX
 	Session  string // CLI session id, when known
 }
 
@@ -335,7 +337,7 @@ func (p *Project) As(o AsOptions) (*AsResult, error) {
 		host = host[:i]
 	}
 	l := &Live{Tool: o.Tool, Host: host, Token: res.Token, Claimed: claimed, LastContact: now(),
-		Session: o.Session, TmuxPane: o.Pane, TmuxSocket: o.Socket, Task: o.Task}
+		Session: o.Session, TmuxPane: o.Pane, TmuxSocket: o.Socket, TmuxServer: o.Server, Task: o.Task}
 	res.Task = o.Task
 	for _, c := range claims {
 		if c != replace {
@@ -504,10 +506,34 @@ func (p *Project) Release(id, token string) error {
 	return nil
 }
 
+// serverPID asks the tmux server on socket for its process ID.
+func serverPID(socket string) (string, bool) {
+	if _, err := exec.LookPath("tmux"); err != nil {
+		return "", false
+	}
+	out, err := exec.Command("tmux", TmuxArgs(socket, "display-message", "-p", "#{pid}")...).Output()
+	if err != nil {
+		return "", false
+	}
+	return strings.TrimSpace(string(out)), true
+}
+
+// sameServer reports whether the claim's tmux server is still the one
+// running: a restarted server reuses pane IDs for unrelated panes.
+func sameServer(c *Live) bool {
+	if c.TmuxServer == "" {
+		return true // claims made before the server was recorded
+	}
+	pid, ok := serverPID(c.TmuxSocket)
+	return ok && pid == c.TmuxServer
+}
+
 // paneGone reports whether a claim's tmux pane is confirmed closed: its tmux
-// server's socket is gone, or the server answers and does not list the pane.
-// When tmux cannot be asked, the pane is not assumed gone.
-func paneGone(socket, pane string) bool {
+// server's socket is gone, a different server now runs on that socket, or the
+// server answers and does not list the pane. When tmux cannot be asked, the
+// pane is not assumed gone.
+func paneGone(c *Live) bool {
+	socket, pane := c.TmuxSocket, c.TmuxPane
 	if socket == "" || pane == "" {
 		return false
 	}
@@ -516,6 +542,9 @@ func paneGone(socket, pane string) bool {
 	}
 	if _, err := exec.LookPath("tmux"); err != nil {
 		return false
+	}
+	if pid, ok := serverPID(socket); ok && c.TmuxServer != "" && pid != c.TmuxServer {
+		return true
 	}
 	out, err := exec.Command("tmux", TmuxArgs(socket, "list-panes", "-a", "-F", "#{pane_id}")...).Output()
 	if err != nil {
@@ -535,7 +564,7 @@ func (p *Project) pruneStale(id string, claims []*Live, only string) ([]*Live, [
 	var keep []*Live
 	var dropped []string
 	for _, c := range claims {
-		if (only == "" || c.Label(id) == only) && paneGone(c.TmuxSocket, c.TmuxPane) {
+		if (only == "" || c.Label(id) == only) && paneGone(c) {
 			if p.removeLive(c) == nil {
 				os.RemoveAll(p.sessionTmp(id, c.Token))
 				dropped = append(dropped, c.Label(id))

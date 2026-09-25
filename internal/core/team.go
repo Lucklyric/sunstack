@@ -651,7 +651,11 @@ func (p *Project) Status() []AgentStatus {
 			s.Threads = append(s.Threads, strings.TrimSuffix(t, ".md"))
 		}
 		for _, c := range s.Claims {
-			s.Where = append(s.Where, TmuxWhere(c.TmuxSocket, c.TmuxPane))
+			where := TmuxWhere(c.TmuxSocket, c.TmuxPane)
+			if where != "" && where != "pane closed" && c.TmuxServer != "" && !sameServer(c) {
+				where = "pane closed" // tmux restarted; that pane ID now names another pane
+			}
+			s.Where = append(s.Where, where)
 		}
 		out = append(out, s)
 	}

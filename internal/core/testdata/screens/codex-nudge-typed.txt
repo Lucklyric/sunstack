@@ -1,0 +1,100 @@
+╭─────────────────────────────────────────────────╮
+│ ✨ Update available! 0.155.1 -> 0.156.1         │
+│ Run npm install -g @openai/codex to update.     │
+│                                                 │
+│ See full release notes:                         │
+│ https://github.com/openai/codex/releases/latest │
+╰─────────────────────────────────────────────────╯
+
+╭─────────────────────────────────────────────────╮
+│ >_ OpenAI Codex (v0.155.1)                      │
+│                                                 │
+│ model:     gpt-6-astra high   /model to change  │
+│ directory: ~/project │
+╰─────────────────────────────────────────────────╯
+
+  Tip: New Use /fast to enable our fastest inference with increased plan usage.
+
+⚠ 3 MCP startup issues · ctrl + t for details
+
+• You have 3 usage limit resets available. Run /usage to use one.
+
+⚠ Heads up, you have less than 25% of your weekly limit left. Run /status for a breakdown.
+
+
+› $sunstack:check a new fyi message is waiting
+
+  gpt-6-astra high · ~/project
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -60,7 +60,9 @@ A message is always a file in the recipient's inbox (`sunstack/_local/inbox/<id>
 
 Several sessions of one agent share its inbox; a session takes a message before working on it, so only one handles it.
 
-A nudge is typed only while the CLI shows its normal input box: never while it shows a menu, a question or an approval prompt (checked again right before Enter), and it carries no digits or names that could pick an option. Otherwise the message waits for the hook or the next check.
+A nudge is typed only while the CLI shows its normal input box, never while it shows a menu, a question or an approval prompt, and it carries no digits or names that could pick an option. Before Enter the input line must hold exactly the nudge: if you were typing a draft there, the nudge is erased and your draft stays unsent. Otherwise the message waits for the hook or the next check.
+
+Codex also loads the plugin's prompt hook and asks you to review it once, the first time a Codex session starts after install.
 
 ## What needs your approval
 

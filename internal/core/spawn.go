@@ -13,6 +13,7 @@ type SpawnOptions struct {
 	Tool   string // claude or codex
 	Task   string // session label
 	Socket string // tmux server of the caller, from $TMUX
+	Server string // that server's PID
 	Note   string // what the new session should do first, in words
 }
 
@@ -66,7 +67,7 @@ func (p *Project) Spawn(o SpawnOptions) (*SpawnResult, error) {
 		host = host[:i]
 	}
 	l := &Live{Tool: o.Tool, Host: host, Token: NewToken(), Claimed: now(), LastContact: now(),
-		TmuxPane: pane, TmuxSocket: o.Socket, Task: o.Task, Spawned: true}
+		TmuxPane: pane, TmuxSocket: o.Socket, TmuxServer: o.Server, Task: o.Task, Spawned: true}
 	werr := p.writeLive(id, l)
 	unlock()
 	if werr != nil {
@@ -183,6 +184,9 @@ func (p *Project) Kill(t string) (string, error) {
 	name := c.Label(id)
 	if c.TmuxPane == "" || c.TmuxSocket == "" {
 		return "", fail(ExitFail, "no_pane", "%s is not in a tmux pane sunstack knows; close it yourself", name)
+	}
+	if !sameServer(c) {
+		return "", fail(ExitFail, "not_running", "tmux has restarted since %s was claimed, so pane %s is not that session; run sunstack release %s --stale", name, c.TmuxPane, name)
 	}
 	mark, _ := exec.Command("tmux", TmuxArgs(c.TmuxSocket, "show-options", "-p", "-v", "-t", c.TmuxPane, "@sunstack")...).Output()
 	ours := c.Spawned && strings.TrimSpace(string(mark)) == p.Root+"|"+id
