@@ -155,7 +155,7 @@ func (p *Project) Dismiss(t string) (string, error) {
 	}
 	p.LogEvent("dismiss", name, res.ID)
 	if res.Nudged != "" {
-		return fmt.Sprintf("asked %s to finish (message %s); it replies done when it has", name, res.ID), nil
+		return fmt.Sprintf("asked %s to finish (message %s); it saves and releases itself, and sunstack sessions no longer lists it once done", name, res.ID), nil
 	}
 	return fmt.Sprintf("left a shutdown message %s for %s; %s", res.ID, name, res.Note), nil
 }

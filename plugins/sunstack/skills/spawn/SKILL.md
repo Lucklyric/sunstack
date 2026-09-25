@@ -50,8 +50,8 @@ To give it work, send a message (message skill) to the new session name.
 sunstack dismiss "<id or id_task>"
 ```
 
-This sends a `shutdown` message (and a nudge). The session saves, replies `done`, and
-releases. Prefer this: nothing is lost.
+This sends a `shutdown` message (and a nudge). The session saves and releases; it is done
+when `sunstack sessions` no longer lists it. Prefer this: nothing is lost.
 
 ## Close a session now (kill)
 

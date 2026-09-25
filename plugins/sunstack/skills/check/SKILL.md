@@ -36,15 +36,19 @@ and ones this session has already taken.
 1. **Take** it, so another session of the same agent does not start on it too:
    `sunstack take --root "<root>" "<id>" "<message id>" --token "<token>"`.
    Exit 4 `taken` means another session has it: skip it.
-2. **Act**, by type:
-   - `question`: answer it with the message skill (`--type done --reply-to <message id>`).
+2. **Act**, by type. Replies go only to agents: a message `from: user` (with or without
+   `via`) has no inbox to reply to, so answer it in this session's own output instead, where
+   the user reads it, and carry on.
+   - `question`: answer it; to an agent, with the message skill
+     (`--type done --reply-to <message id>`).
    - `handoff`: add the work to your board as a key result (with its objective), then do it or
-     schedule it; reply `done` with `--reply-to` when finished, or a `question` if blocked.
+     schedule it; to an agent, reply `done` with `--reply-to` when finished, or send a
+     `question` if blocked.
    - `fyi`: note what matters in context or on your board; no reply needed.
    - `done`: a reply to something you sent; close the matching key result or open question.
-   - `shutdown`: stop taking new work, run the save skill, ack this message, reply `done`
-     with `--reply-to`, run the release skill, then tell the user this session can be closed.
-     If any step fails, stop and tell the user.
+   - `shutdown`: stop taking new work, run the save skill, ack this message, reply `done` with
+     `--reply-to` if it came from an agent, run the release skill, then tell the user this
+     session can be closed. If any step fails, stop and tell the user.
 3. **Record** messages that had real effects under `## Processed messages` in context
    (`- <date> <message id> from <sender>: <what was done>`), through the save skill.
 4. **Ack** once handled and recorded:
