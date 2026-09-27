@@ -76,7 +76,9 @@ func (p *Project) Spawn(o SpawnOptions) (*SpawnResult, error) {
 	}
 	l := &Live{Tool: o.Tool, Host: host, Token: NewToken(), Claimed: now(), LastContact: now(),
 		TmuxPane: pane, TmuxSocket: o.Socket, TmuxServer: o.Server, Task: o.Task, Spawned: true}
-	if claims, _ := p.Claims(id); labelTaken(claims, id, name, nil) {
+	claims, _ := p.Claims(id)
+	claims, _ = p.pruneStale(id, claims, "")
+	if labelTaken(claims, id, name, nil) {
 		unlock()
 		closePane()
 		return nil, taskTaken(id, name)
@@ -97,8 +99,11 @@ func (p *Project) Spawn(o SpawnOptions) (*SpawnResult, error) {
 	if o.Tool == "codex" {
 		skill = "$sunstack:as"
 	}
-	// The claim already holds the task, and resuming by token restores it.
-	first := fmt.Sprintf("%s %s --token %s (you were started by sunstack spawn; this claim is yours), %s", skill, id, l.Token, note)
+	task := ""
+	if o.Task != "" {
+		task = " --task " + o.Task
+	}
+	first := fmt.Sprintf("%s %s --token %s%s (you were started by sunstack spawn; this claim is yours), %s", skill, id, l.Token, task, note)
 	// Single quotes: the shell must not expand $sunstack in the Codex prompt.
 	cmd := fmt.Sprintf("%s '%s'", o.Tool, first)
 	if err := exec.Command("tmux", TmuxArgs(o.Socket, "send-keys", "-t", pane, "-l", cmd)...).Run(); err == nil {

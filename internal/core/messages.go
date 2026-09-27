@@ -243,7 +243,7 @@ func (p *Project) Send(o SendOptions) (*SendResult, error) {
 func (p *Project) nudge(id, session string, m *Message) (string, string) {
 	// One nudge per agent at a time, so two senders never type into the
 	// same pane at once.
-	unlock, lerr := p.lock(id + ".nudge")
+	unlock, lerr := p.lock("_nudge_" + id)
 	if lerr != nil {
 		return "", "not nudged (another nudge is in progress); the message waits in the inbox and shows at the next prompt"
 	}

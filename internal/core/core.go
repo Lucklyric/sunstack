@@ -189,7 +189,11 @@ func NewToken() string {
 func now() string { return time.Now().UTC().Format("2006-01-02T15:04:05Z") }
 
 // writeAtomic writes via a temporary file in the same directory, then renames.
-func writeAtomic(path string, data []byte) error {
+func writeAtomic(path string, data []byte) error { return writeAtomicMode(path, data, 0o644) }
+
+// writeAtomicMode is writeAtomic with the mode for a new file; an existing
+// file keeps its mode.
+func writeAtomicMode(path string, data []byte, mode os.FileMode) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
@@ -198,8 +202,7 @@ func writeAtomic(path string, data []byte) error {
 		return err
 	}
 	name := tmp.Name()
-	// CreateTemp makes the file 0600; keep the old file's mode, or 0644.
-	mode := os.FileMode(0o644)
+	// CreateTemp makes the file 0600; keep the old file's mode, or the given one.
 	if fi, serr := os.Stat(path); serr == nil {
 		mode = fi.Mode().Perm()
 	}

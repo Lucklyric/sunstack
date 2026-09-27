@@ -75,6 +75,7 @@ one session's tmux pane at once; unsaved work in it is lost.
    - **1 `no_pane`**: the session is not in a tmux pane sunstack knows; the user closes it.
    - **1 `not_running`**: the pane no longer runs that CLI, so it is left alone; tell the user.
    - **2 `missing_arguments`**: several sessions; ask which.
+   - **2 `self`**: that is this session's own pane; the user closes it.
 
 From a terminal, the user can run `sunstack kill <id_task>` directly; it asks for
 confirmation.

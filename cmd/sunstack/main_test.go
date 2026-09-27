@@ -939,16 +939,25 @@ func TestReview073(t *testing.T) {
 	// A lock left by a dead process is reclaimed; a live owner still blocks.
 	lock := filepath.Join(p, "sunstack", "_local", "locks", "builder.alice")
 	must(t, os.MkdirAll(lock, 0o755))
-	must(t, os.WriteFile(filepath.Join(lock, "owner"), []byte("2026-09-27T00:00:00Z pid 999999\n"), 0o644))
+	gone := exec.Command("true")
+	must(t, gone.Run())
+	must(t, os.WriteFile(filepath.Join(lock, "owner"), []byte(fmt.Sprintf("2026-09-27T00:00:00Z pid %d\n", gone.Process.Pid)), 0o644))
 	expect(t, sh(t, p, nil, "check", "builder.alice", "--token", ta), 0, "dead owner's lock is reclaimed")
 	must(t, os.MkdirAll(lock, 0o755))
 	must(t, os.WriteFile(filepath.Join(lock, "owner"), []byte(fmt.Sprintf("2026-09-27T00:00:00Z pid %d\n", os.Getpid())), 0o644))
 	expect(t, sh(t, p, nil, "check", "builder.alice", "--token", ta), 4, "live owner's lock blocks")
 	os.RemoveAll(lock)
 
-	// Files written through commit keep a readable mode.
-	st, err := os.Stat(filepath.Join(p, "AGENTS.md"))
-	if err == nil && st.Mode().Perm()&0o044 == 0 {
-		t.Errorf("AGENTS.md mode %v", st.Mode().Perm())
+	// A committed file keeps its mode (CreateTemp would make it 0600); claims stay private.
+	ctx := filepath.Join(p, "sunstack", "builder.alice", "context.md")
+	sum := field(sumRe, sh(t, p, nil, "snapshot", "builder.alice", "context.md", "--token", ta).out)
+	tmp := filepath.Join(p, "sunstack", "_local", "tmp", "builder.alice", ta, "c.md")
+	must(t, os.WriteFile(tmp, []byte("## Decisions\n- x\n"), 0o644))
+	expect(t, sh(t, p, nil, "commit", "builder.alice", "context.md", tmp, sum, "--token", ta), 0, "commit context")
+	if st, err := os.Stat(ctx); err != nil || st.Mode().Perm() != 0o644 {
+		t.Errorf("context.md should stay 0644 after commit (%v)", err)
+	}
+	if st, err := os.Stat(filepath.Join(p, "sunstack", "_local", "live", "builder.alice", ta+".json")); err != nil || st.Mode().Perm() != 0o600 {
+		t.Errorf("claim mode: %v", err)
 	}
 }

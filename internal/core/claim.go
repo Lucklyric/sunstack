@@ -110,7 +110,7 @@ func findToken(claims []*Live, token string) *Live {
 func (p *Project) writeLive(id string, l *Live) error {
 	b, _ := json.MarshalIndent(l, "", "  ")
 	path := filepath.Join(p.claimDir(id), l.Token+".json")
-	if err := writeAtomic(path, append(b, '\n')); err != nil {
+	if err := writeAtomicMode(path, append(b, '\n'), 0o600); err != nil {
 		return err
 	}
 	if l.path != "" && l.path != path {
