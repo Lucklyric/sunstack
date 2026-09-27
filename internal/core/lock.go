@@ -4,11 +4,16 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
+	"syscall"
 	"time"
 )
 
-// Lock attempts, spaced by lockWait. A leftover lock (interrupt, kill -9, power
-// loss) is reported as busy and never removed automatically (design §8).
+// Lock attempts, spaced by lockWait. A leftover lock whose owner process is
+// gone (interrupt, kill -9) is removed once and retried; _local is per host,
+// so the recorded pid is on this machine and a dead process cannot be
+// mid-rename. A lock with no readable owner is reported as busy (design §8).
 var (
 	lockTries = 10
 	lockWait  = 200 * time.Millisecond
@@ -24,6 +29,7 @@ func (p *Project) lock(id string) (func(), error) {
 	if err := p.noSymlink(dir); err != nil {
 		return nil, err
 	}
+	reclaimed := false
 	for i := 0; ; i++ {
 		err := os.Mkdir(dir, 0o755)
 		if err == nil {
@@ -34,6 +40,12 @@ func (p *Project) lock(id string) (func(), error) {
 		}
 		if i+1 >= lockTries {
 			owner, _ := os.ReadFile(filepath.Join(dir, "owner"))
+			if !reclaimed && ownerDead(owner) {
+				os.RemoveAll(dir)
+				reclaimed = true
+				i = -1
+				continue
+			}
 			if len(owner) == 0 {
 				owner = []byte("unknown")
 			}
@@ -42,8 +54,6 @@ func (p *Project) lock(id string) (func(), error) {
 		time.Sleep(lockWait)
 	}
 	_ = os.WriteFile(filepath.Join(dir, "owner"), []byte(fmt.Sprintf("%s pid %d\n", now(), os.Getpid())), 0o644)
-	// An interrupted command leaves its lock behind on purpose: a writer may
-	// still be mid-rename. health reports it for manual removal (design §8).
 	return func() { os.RemoveAll(dir) }, nil
 }
 
@@ -52,4 +62,18 @@ func trimNL(b []byte) string {
 		b = b[:len(b)-1]
 	}
 	return string(b)
+}
+
+// ownerDead reports whether the owner line ("<time> pid <n>") names a process
+// that no longer exists.
+func ownerDead(owner []byte) bool {
+	f := strings.Fields(string(owner))
+	if len(f) < 3 || f[len(f)-2] != "pid" {
+		return false
+	}
+	pid, err := strconv.Atoi(f[len(f)-1])
+	if err != nil || pid <= 0 || pid == os.Getpid() {
+		return false
+	}
+	return syscall.Kill(pid, 0) == syscall.ESRCH
 }

@@ -54,7 +54,7 @@ A proposal is `- <date> [pillars|agent|board] Proposed: <exact change> — <reas
 
 ## Identity and sessions
 
-- Several sessions may work as the same agent at once, like one person working on several tasks. Each session has its own token and, ideally, its own task label (`<id>_<task>`).
+- Several sessions may work as the same agent at once, like one person working on several tasks. Each session has its own token and a session name (`<id>_<task>`) no other live session of the agent uses.
 - Each session works on its own key results and threads. Do not rewrite another session's Now entries; if two sessions need the same key result, ask the user.
 - Everything shared is written through snapshot and commit. On a mismatch, merge: keep every other entry as it is, add yours. If your entry contradicts one written by another session, do not pick one: keep both, add an Open question, and tell the user.
 - Keep the root, ID and token that `as` returns in the conversation and pass them explicitly on every later call.

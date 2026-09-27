@@ -26,7 +26,7 @@ resume it. `sunstack team` shows the same per agent.
 
 ## Start a session
 
-1. Choose the agent (rank by role against the work, as the as skill does), the tool (default:
+1. Choose the agent (rank as in the as skill's "Pick the agent"), the tool (default:
    the one this session runs), a task label (up to 10 characters), and a one-line first
    instruction (no single quotes), for example "handle message <id>" or "work on KR2".
 2. Show the plan and ask: start / edit / cancel.
@@ -39,6 +39,10 @@ resume it. `sunstack team` shows the same per agent.
    It opens a tmux window in the project root, claims the agent for the new session, and
    starts the CLI with a first prompt that takes on the identity. The new session may stop
    at its first-run prompts (folder trust, sign-in); tell the user which window to look at.
+   - A `warning:` line means the CLI was not seen running a few seconds after launch: it may
+     be at a login or trust prompt, or have exited. Tell the user which pane to look at.
+   - **4 `task_taken`**: another session of that agent already has this task label; pick
+     another.
    - **1 `no_tmux`**: give the manual steps above.
    - **1 / 2 other**: show the error.
 

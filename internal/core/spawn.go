@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 )
 
 // SpawnOptions are the inputs of `sunstack spawn`.
@@ -17,11 +18,15 @@ type SpawnOptions struct {
 	Note   string // what the new session should do first, in words
 }
 
-// SpawnResult is a started session.
-type SpawnResult struct{ ID, Name, Pane, Token string }
+// SpawnResult is a started session. Running is false when the CLI was not
+// seen running in the pane a few seconds after launch.
+type SpawnResult struct {
+	ID, Name, Pane, Token string
+	Running               bool
+}
 
 // Spawn opens a tmux window in the project root, claims the agent for the
-// new session (marked spawned, so dismiss --force may close it), and starts
+// new session (marked spawned, so kill may close it), and starts
 // Claude Code or Codex there with a first prompt that takes on the identity
 // with that claim's token and checks the inbox.
 func (p *Project) Spawn(o SpawnOptions) (*SpawnResult, error) {
@@ -48,13 +53,16 @@ func (p *Project) Spawn(o SpawnOptions) (*SpawnResult, error) {
 		return nil, err
 	}
 	name := (&Live{Task: o.Task}).Label(id)
+	if claims, _ := p.Claims(id); labelTaken(claims, id, name, nil) {
+		return nil, taskTaken(id, name)
+	}
 	out, err := exec.Command("tmux", TmuxArgs(o.Socket, "new-window", "-d", "-P", "-F", "#{pane_id}", "-n", name, "-c", p.Root, "-e", "PATH="+os.Getenv("PATH"))...).Output()
 	pane := strings.TrimSpace(string(out))
 	if err != nil || pane == "" {
 		return nil, fail(ExitFail, "tmux", "could not open a tmux window: %v", err)
 	}
 	closePane := func() { exec.Command("tmux", TmuxArgs(o.Socket, "kill-pane", "-t", pane)...).Run() }
-	// Mark the pane, so dismiss --force can tell it from the user's own panes.
+	// Mark the pane, so kill can tell it from the user's own panes.
 	exec.Command("tmux", TmuxArgs(o.Socket, "set-option", "-p", "-t", pane, "@sunstack", p.Root+"|"+id)...).Run()
 
 	unlock, err := p.lock(id)
@@ -68,6 +76,11 @@ func (p *Project) Spawn(o SpawnOptions) (*SpawnResult, error) {
 	}
 	l := &Live{Tool: o.Tool, Host: host, Token: NewToken(), Claimed: now(), LastContact: now(),
 		TmuxPane: pane, TmuxSocket: o.Socket, TmuxServer: o.Server, Task: o.Task, Spawned: true}
+	if claims, _ := p.Claims(id); labelTaken(claims, id, name, nil) {
+		unlock()
+		closePane()
+		return nil, taskTaken(id, name)
+	}
 	werr := p.writeLive(id, l)
 	unlock()
 	if werr != nil {
@@ -84,7 +97,8 @@ func (p *Project) Spawn(o SpawnOptions) (*SpawnResult, error) {
 	if o.Tool == "codex" {
 		skill = "$sunstack:as"
 	}
-	first := fmt.Sprintf("%s %s --token %s --task %s (you were started by sunstack spawn; this claim is yours), %s", skill, id, l.Token, orDash(o.Task), note)
+	// The claim already holds the task, and resuming by token restores it.
+	first := fmt.Sprintf("%s %s --token %s (you were started by sunstack spawn; this claim is yours), %s", skill, id, l.Token, note)
 	// Single quotes: the shell must not expand $sunstack in the Codex prompt.
 	cmd := fmt.Sprintf("%s '%s'", o.Tool, first)
 	if err := exec.Command("tmux", TmuxArgs(o.Socket, "send-keys", "-t", pane, "-l", cmd)...).Run(); err == nil {
@@ -96,14 +110,26 @@ func (p *Project) Spawn(o SpawnOptions) (*SpawnResult, error) {
 		return nil, fail(ExitFail, "tmux", "could not start %s: %v", o.Tool, err)
 	}
 	p.LogEvent("spawn", name, "tool="+o.Tool, "pane="+pane)
-	return &SpawnResult{ID: id, Name: name, Pane: pane, Token: l.Token}, nil
+	running := false
+	for i := 0; i < 20 && !running; i++ {
+		time.Sleep(250 * time.Millisecond)
+		running = paneRunsTool(o.Socket, pane, o.Tool)
+	}
+	return &SpawnResult{ID: id, Name: name, Pane: pane, Token: l.Token, Running: running}, nil
 }
 
-func orDash(s string) string {
-	if s == "" {
-		return "-"
+// labelTaken reports whether a claim other than skip already uses the label.
+func labelTaken(claims []*Live, id, label string, skip *Live) bool {
+	for _, c := range claims {
+		if c != skip && c.Label(id) == label {
+			return true
+		}
 	}
-	return s
+	return false
+}
+
+func taskTaken(id, label string) error {
+	return fail(ExitClaim, "task_taken", "another session of %s is already named %s; pick a different --task", id, label)
 }
 
 // target resolves an ID or a session name to exactly one live session.
@@ -184,6 +210,9 @@ func (p *Project) Kill(t string) (string, error) {
 	name := c.Label(id)
 	if c.TmuxPane == "" || c.TmuxSocket == "" {
 		return "", fail(ExitFail, "no_pane", "%s is not in a tmux pane sunstack knows; close it yourself", name)
+	}
+	if os.Getenv("TMUX_PANE") == c.TmuxPane && sameServer(c) {
+		return "", fail(ExitUsage, "self", "%s is this pane; kill closes another session, so ask the user to close this one", name)
 	}
 	if !sameServer(c) {
 		return "", fail(ExitFail, "not_running", "tmux has restarted since %s was claimed, so pane %s is not that session; run sunstack release %s --stale", name, c.TmuxPane, name)

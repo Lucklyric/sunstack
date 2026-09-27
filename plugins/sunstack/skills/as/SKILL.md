@@ -1,6 +1,6 @@
 ---
 name: as
-description: Take on a Sunstack agent identity (for example builder.alice) in this project, as a new session or alongside other sessions already working as that agent. Use when the user says "sunstack as <id>", "/sunstack:as", "take on the builder agent", "join builder.alice", or asks to pick up or switch to a Sunstack agent. Only for projects with a Sunstack team (a sunstack/ folder).
+description: Take on a Sunstack agent identity (for example builder.alice) in this project, as a new session or alongside other sessions already working as that agent. Use when the user says "sunstack as <id>", "/sunstack:as", "take on the builder agent", "join builder.alice", "which Sunstack agent should I be", or asks to pick up or switch to a Sunstack agent. Only for projects with a Sunstack team (a sunstack/ folder).
 ---
 
 # Sunstack: as
@@ -86,6 +86,8 @@ the token.
 - **4 `active`**: other sessions are working as this agent; the output lists them with their
   tasks. Ask the user: join them as another session, or pick another agent. On join, rerun
   with `--join`.
+- **4 `task_taken`**: another session of this agent already uses that task label; pick a
+  different `--task` (ask the user if unsure) and rerun.
 - **4 `occupied_same_pane`**: this same tmux pane holds a claim, most likely this session
   before compaction or `/clear`. Tell the user in one line and ask for a quick yes. On yes,
   rerun with `--takeover --expect "<claim>"`, using the `claim=` value from the output.

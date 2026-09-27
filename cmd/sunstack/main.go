@@ -787,6 +787,9 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 			return err
 		}
 		fmt.Fprintf(stdout, "sunstack: started %s (%s) in a new tmux window, pane %s\n", r.Name, tool, r.Pane)
+		if !r.Running {
+			fmt.Fprintf(stdout, "warning: %s is not running in pane %s yet; it may be at a login or trust prompt, or have exited. Look at the pane (tmux select-pane -t %s); if the session is gone, run sunstack kill %s\n", tool, r.Pane, r.Pane, r.Name)
+		}
 		return nil
 
 	case "dismiss":

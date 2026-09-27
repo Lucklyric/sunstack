@@ -338,6 +338,10 @@ func (p *Project) As(o AsOptions) (*AsResult, error) {
 	}
 	l := &Live{Tool: o.Tool, Host: host, Token: res.Token, Claimed: claimed, LastContact: now(),
 		Session: o.Session, TmuxPane: o.Pane, TmuxSocket: o.Socket, TmuxServer: o.Server, Task: o.Task}
+	// Session names must be unique, so send, dismiss and kill can name one.
+	if labelTaken(claims, id, l.Label(id), replace) {
+		return nil, taskTaken(id, l.Label(id))
+	}
 	res.Task = o.Task
 	for _, c := range claims {
 		if c != replace {

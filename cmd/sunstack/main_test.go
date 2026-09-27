@@ -917,3 +917,38 @@ func TestRestartedTmuxServer(t *testing.T) {
 		t.Errorf("a claim from an earlier server is stale: %s", r.out)
 	}
 }
+
+func TestReview073(t *testing.T) {
+	p := fixture(t)
+	ta := field(tokenRe, sh(t, p, nil, "as", "builder.alice", "--task", "api").out)
+	r := sh(t, p, nil, "as", "builder.alice", "--join", "--task", "api")
+	expect(t, r, 4, "a second session with the same name is refused")
+	if !strings.Contains(r.stderr, "task_taken") {
+		t.Errorf("task_taken reason: %s", r.stderr)
+	}
+	tb := field(tokenRe, sh(t, p, nil, "as", "builder.alice", "--join", "--task", "docs").out)
+
+	// A message for a session that has ended is open to the others.
+	m := field(msgRe, sh(t, p, nil, "send", "builder.alice_docs", "for docs").out)
+	expect(t, sh(t, p, nil, "release", "builder.alice", "--token", tb), 0, "docs session ends")
+	if r := sh(t, p, nil, "check", "builder.alice", "--token", ta); !strings.Contains(r.out, m) {
+		t.Errorf("orphaned message should reach the api session: %s", r.out)
+	}
+	expect(t, sh(t, p, nil, "take", "builder.alice", m, "--token", ta), 0, "take the orphaned message")
+
+	// A lock left by a dead process is reclaimed; a live owner still blocks.
+	lock := filepath.Join(p, "sunstack", "_local", "locks", "builder.alice")
+	must(t, os.MkdirAll(lock, 0o755))
+	must(t, os.WriteFile(filepath.Join(lock, "owner"), []byte("2026-09-27T00:00:00Z pid 999999\n"), 0o644))
+	expect(t, sh(t, p, nil, "check", "builder.alice", "--token", ta), 0, "dead owner's lock is reclaimed")
+	must(t, os.MkdirAll(lock, 0o755))
+	must(t, os.WriteFile(filepath.Join(lock, "owner"), []byte(fmt.Sprintf("2026-09-27T00:00:00Z pid %d\n", os.Getpid())), 0o644))
+	expect(t, sh(t, p, nil, "check", "builder.alice", "--token", ta), 4, "live owner's lock blocks")
+	os.RemoveAll(lock)
+
+	// Files written through commit keep a readable mode.
+	st, err := os.Stat(filepath.Join(p, "AGENTS.md"))
+	if err == nil && st.Mode().Perm()&0o044 == 0 {
+		t.Errorf("AGENTS.md mode %v", st.Mode().Perm())
+	}
+}

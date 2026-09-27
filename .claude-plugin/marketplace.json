@@ -6,13 +6,13 @@
   },
   "metadata": {
     "description": "Sunstack: an agent-team layer for Claude Code and Codex.",
-    "version": "0.7.2"
+    "version": "0.7.3"
   },
   "plugins": [
     {
       "name": "sunstack",
       "source": "./plugins/sunstack",
-      "description": "Agent-team layer for Claude Code and Codex: role agents, project pillars, per-agent persistent context, and inbox messaging, all as plain files in the project."
+      "description": "Agent-team layer for Claude Code and Codex: role agents, project pillars, dated team and agent boards (OKRs), persistent context, several sessions per agent, and messaging between agents through files and tmux, all as plain files in the project."
     }
   ]
 }

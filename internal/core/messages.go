@@ -241,6 +241,13 @@ func (p *Project) Send(o SendOptions) (*SendResult, error) {
 // nudge types a one-line prompt into the pane of the best live session:
 // the named one, or the most recently active one whose pane runs its tool.
 func (p *Project) nudge(id, session string, m *Message) (string, string) {
+	// One nudge per agent at a time, so two senders never type into the
+	// same pane at once.
+	unlock, lerr := p.lock(id + ".nudge")
+	if lerr != nil {
+		return "", "not nudged (another nudge is in progress); the message waits in the inbox and shows at the next prompt"
+	}
+	defer unlock()
 	claims, err := p.Claims(id)
 	if err != nil || len(claims) == 0 {
 		return "", "no live session; the message waits in the inbox (sunstack spawn starts one)"
@@ -455,6 +462,7 @@ func (p *Project) Check(id, token string) ([]*Message, error) {
 	claims, _ := p.Claims(id)
 	p.requeue(id, claims)
 	label := me.Label(id)
+	orphan := orphanSession(id, claims)
 	var out []*Message
 	for _, n := range listNames(p.takenDir(id, token), ".md") {
 		if m, err := parseMessage(filepath.Join(p.takenDir(id, token), n)); err == nil {
@@ -464,13 +472,23 @@ func (p *Project) Check(id, token string) ([]*Message, error) {
 	}
 	for _, n := range listNames(p.inboxDir(id), ".md") {
 		m, err := parseMessage(filepath.Join(p.inboxDir(id), n))
-		if err != nil || (m.Session != "" && m.Session != label) {
+		if err != nil || (m.Session != "" && m.Session != label && !orphan(m.Session)) {
 			continue
 		}
 		m.State = "pending"
 		out = append(out, m)
 	}
 	return out, nil
+}
+
+// orphanSession reports, for a message addressed to one session, whether
+// that session has ended; such a message is open to any session of the agent.
+func orphanSession(id string, claims []*Live) func(string) bool {
+	live := map[string]bool{}
+	for _, c := range claims {
+		live[c.Label(id)] = true
+	}
+	return func(session string) bool { return !live[session] }
 }
 
 // Take moves a pending message to this session, so no other session works on it.
@@ -504,7 +522,8 @@ func (p *Project) moveMessage(id, token, msgID string, ack bool) error {
 		src = mine
 	case exists(pending):
 		m, err := parseMessage(pending)
-		if err == nil && m.Session != "" && m.Session != me.Label(id) {
+		claims, _ := p.Claims(id)
+		if err == nil && m.Session != "" && m.Session != me.Label(id) && !orphanSession(id, claims)(m.Session) {
 			return fail(ExitClaim, "taken", "message %s is for session %s", msgID, m.Session)
 		}
 		src = pending
@@ -595,7 +614,7 @@ func (p *Project) PendingForSession(session, pane, socket string) []string {
 			}
 			n := 0
 			for _, f := range listNames(p.inboxDir(id), ".md") {
-				if m, err := parseMessage(filepath.Join(p.inboxDir(id), f)); err == nil && (m.Session == "" || m.Session == c.Label(id)) {
+				if m, err := parseMessage(filepath.Join(p.inboxDir(id), f)); err == nil && (m.Session == "" || m.Session == c.Label(id) || orphanSession(id, claims)(m.Session)) {
 					n++
 				}
 			}

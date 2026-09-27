@@ -25,7 +25,7 @@ const (
 	ExitFail     = 1 // filesystem, permission or content error
 	ExitUsage    = 2 // usage error, or missing_arguments
 	ExitMismatch = 3 // snapshot mismatch
-	ExitClaim    = 4 // busy | token | occupied | occupied_same_pane
+	ExitClaim    = 4 // busy | token | occupied | occupied_same_pane | active | taken | task_taken
 )
 
 // Error carries an exit code, a machine-readable reason and a message.
@@ -198,7 +198,15 @@ func writeAtomic(path string, data []byte) error {
 		return err
 	}
 	name := tmp.Name()
-	if _, err = tmp.Write(data); err == nil {
+	// CreateTemp makes the file 0600; keep the old file's mode, or 0644.
+	mode := os.FileMode(0o644)
+	if fi, serr := os.Stat(path); serr == nil {
+		mode = fi.Mode().Perm()
+	}
+	if err = tmp.Chmod(mode); err == nil {
+		_, err = tmp.Write(data)
+	}
+	if err == nil {
 		err = tmp.Close()
 	} else {
 		tmp.Close()

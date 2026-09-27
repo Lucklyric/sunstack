@@ -1,6 +1,6 @@
 ---
 name: checkup
-description: Check this project's Sunstack setup and team, migrate an older project to the current version, suggest which agent fits this session, and walk through the best next steps, such as init, cleanup, updating the install, approving pending rule changes, or recruiting an agent. Use when the user says "checkup", "sunstack checkup", "/sunstack:checkup", "sunstack health", "sunstack status", "set up sunstack", "sunstack init", "what should I do next with sunstack", "migrate sunstack", "which agent should I be", or asks whether Sunstack is working.
+description: Check this project's Sunstack setup and team, migrate an older project to the current version, suggest which agent fits this session, and walk through the best next steps, such as init, cleanup, updating the install, approving pending rule changes, or recruiting an agent. Use when the user says "sunstack checkup", "/sunstack:checkup", "sunstack health", "set up sunstack", "sunstack init", "what should I do next with sunstack", "migrate sunstack", or asks whether Sunstack is working. Only for projects that use or want Sunstack.
 ---
 
 # Sunstack: checkup
@@ -46,6 +46,7 @@ Suggest what this session should be, from what the user has been doing in this c
 - **This session already holds an ID** (a `session state` block from `sunstack as` is in the
   conversation): say which, and whether the current work still fits its role. If it does not,
   suggest the agent that fits (save and release first, then take it on).
+- **Otherwise**, rank agents as in the as skill's "Pick the agent":
 - **An agent fits and is free**: suggest `/sunstack:as <id>` (Codex: `$sunstack:as <id>`),
   with one line on why.
 - **The fitting agent already has sessions**: say where (`sunstack team` shows them and their

@@ -18,7 +18,7 @@ the date it last changed.
   then end your turn and wait. No answer or a cancel is not approval.
 - Objectives and the user's key results change only with the user's explicit approval of the
   exact wording, through `sunstack amend --team BOARD.md`. An agent's own board is written
-  only by a session working as that agent (the save skill).
+  only by a session working as that agent (the save skill), or by `sunstack tidy`.
 
 ## 1. Look
 
@@ -56,16 +56,7 @@ Pick what fits and ask:
 
 ## 4. Write objectives (after approval)
 
-```sh
-sunstack snapshot --team BOARD.md
-```
-
-Write the complete new `BOARD.md` into `candidate_dir` under a new name, changing only the
-approved lines (keep Directives exactly as they are), then:
-
-```sh
-sunstack amend --team BOARD.md "<candidate file>" "<checksum>" --summary "<one line>"
-```
-
-On exit 3 `mismatch`, snapshot again, redo the change on the new content, show it again if it
-differs, and retry.
+Follow step 2 of the save skill (snapshot, candidate, show, approve, amend) with the team
+`BOARD.md`: `sunstack snapshot --team BOARD.md`, then
+`sunstack amend --team BOARD.md "<candidate file>" "<checksum>" --summary "<one line>"`.
+Change only the approved lines and keep Directives exactly as they are.

@@ -34,7 +34,8 @@ Every entry you write starts with today's date: `- <YYYY-MM-DD> ...`.
   Leave other sessions' Now entries as they are. A key result that fits no objective goes to
   Open questions in context, for the user.
 - **context**: new decisions with reasons, pitfalls, open questions, and processed messages
-  that had real effects. Not a log of steps, not what git or the code already shows. Write
+  that had real effects. If a thread is finished, its conclusion goes in here too, so it is
+  committed before the thread is removed (end of step 5). Not a log of steps, not what git or the code already shows. Write
   these without asking, unless an entry reverses an earlier decision, changes or removes
   someone else's entry, or would drop content: then ask first.
 - **archive**: entries in context that are no longer true or useful (superseded decisions,
@@ -113,7 +114,8 @@ results, recording step 2 outcomes, moving entries to the archive) are allowed.
 sunstack commit --root "<root>" "<id>" board.md "<candidate file>" "<checksum>" --token "<token>"
 ```
 
-Commit each file you snapshotted (board, context, thread, archive) the same way.
+Commit each other file you snapshotted the same way; when entries move to the archive, the
+archive goes first.
 
 - **0**: done. Tell the user in one line what was saved (key results moved, entries archived),
   and what rule changes were approved, rejected or postponed.
