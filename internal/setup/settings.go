@@ -255,11 +255,18 @@ func replaceIfUnchanged(path string, want, data []byte, mode os.FileMode) error 
 	return os.Rename(name, path)
 }
 
-// codexRules makes Codex ask before every sunstack amend.
-const codexRules = `# Managed by sunstack install. Codex asks before any change to an agent's
-# pillars, AGENT.md or the team objectives, before an agent is created,
-# renamed or deleted, before a session is closed, and before a directive is
-# added in the user's name.
+// codexRules lets Codex run sunstack without asking (outside the sandbox, so
+// it can reach tmux), but always ask before amend, hire, rename, fire, kill
+// and direct: when several rules match, Codex uses the strictest.
+const codexRules = `# Managed by sunstack install. Codex runs sunstack without asking, except
+# before any change to an agent's pillars, AGENT.md or the team objectives,
+# before an agent is created, renamed or deleted, before a session is closed,
+# and before a directive is added in the user's name.
+prefix_rule(
+    pattern = ["sunstack"],
+    decision = "allow",
+    justification = "Sunstack's everyday commands (as, save, check, send, board and the rest) are safe to run.",
+)
 prefix_rule(
     pattern = ["sunstack", "amend"],
     decision = "prompt",
