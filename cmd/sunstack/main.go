@@ -53,7 +53,7 @@ Sessions and messages:
   sunstack check <id> --token T                   messages this session may handle (pending, and taken by it)
   sunstack take <id> <msg> --token T              take a message so no other session works on it
   sunstack ack <id> <msg> --token T               archive a handled message
-  sunstack spawn <id|title> [--tool claude|codex] [--task LABEL] [--note "..."]
+  sunstack spawn <id|title> [--tool claude|codex] [--task LABEL] [--note "..."] [--window]
                                                   open a tmux window and start a session as that agent
   sunstack dismiss <id|id_task>                   ask a session to finish (a shutdown message)
   sunstack kill <id_task|id> [--yes]              close that one session's tmux pane now (asks first; unsaved work is lost)
@@ -762,7 +762,7 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 		return nil
 
 	case "spawn":
-		a, err := parse(rest, "root tool task note", "")
+		a, err := parse(rest, "root tool task note", "window")
 		if err == nil {
 			err = a.atMost(1, "spawn")
 		}
@@ -782,11 +782,16 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 				tool = "claude"
 			}
 		}
-		r, err := p.Spawn(core.SpawnOptions{Arg: a.pos[0], Tool: tool, Task: a.flags["task"], Socket: tmuxSocket(), Server: tmuxServer(), Note: a.flags["note"]})
+		r, err := p.Spawn(core.SpawnOptions{Arg: a.pos[0], Tool: tool, Task: a.flags["task"], Socket: tmuxSocket(), Server: tmuxServer(), Note: a.flags["note"],
+			Window: a.has("window"), Caller: os.Getenv("TMUX_PANE")})
 		if err != nil {
 			return err
 		}
-		fmt.Fprintf(stdout, "sunstack: started %s (%s) in a new tmux window, pane %s\n", r.Name, tool, r.Pane)
+		where := "a pane beside this one"
+		if r.Window {
+			where = "a new tmux window"
+		}
+		fmt.Fprintf(stdout, "sunstack: started %s (%s) in %s, pane %s\n", r.Name, tool, where, r.Pane)
 		if !r.Running {
 			fmt.Fprintf(stdout, "warning: %s is not running in pane %s yet; it may be at a login or trust prompt, or have exited. Look at the pane (tmux select-pane -t %s); if the session is gone, run sunstack kill %s\n", tool, r.Pane, r.Pane, r.Name)
 		}

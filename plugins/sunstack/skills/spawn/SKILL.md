@@ -1,6 +1,6 @@
 ---
 name: spawn
-description: Start a new Claude Code or Codex session as a Sunstack agent in a tmux window, list live Sunstack sessions, ask a session to finish (dismiss), or close one at once (kill). Use when the user says "sunstack spawn", "/sunstack:spawn", "start a session for <agent id>", "open another builder session", "which Sunstack sessions are running", "sunstack sessions", "dismiss <agent id>", "kill <session name>", or when a message waits for an agent that has no live session. Only for projects with a Sunstack team (a sunstack/ folder).
+description: Start a new Claude Code or Codex session as a Sunstack agent in a tmux pane beside this one (or a new window), list live Sunstack sessions, ask a session to finish (dismiss), or close one at once (kill). Use when the user says "sunstack spawn", "/sunstack:spawn", "start a session for <agent id>", "open another builder session", "which Sunstack sessions are running", "sunstack sessions", "dismiss <agent id>", "kill <session name>", or when a message waits for an agent that has no live session. Only for projects with a Sunstack team (a sunstack/ folder).
 ---
 
 # Sunstack: spawn
@@ -29,20 +29,29 @@ resume it. `sunstack team` shows the same per agent.
 1. Choose the agent (rank as in the as skill's "Pick the agent"), the tool (default:
    the one this session runs), a task label (up to 10 characters), and a one-line first
    instruction (no single quotes), for example "handle message <id>" or "work on KR2".
-2. Show the plan and ask: start / edit / cancel.
-3. On yes:
+2. Choose where: by default a pane beside this one, in the current window. Suggest a new
+   window (`--window`) only with a reason, and say it in the plan:
+   - the current window already has three or more panes, so another would be too small;
+   - several sessions are being started at once;
+   - long background work the user does not need to watch;
+   - the user asked for a separate window.
+3. Show the plan (agent, tool, task, first instruction, pane or window) and ask:
+   start / edit / cancel.
+4. On yes:
 
    ```sh
    sunstack spawn "<id>" --tool <claude|codex> --task "<task>" --note "<first instruction>"
    ```
 
-   It opens a tmux window in the project root, claims the agent for the new session, and
-   starts the CLI with a first prompt that takes on the identity. The new session may stop
-   at its first-run prompts (folder trust, sign-in); tell the user which window to look at.
+   Add `--window` for a new window. It splits this pane (side by side when wide, else
+   stacked) in the project root, claims the agent for the new session, and starts the CLI
+   with a first prompt that takes on the identity. The new session may stop at its first-run
+   prompts (folder trust, sign-in); tell the user which pane to look at.
    - A `warning:` line means the CLI was not seen running a few seconds after launch: it may
      be at a login or trust prompt, or have exited. Tell the user which pane to look at.
    - **4 `task_taken`**: another session of that agent already has this task label; pick
      another.
+   - **1 `no_space`**: this pane is too small to split; offer `--window` instead.
    - **1 `no_tmux`**: give the manual steps above.
    - **1 / 2 other**: show the error.
 

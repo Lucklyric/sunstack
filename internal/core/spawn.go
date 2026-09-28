@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -16,16 +17,19 @@ type SpawnOptions struct {
 	Socket string // tmux server of the caller, from $TMUX
 	Server string // that server's PID
 	Note   string // what the new session should do first, in words
+	Window bool   // open a new tmux window instead of a pane beside the caller
+	Caller string // the caller's pane, from $TMUX_PANE
 }
 
 // SpawnResult is a started session. Running is false when the CLI was not
 // seen running in the pane a few seconds after launch.
 type SpawnResult struct {
 	ID, Name, Pane, Token string
-	Running               bool
+	Running, Window       bool
 }
 
-// Spawn opens a tmux window in the project root, claims the agent for the
+// Spawn opens a pane beside the caller's (or, with Window or outside a known
+// pane, a new tmux window) in the project root, claims the agent for the
 // new session (marked spawned, so kill may close it), and starts
 // Claude Code or Codex there with a first prompt that takes on the identity
 // with that claim's token and checks the inbox.
@@ -56,9 +60,24 @@ func (p *Project) Spawn(o SpawnOptions) (*SpawnResult, error) {
 	if claims, _ := p.Claims(id); labelTaken(claims, id, name, nil) {
 		return nil, taskTaken(id, name)
 	}
-	out, err := exec.Command("tmux", TmuxArgs(o.Socket, "new-window", "-d", "-P", "-F", "#{pane_id}", "-n", name, "-c", p.Root, "-e", "PATH="+os.Getenv("PATH"))...).Output()
+	window := o.Window || o.Caller == ""
+	var args []string
+	if window {
+		args = []string{"new-window", "-d", "-P", "-F", "#{pane_id}", "-n", name, "-c", p.Root, "-e", "PATH=" + os.Getenv("PATH")}
+	} else {
+		// Side by side when the caller's pane is wide enough, else stacked.
+		split := "-v"
+		if w, _ := exec.Command("tmux", TmuxArgs(o.Socket, "display-message", "-p", "-t", o.Caller, "#{pane_width}")...).Output(); atoiOr(strings.TrimSpace(string(w)), 0) >= 160 {
+			split = "-h"
+		}
+		args = []string{"split-window", "-d", split, "-t", o.Caller, "-P", "-F", "#{pane_id}", "-c", p.Root, "-e", "PATH=" + os.Getenv("PATH")}
+	}
+	out, err := exec.Command("tmux", TmuxArgs(o.Socket, args...)...).Output()
 	pane := strings.TrimSpace(string(out))
 	if err != nil || pane == "" {
+		if !window {
+			return nil, fail(ExitFail, "no_space", "could not split this pane (%v); it may be too small, so rerun with --window", err)
+		}
 		return nil, fail(ExitFail, "tmux", "could not open a tmux window: %v", err)
 	}
 	closePane := func() { exec.Command("tmux", TmuxArgs(o.Socket, "kill-pane", "-t", pane)...).Run() }
@@ -120,7 +139,15 @@ func (p *Project) Spawn(o SpawnOptions) (*SpawnResult, error) {
 		time.Sleep(250 * time.Millisecond)
 		running = paneRunsTool(o.Socket, pane, o.Tool)
 	}
-	return &SpawnResult{ID: id, Name: name, Pane: pane, Token: l.Token, Running: running}, nil
+	return &SpawnResult{ID: id, Name: name, Pane: pane, Token: l.Token, Running: running, Window: window}, nil
+}
+
+func atoiOr(s string, def int) int {
+	n, err := strconv.Atoi(s)
+	if err != nil {
+		return def
+	}
+	return n
 }
 
 // labelTaken reports whether a claim other than skip already uses the label.
