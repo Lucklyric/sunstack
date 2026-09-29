@@ -53,6 +53,7 @@ Sessions and messages:
   sunstack check <id> --token T                   messages this session may handle (pending, and taken by it)
   sunstack take <id> <msg> --token T              take a message so no other session works on it
   sunstack ack <id> <msg> --token T               archive a handled message
+  sunstack whoami [--root DIR]
   sunstack spawn <id|title> [--tool claude|codex] [--task LABEL] [--note "..."] [--window]
                                                   open a tmux window and start a session as that agent
   sunstack dismiss <id|id_task>                   ask a session to finish (a shutdown message)
@@ -869,15 +870,50 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 		fmt.Fprint(stdout, p.HR(time.Now()).Text())
 		return nil
 
+	case "whoami":
+		a, err := parse(rest, "root", "")
+		if err == nil {
+			err = a.atMost(0, "whoami")
+		}
+		if err != nil {
+			return err
+		}
+		p, err := core.FindProject(a.flags["root"])
+		if err != nil {
+			return err
+		}
+		_, session := detectTool()
+		held := p.HeldBy(session, os.Getenv("TMUX_PANE"), tmuxSocket())
+		if len(held) == 0 {
+			return &core.Error{Code: core.ExitFail, Reason: "not_found", Msg: "this session holds no Sunstack identity here; run the as skill"}
+		}
+		fmt.Fprint(stdout, whoamiText(p, held))
+		return nil
+
 	case "hook":
-		// Called by the plugin's UserPromptSubmit hook; never fails the prompt.
+		// Called by the plugin's UserPromptSubmit and SessionStart hooks;
+		// never fails the prompt.
 		var in struct {
 			SessionID string `json:"session_id"`
 			Cwd       string `json:"cwd"`
+			Event     string `json:"hook_event_name"`
+			Source    string `json:"source"`
 		}
 		_ = json.NewDecoder(stdin).Decode(&in)
 		p, err := core.FindProject(in.Cwd)
 		if err != nil {
+			return nil
+		}
+		if in.Event == "SessionStart" {
+			// After compaction, /clear or a resume the model has lost the
+			// session state; give it back so it never has to guess.
+			held := p.HeldBy(in.SessionID, os.Getenv("TMUX_PANE"), tmuxSocket())
+			if len(held) == 0 {
+				return nil
+			}
+			ctx := "[sunstack] " + whoamiText(p, held) + "Before more Sunstack work, reload the identity files: run the as skill with this id and --token (it resumes the claim, no new one)."
+			b, _ := json.Marshal(map[string]any{"hookSpecificOutput": map[string]string{"hookEventName": "SessionStart", "additionalContext": ctx}})
+			fmt.Fprintln(stdout, string(b))
 			return nil
 		}
 		lines := p.PendingForSession(in.SessionID, os.Getenv("TMUX_PANE"), tmuxSocket())
@@ -1102,4 +1138,18 @@ func health(root string, out io.Writer) error {
 		return &core.Error{Code: core.ExitFail, Reason: "health", Msg: fmt.Sprintf("%d check(s) failed", failedN)}
 	}
 	return nil
+}
+
+// whoamiText prints the session state of each claim this session holds.
+func whoamiText(p *core.Project, held []core.Held) string {
+	var b strings.Builder
+	for _, h := range held {
+		if h.ByPane {
+			fmt.Fprintf(&b, "This tmux pane holds %s, claimed from a different CLI session ID (for example before /clear). If that was this session, it is yours; otherwise ask the user.\n", h.L.Label(h.ID))
+		} else {
+			fmt.Fprintf(&b, "This session holds %s.\n", h.L.Label(h.ID))
+		}
+		b.WriteString(strings.TrimPrefix(p.StateText(h.ID, h.L.Token, h.L.Task), "\n"))
+	}
+	return b.String()
 }

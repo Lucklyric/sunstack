@@ -1,8 +1,20 @@
 {
-  "description": "Sunstack: at each prompt, tell a session holding a Sunstack identity about messages waiting for it.",
+  "description": "Sunstack: at each prompt, tell a session holding a Sunstack identity about messages waiting for it; after compaction, /clear or a resume, give the session back its Sunstack session state.",
   "hooks": {
     "UserPromptSubmit": [
       {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "command -v sunstack >/dev/null 2>&1 && sunstack hook || true",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "matcher": "compact|clear|resume",
         "hooks": [
           {
             "type": "command",

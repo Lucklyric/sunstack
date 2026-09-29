@@ -22,4 +22,5 @@ sunstack release --root "<root>" "<id>" --token "<token>"
 - **4 `busy`**: retry once, then tell the user.
 - **1 / 2**: show the error. Do not work around it.
 
-If you do not have the token, stop and tell the user. Never guess one.
+If you do not have the token, run `sunstack whoami` (with `--root` if you know it); if it finds
+nothing, stop and tell the user. Never guess one.

@@ -59,7 +59,7 @@ A proposal is `- <date> [pillars|agent|board] Proposed: <exact change> — <reas
 - Everything shared is written through snapshot and commit. On a mismatch, merge: keep every other entry as it is, add yours. If your entry contradicts one written by another session, do not pick one: keep both, add an Open question, and tell the user.
 - Keep the root, ID and token that `as` returns in the conversation and pass them explicitly on every later call.
 - Before ending or switching identity, run the save skill, then `sunstack release`. Releasing ends only this session's claim.
-- If you are unsure of your identity or token, ask the user and run `as` again. Never guess.
+- If you are unsure of your identity or token (after compaction or `/clear`), run `sunstack whoami`; it finds this session's claim by its CLI session or tmux pane. If it finds nothing, ask the user. Never guess.
 
 ## Messages
 

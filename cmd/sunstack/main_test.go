@@ -961,3 +961,24 @@ func TestReview073(t *testing.T) {
 		t.Errorf("claim mode: %v", err)
 	}
 }
+
+func TestWhoami(t *testing.T) {
+	p := fixture(t)
+	env := []string{"CLAUDECODE=1", "CLAUDE_CODE_SESSION_ID=sess-w"}
+	expect(t, sh(t, p, env, "whoami"), 1, "no identity yet")
+	tok := field(tokenRe, sh(t, p, env, "as", "builder.alice", "--task", "api").out)
+	r := sh(t, p, env, "whoami")
+	expect(t, r, 0, "whoami")
+	if !strings.Contains(r.out, "token: "+tok) || !strings.Contains(r.out, "session_name: builder.alice_api") {
+		t.Errorf("whoami: %s", r.out)
+	}
+	expect(t, sh(t, p, []string{"CLAUDECODE=1", "CLAUDE_CODE_SESSION_ID=other"}, "whoami"), 1, "another session holds nothing")
+
+	hook := exec.Command(bin, "hook")
+	hook.Env = cleanEnv()
+	hook.Stdin = strings.NewReader(`{"session_id":"sess-w","cwd":"` + filepath.ToSlash(p) + `","hook_event_name":"SessionStart","source":"compact"}`)
+	out, _ := hook.Output()
+	if !strings.Contains(string(out), tok) || !strings.Contains(string(out), `"hookEventName":"SessionStart"`) {
+		t.Errorf("SessionStart hook: %s", out)
+	}
+}

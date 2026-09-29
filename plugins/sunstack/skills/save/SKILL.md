@@ -19,8 +19,9 @@ Every entry you write starts with today's date: `- <YYYY-MM-DD> ...`.
 ## 0. Who am I, and the rules
 
 - You need the root, id and token from the `session state` block that `sunstack as` printed in
-  this session. If you do not have them (for example after `/clear`), stop and ask the user to
-  run the as skill again. Never guess.
+  this session. If you do not have them (for example after compaction or `/clear`), run `sunstack whoami` (with `--root` if you know it): it prints this session's state, found by
+  its CLI session or tmux pane. If it says the pane matched a different CLI session, confirm
+  with the user in one line. If it finds nothing, ask the user to run the as skill. Never guess.
 - Run every `sunstack` command on its own, with nothing chained after it.
 - If a `sunstack` command exits non-zero in a way not handled below, show the error and stop.
   Do not go on to release or to removing a thread.

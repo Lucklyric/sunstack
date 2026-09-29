@@ -430,11 +430,17 @@ func (p *Project) Bundle(r *AsResult) string {
 	for _, n := range listNames(p.local("inbox", r.ID), ".md") {
 		b.WriteString(n + "\n")
 	}
-	task := r.Task
+	b.WriteString(p.StateText(r.ID, r.Token, r.Task))
+	return b.String()
+}
+
+// StateText is the session state block: what every later command needs.
+func (p *Project) StateText(id, token, taskLabel string) string {
+	task := taskLabel
 	if task == "" {
 		task = "-"
 	}
-	fmt.Fprintf(&b, `
+	return fmt.Sprintf(`
 ===== session state =====
 root: %s
 id: %s
@@ -444,8 +450,36 @@ session_name: %s
 protocol: %d
 Pass --root, the id and --token explicitly on every later snapshot, commit and release.
 Before ending or switching identity, run the Sunstack save skill, then sunstack release.
-`, p.Root, r.ID, r.Token, task, (&Live{Task: r.Task}).Label(r.ID), ProtocolVersion)
-	return b.String()
+`, p.Root, id, token, task, (&Live{Task: taskLabel}).Label(id), ProtocolVersion)
+}
+
+// Held is a claim held by the calling CLI session.
+type Held struct {
+	ID     string
+	L      *Live
+	ByPane bool // matched by tmux pane only: likely this session, not certain
+}
+
+// HeldBy finds the claims of the calling CLI session: by its session ID, or,
+// when none matches (a Codex session, or a Claude Code session after /clear
+// got a new ID), by its tmux pane on a tmux server that has not restarted.
+func (p *Project) HeldBy(session, pane, socket string) []Held {
+	var bySession, byPane []Held
+	for _, id := range p.Agents() {
+		claims, _ := p.Claims(id)
+		for _, c := range claims {
+			switch {
+			case session != "" && c.Session == session:
+				bySession = append(bySession, Held{id, c, false})
+			case pane != "" && samePane(c, pane, socket) && sameServer(c):
+				byPane = append(byPane, Held{id, c, true})
+			}
+		}
+	}
+	if len(bySession) > 0 {
+		return bySession
+	}
+	return byPane
 }
 
 func listNames(dir, suffix string) []string {
