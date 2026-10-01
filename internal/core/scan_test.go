@@ -84,7 +84,7 @@ func TestOwnerDead(t *testing.T) {
 
 func TestNormalizeRemote(t *testing.T) {
 	for _, r := range []string{"git@github.com:Me/Repo.git", "https://github.com/Me/Repo", "https://tok@GitHub.com/Me/Repo.git/", "ssh://git@github.com/Me/Repo.git"} {
-		if got := normalizeRemote(r); got != "github.com/Me/Repo" {
+		if got := normalizeRemote(r); got != "github.com/me/repo" {
 			t.Errorf("%s -> %s", r, got)
 		}
 	}

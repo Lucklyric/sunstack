@@ -51,6 +51,7 @@ type HostSession struct {
 	Label     string `json:"label,omitempty"` // <id>_<task>
 	Doing     string `json:"doing,omitempty"`
 	DoingAt   string `json:"doing_at,omitempty"`
+	TeamRoot  string `json:"team_root,omitempty"`
 	Group     string `json:"group,omitempty"` // free sessions outside a team: git remote, else folder
 	SameAgent int    `json:"-"`
 }
@@ -478,12 +479,12 @@ func tmuxPanes() map[string]paneInfo {
 		sockets = append(sockets, strings.SplitN(t, ",", 2)[0])
 	}
 	for _, sock := range sockets {
-		b, err := exec.Command("tmux", TmuxArgs(sock, "list-panes", "-a", "-F", "#{pane_tty} #{pane_id} #{session_name}:#{window_index}.#{pane_index}")...).Output()
+		b, err := exec.Command("tmux", TmuxArgs(sock, "list-panes", "-a", "-F", "#{pane_tty}\t#{pane_id}\t#{session_name}:#{window_index}.#{pane_index}")...).Output()
 		if err != nil {
 			continue
 		}
 		for _, l := range strings.Split(string(b), "\n") {
-			f := strings.Fields(l)
+			f := strings.SplitN(l, "\t", 3)
 			if len(f) == 3 {
 				tty := strings.TrimPrefix(f[0], "/dev/")
 				if _, seen := out[tty]; !seen {

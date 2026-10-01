@@ -57,7 +57,7 @@ Sessions and messages:
   sunstack check|take|ack --session [<msg>]       the same for a session that works as no agent (its host inbox)
   sunstack whoami [--root DIR]
   sunstack spawn <id|title> [--tool claude|codex] [--task LABEL] [--note "..."] [--window]
-                                                  open a tmux window and start a session as that agent
+                                                  split this pane (--window: a new window) and start a session as that agent
   sunstack dismiss <id|id_task>                   ask a session to finish (a shutdown message)
   sunstack kill <id_task|id> [--yes]              close that one session's tmux pane now (asks first; unsaved work is lost)
   sunstack hr                                     staffing facts: load, idle agents, uncovered objectives, gaps,
@@ -555,6 +555,9 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 			if len(a.pos) < 1 {
 				return missing("id")
 			}
+			if !p.HasAgent(a.pos[0]) {
+				return &core.Error{Code: core.ExitFail, Reason: "not_found", Msg: "no agent " + a.pos[0]}
+			}
 			entries := p.Inbox(a.pos[0])
 			if len(entries) == 0 {
 				fmt.Fprintf(stdout, "%s has no pending messages\n", a.pos[0])
@@ -745,7 +748,7 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 			}
 			if s.Agent != "" {
 				// It works as an agent: deliver to that agent's session inbox.
-				dst, err := core.ResolveTeam(s.Team)
+				dst, err := core.FindProject(s.TeamRoot)
 				if err != nil {
 					return err
 				}
@@ -1079,6 +1082,9 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 		var rows []row
 		for _, p := range teams {
 			r := row{Root: p.Root, Steps: p.MigratePlan()}
+			if r.Steps == nil {
+				r.Steps = []core.MigrateStep{}
+			}
 			if apply != "" && len(r.Steps) > 0 {
 				d, err := p.Migrate(apply == "all")
 				if err != nil {

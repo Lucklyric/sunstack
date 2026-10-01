@@ -208,6 +208,9 @@ func (p *Project) resolve(arg string) (string, error) {
 		}
 		return arg, nil
 	}
+	if ValidID(arg) && strings.Contains(arg, ".") {
+		return "", fail(ExitFail, "not_found", "no agent %s; hire it first", arg)
+	}
 	if !ValidPart(arg) {
 		return "", fail(ExitUsage, "usage", "invalid id or title: %s", arg)
 	}

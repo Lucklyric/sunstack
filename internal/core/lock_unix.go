@@ -30,13 +30,30 @@ func ownerDead(owner []byte) bool {
 	if syscall.Kill(pid, 0) == syscall.ESRCH {
 		return true
 	}
-	return start != "" && ProcStart(pid) != "" && ProcStart(pid) != start
+	if start == "" {
+		return false
+	}
+	now := ProcStart(pid)
+	// Locks written by v0.8.0 to v0.8.2 used the local time and locale.
+	return now != "" && now != start && procStartLocal(pid) != start
+}
+
+func procStartLocal(pid int) string {
+	out, err := exec.Command("ps", "-o", "lstart=", "-p", strconv.Itoa(pid)).Output()
+	if err != nil {
+		return ""
+	}
+	return strings.Join(strings.Fields(string(out)), "_")
 }
 
 // ProcStart is a process's start time as one token, or "" if unknown. With
 // the pid it tells a live process from a later one that reused its pid.
 func ProcStart(pid int) string {
-	out, err := exec.Command("ps", "-o", "lstart=", "-p", strconv.Itoa(pid)).Output()
+	// ps prints the start time in local time and the locale's words; fix
+	// both, so every caller writes and compares the same text.
+	cmd := exec.Command("ps", "-o", "lstart=", "-p", strconv.Itoa(pid))
+	cmd.Env = append(os.Environ(), "TZ=UTC", "LC_ALL=C")
+	out, err := cmd.Output()
 	if err != nil {
 		return ""
 	}

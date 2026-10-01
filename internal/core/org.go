@@ -68,22 +68,11 @@ func BuildOrg() *Org {
 	o := &Org{Schema: OrgSchema, Host: ThisHost(), At: now()}
 	sessions, notes := ScanSessions()
 	o.Notes = notes
-	teams := IndexedProjects()
-	checked := map[string]bool{}
-	for _, s := range sessions {
-		if s.Cwd == "" || checked[s.Cwd] {
-			continue
-		}
-		checked[s.Cwd] = true
-		if p, err := FindProject(realPath(s.Cwd)); err == nil && !hasRoot(teams, p.Root) {
-			_ = p.Register()
-			teams = append(teams, p)
-		}
-	}
-	sort.Slice(teams, func(i, j int) bool { return teams[i].Root < teams[j].Root })
+	teams := teamsFor(sessions)
+	byAgent := classify(sessions, teams)
 	today := time.Now()
 	for _, p := range teams {
-		t := p.orgTeam(sessions, today)
+		t := p.orgTeam(sessions, byAgent[p.Root], today)
 		o.Teams = append(o.Teams, t)
 	}
 	groups := map[string]*FreeGroup{}
@@ -92,7 +81,7 @@ func BuildOrg() *Org {
 		if s.Agent != "" || s.Team != "" {
 			continue
 		}
-		g := s.Cwd
+		g := realPath(s.Cwd)
 		if r, ok := remotes[s.Cwd]; ok {
 			g = r
 		} else if r := gitRemote(s.Cwd); r != "" {
@@ -154,7 +143,91 @@ func (o *Org) fillEmpty() {
 	}
 }
 
-func (p *Project) orgTeam(sessions []*HostSession, today time.Time) *OrgTeam {
+// teamsFor is the indexed teams plus any team a session runs in, which is
+// registered on the way.
+func teamsFor(sessions []*HostSession) []*Project {
+	teams := IndexedProjects()
+	checked := map[string]bool{}
+	for _, s := range sessions {
+		if s.Cwd == "" || checked[s.Cwd] {
+			continue
+		}
+		checked[s.Cwd] = true
+		if p, err := FindProject(realPath(s.Cwd)); err == nil && !hasRoot(teams, p.Root) {
+			_ = p.Register()
+			teams = append(teams, p)
+		}
+	}
+	sort.Slice(teams, func(i, j int) bool { return teams[i].Root < teams[j].Root })
+	return teams
+}
+
+// classify marks each session with the team and agent it works as, and
+// returns, per team root and agent, its sessions: the matched ones, plus a
+// "not seen" entry for a claim no running process matches. Sessions holding
+// no claim are placed in the deepest team whose project holds their folder.
+func classify(sessions []*HostSession, teams []*Project) map[string]map[string][]*HostSession {
+	host := ThisHost().Name
+	servers := map[string]string{}
+	serverOf := func(socket string) string {
+		if v, ok := servers[socket]; ok {
+			return v
+		}
+		pid, _ := serverPID(socket)
+		servers[socket] = pid
+		return pid
+	}
+	out := map[string]map[string][]*HostSession{}
+	for _, p := range teams {
+		tf, ok := p.Team()
+		tid := tf.ID
+		if !ok {
+			tid = p.Root
+		}
+		out[p.Root] = map[string][]*HostSession{}
+		for _, id := range p.Agents() {
+			claims, _ := p.Claims(id)
+			for _, c := range claims {
+				var s *HostSession
+				for _, x := range sessions {
+					if x.Agent != "" {
+						continue
+					}
+					bySession := c.Session != "" && x.SessionID == c.Session
+					byPane := c.TmuxPane != "" && x.Pane == c.TmuxPane && sameServer(c) &&
+						(c.TmuxServer == "" || serverOf(x.socket) == c.TmuxServer)
+					if bySession || byPane {
+						s = x
+						break
+					}
+				}
+				if s == nil {
+					// No running process matches the claim: outside tmux with
+					// no session ID recorded, or the session has ended.
+					s = &HostSession{Tool: c.Tool, Status: "not seen", Reach: "none", SessionID: c.Session, Pane: c.TmuxPane, Where: TmuxWhere(c.TmuxSocket, c.TmuxPane)}
+				}
+				s.Team, s.TeamName, s.TeamRoot, s.Agent, s.Label = tid, tf.Name, p.Root, id, c.Label(id)+"@"+host
+				s.Doing, s.DoingAt = c.Doing, c.DoingAt
+				out[p.Root][id] = append(out[p.Root][id], s)
+			}
+		}
+	}
+	for _, s := range sessions {
+		if s.Agent != "" || s.Cwd == "" {
+			continue
+		}
+		if p := TeamOf(s.Cwd, teams); p != nil {
+			tf, ok := p.Team()
+			s.Team, s.TeamName, s.TeamRoot = tf.ID, tf.Name, p.Root
+			if !ok {
+				s.Team = p.Root
+			}
+		}
+	}
+	return out
+}
+
+func (p *Project) orgTeam(sessions []*HostSession, byAgent map[string][]*HostSession, today time.Time) *OrgTeam {
 	tf, ok := p.Team()
 	t := &OrgTeam{ID: tf.ID, Name: tf.Name, Root: p.Root, project: p}
 	if !ok {
@@ -176,7 +249,6 @@ func (p *Project) orgTeam(sessions []*HostSession, today time.Time) *OrgTeam {
 		}
 		t.Objectives = append(t.Objectives, obj)
 	}
-	host := ThisHost().Name
 	for _, st := range p.Status() {
 		a := &OrgAgent{ID: st.ID, Duty: st.Duty, Pending: st.Inbox}
 		for _, it := range boards.Agents[st.ID] {
@@ -188,28 +260,11 @@ func (p *Project) orgTeam(sessions []*HostSession, today time.Time) *OrgTeam {
 				a.Now = append(a.Now, line)
 			}
 		}
-		for _, c := range st.Claims {
-			var s *HostSession
-			for _, x := range sessions {
-				if (c.Session != "" && x.SessionID == c.Session) || (c.TmuxPane != "" && x.Pane == c.TmuxPane && sameServer(c)) {
-					s = x
-					break
-				}
-			}
-			if s == nil {
-				// The claim exists but no running process matches it: outside
-				// tmux with no session ID recorded, or the session has ended.
-				s = &HostSession{Tool: c.Tool, Status: "not seen", Reach: "none", SessionID: c.Session, Pane: c.TmuxPane, Where: TmuxWhere(c.TmuxSocket, c.TmuxPane)}
-			}
-			s.Team, s.TeamName, s.Agent, s.Label = t.ID, t.Name, st.ID, c.Label(st.ID)+"@"+host
-			s.Doing, s.DoingAt = c.Doing, c.DoingAt
-			a.Sessions = append(a.Sessions, s)
-		}
+		a.Sessions = append(a.Sessions, byAgent[st.ID]...)
 		t.Agents = append(t.Agents, a)
 	}
 	for _, s := range sessions {
-		if s.Agent == "" && s.Cwd != "" && TeamOf(s.Cwd, []*Project{p}) != nil {
-			s.Team, s.TeamName = t.ID, t.Name
+		if s.Agent == "" && s.TeamRoot == p.Root {
 			t.Free = append(t.Free, s)
 		}
 	}
@@ -466,18 +521,18 @@ func (o *Org) writeHosts(b *strings.Builder) {
 	for _, t := range o.Teams {
 		for _, a := range t.Agents {
 			for _, s := range a.Sessions {
-				fmt.Fprintf(b, "  %s  [%s]\n", sessionLine(s), t.Name)
+				fmt.Fprintf(b, "  %s\n", tagFirst(sessionLine(s), "["+t.Name+"]"))
 				n++
 			}
 		}
 		for _, s := range t.Free {
-			fmt.Fprintf(b, "  %s  [free in %s]\n", freeLine(s), t.Name)
+			fmt.Fprintf(b, "  %s\n", tagFirst(freeLine(s), "[free in "+t.Name+"]"))
 			n++
 		}
 	}
 	for _, g := range o.Free {
 		for _, s := range g.Sessions {
-			fmt.Fprintf(b, "  %s  [free: %s]\n", freeLine(s), g.Group)
+			fmt.Fprintf(b, "  %s\n", tagFirst(freeLine(s), "[free: "+g.Group+"]"))
 			n++
 		}
 	}
@@ -493,4 +548,13 @@ func hasRoot(teams []*Project, root string) bool {
 		}
 	}
 	return false
+}
+
+// tagFirst puts a tag at the end of the first line of a multi-line entry.
+func tagFirst(entry, tag string) string {
+	first, rest, ok := strings.Cut(entry, "\n")
+	if !ok {
+		return entry + "  " + tag
+	}
+	return first + "  " + tag + "\n" + rest
 }

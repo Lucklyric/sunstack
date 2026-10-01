@@ -125,7 +125,12 @@ func normalizeRemote(r string) string {
 	}
 	r = strings.TrimSuffix(strings.TrimSuffix(r, "/"), ".git")
 	if i := strings.IndexByte(r, '/'); i > 0 {
-		r = strings.ToLower(r[:i]) + r[i:]
+		host := strings.ToLower(r[:i])
+		r = host + r[i:]
+		// These hosts ignore case in owner and repository names.
+		if host == "github.com" || host == "gitlab.com" || host == "bitbucket.org" {
+			r = strings.ToLower(r)
+		}
 	}
 	return r
 }

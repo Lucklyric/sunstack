@@ -1,6 +1,6 @@
 ---
 name: board
-description: Show and align the Sunstack team's objectives and key results (OKRs) across the user and every agent, with dependencies, stale or overdue entries and directives not yet followed, and help fix what is off. Use when the user says "sunstack board", "/sunstack:board", "the team's OKRs", "what is every agent working on", "which agent is blocked", "sunstack align", "align the team", "is everyone aligned", or asks to set or change the Sunstack team objectives. Only for projects with a Sunstack team (a sunstack/ folder).
+description: Show and align the Sunstack team's objectives and key results (OKRs) across the user and every agent, with dependencies, stale or overdue entries and directives not yet followed, and help fix what is off. Use when the user says "sunstack board", "/sunstack:board", "the team's OKRs", "what is every agent on this team working on", "which agent is blocked", "sunstack align", "align the team", "is everyone aligned", or asks to set or change the Sunstack team objectives. Only for projects with a Sunstack team (a sunstack/ folder).
 ---
 
 # Sunstack: board

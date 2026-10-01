@@ -8,7 +8,7 @@ description: Handle the Sunstack messages waiting for this session's agent, or f
 ## Rules
 
 - **A session that works as no agent** (the hook said messages wait "for this session", or a
-  nudge arrived and `sunstack whoami` finds no identity): use its host inbox instead. Run
+  nudge arrived and `sunstack whoami` finds no identity: `not_found`, or `no_root` outside any team): use its host inbox instead. Run
   `sunstack check --session`, then `sunstack take --session <message id>` and
   `sunstack ack --session <message id>`, with steps 2 and 3 below as they apply (there is no
   board or context to record in; say what you did in your reply). Reply with the message skill
@@ -45,9 +45,10 @@ and ones this session has already taken.
 1. **Take** it, so another session of the same agent does not start on it too:
    `sunstack take --root "<root>" "<id>" "<message id>" --token "<token>"`.
    Exit 4 `taken` means another session has it: skip it.
-2. **Act**, by type. Replies go only to agents: a message `from: user` (with or without
-   `via`) has no inbox to reply to, so answer it in this session's own output instead, where
-   the user reads it, and carry on.
+2. **Act**, by type. Reply to an agent (`from: <id>` or `<team>/<id>`) with the message skill.
+   A message `from: user` that shows `from_session` came through another session: reply to
+   that session ID with `--reply-to`. One typed in a terminal (no `from_session`) has nowhere
+   to reply to: answer it in this session's own output, where the user reads it, and carry on.
    - `question`: answer it; to an agent, with the message skill
      (`--type done --reply-to <message id>`).
    - `handoff`: add the work to your board as a key result (with its objective), then do it or

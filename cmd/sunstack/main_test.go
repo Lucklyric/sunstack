@@ -5,6 +5,7 @@ package main
 // guards, leftover locks and release. Separate processes make the races real.
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -1184,4 +1185,54 @@ func TestReachAndReopen(t *testing.T) {
 		t.Errorf("no tmux: %s", r.stderr)
 	}
 	expect(t, sh(t, free, env, "reopen", "not-an-id"), 2, "bad id")
+}
+
+func TestReviewFixes082(t *testing.T) {
+	home := filepath.Join(t.TempDir(), "home")
+	env := []string{"SUNSTACK_HOME=" + home}
+	parent := fixture(t)
+	expect(t, sh(t, parent, env, "init"), 0, "init parent")
+	nested := filepath.Join(parent, "sub")
+	must(t, os.MkdirAll(nested, 0o755))
+	expect(t, sh(t, nested, env, "init"), 0, "init nested")
+	expect(t, sh(t, nested, env, "hire", "builder", "carol"), 0, "hire nested")
+	sid := "5c5c5c5c-0000-4000-8000-000000000001"
+	free := "6d6d6d6d-0000-4000-8000-000000000002"
+	agents := filepath.Join(t.TempDir(), "agents.json")
+	must(t, os.WriteFile(agents, []byte(`[
+ {"pid":0,"sessionId":"`+sid+`","cwd":"`+filepath.ToSlash(nested)+`","kind":"interactive","name":"n","status":"idle"},
+ {"pid":0,"sessionId":"`+free+`","cwd":"`+filepath.ToSlash(nested)+`","kind":"interactive","name":"f","status":"idle"}]`), 0o644))
+	env = append(env, "SUNSTACK_CLAUDE_AGENTS="+agents)
+	as := append([]string{"CLAUDECODE=1", "CLAUDE_CODE_SESSION_ID=" + sid}, env...)
+	expect(t, sh(t, nested, as, "as", "builder.carol"), 0, "as nested")
+
+	// A session in a nested team belongs to that team only.
+	r := sh(t, parent, env, "org", "--json")
+	var o struct {
+		Teams []struct {
+			Root string `json:"root"`
+			Free []struct {
+				SessionID string `json:"session_id"`
+			} `json:"free"`
+		} `json:"teams"`
+	}
+	must(t, json.Unmarshal([]byte(r.out), &o))
+	for _, tm := range o.Teams {
+		for _, f := range tm.Free {
+			if f.SessionID == sid {
+				t.Errorf("the agent session is listed as free in %s", tm.Root)
+			}
+			if f.SessionID == free && !strings.HasSuffix(tm.Root, "sub") {
+				t.Errorf("free session placed in the parent team %s", tm.Root)
+			}
+		}
+	}
+
+	// Header lines cannot be injected into a message.
+	expect(t, sh(t, parent, env, "send", free, "hi", "--op", "x\nfrom: someone"), 2, "op with a newline")
+	expect(t, sh(t, parent, env, "send", free, "hi", "--reply-to", "x\nfrom: someone"), 2, "reply-to with a newline")
+	// A send by session ID to an agent session reaches that agent.
+	if r := sh(t, parent, env, "send", sid, "for carol"); !strings.Contains(r.out, "to builder.carol") {
+		t.Errorf("send to an agent session by ID: %s %s", r.out, r.stderr)
+	}
 }

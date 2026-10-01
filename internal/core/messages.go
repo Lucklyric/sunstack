@@ -212,6 +212,9 @@ func (p *Project) Send(o SendOptions) (*SendResult, error) {
 	if err != nil {
 		return nil, err
 	}
+	if o.FromSession != "" && !IsSessionID(o.FromSession) {
+		o.FromSession = ""
+	}
 	if o.Op != "" {
 		if !opRe.MatchString(o.Op) {
 			return nil, fail(ExitUsage, "usage", "invalid --op: letters, digits, . _ - only, at most 64")

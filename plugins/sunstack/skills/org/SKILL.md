@@ -1,6 +1,6 @@
 ---
 name: org
-description: Show the user's whole Sunstack org on this host, every team, agent and running Claude Code or Codex session (with or without a Sunstack identity), in four views, what needs the user, work by team, people, and hosts, and inspect or summarize any session or team on request. Use when the user says "sunstack org", "/sunstack:org", "what needs me", "what is running on this machine", "show all my sessions", "what is every team doing", "summarize that session", "peek at <session>", "sunstack teams", or asks for a team's event log, inbox or effective pillars.
+description: Show the user's whole Sunstack org on this host, every team, agent and running Claude Code or Codex session (with or without a Sunstack identity), in four views, what needs the user, work by team, people, and hosts, and inspect or summarize any session or team on request. Use when the user says "sunstack org", "/sunstack:org", "what needs me", "what is running on this machine", "show all my sessions", "what is every team doing across teams", "summarize that session", "peek at <session>", "sunstack teams", or asks for a team's event log, inbox or effective pillars. To start or close sessions, use the spawn skill.
 ---
 
 # Sunstack: org

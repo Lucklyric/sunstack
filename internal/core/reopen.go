@@ -68,7 +68,10 @@ func Reopen(o ReopenOptions) (*ReopenResult, error) {
 	if tool == "codex" {
 		cmd = "codex resume " + o.SessionID
 	}
-	sessions, _ := ScanSessions()
+	sessions, notes := ScanSessions()
+	if len(notes) > 0 {
+		return nil, fail(ExitFail, "scan_failed", "could not check whether session %s is still open (%s); try again", o.SessionID, strings.Join(notes, "; "))
+	}
 	for _, s := range sessions {
 		if s.SessionID == o.SessionID {
 			where := placeOf(s)
@@ -107,19 +110,22 @@ func Reopen(o ReopenOptions) (*ReopenResult, error) {
 	// An agent session keeps its claim: point it at the new pane.
 	for _, p := range IndexedProjects() {
 		for _, id := range p.Agents() {
+			unlock, err := p.lock(id)
+			if err != nil {
+				continue
+			}
+			// Read the claims under the lock, so a concurrent change is kept.
 			claims, _ := p.Claims(id)
 			for _, c := range claims {
 				if c.Session != o.SessionID {
 					continue
 				}
-				if unlock, err := p.lock(id); err == nil {
-					c.TmuxPane, c.TmuxSocket, c.TmuxServer = pane, o.Socket, o.Server
-					_ = p.writeLive(id, c)
-					unlock()
-					exec.Command("tmux", TmuxArgs(o.Socket, "select-pane", "-t", pane, "-T", c.Label(id))...).Run()
-					p.LogEvent("reopen", c.Label(id), "pane="+pane)
-				}
+				c.TmuxPane, c.TmuxSocket, c.TmuxServer = pane, o.Socket, o.Server
+				_ = p.writeLive(id, c)
+				exec.Command("tmux", TmuxArgs(o.Socket, "select-pane", "-t", pane, "-T", c.Label(id))...).Run()
+				p.LogEvent("reopen", c.Label(id), "pane="+pane)
 			}
+			unlock()
 		}
 	}
 	return res, nil

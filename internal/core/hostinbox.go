@@ -26,17 +26,8 @@ func hostArchive() string            { return filepath.Join(Home(), "log", "mess
 // FindSession finds a running session on this host by tmux pane (%N) or by
 // session ID, with its team and agent if it has one.
 func FindSession(ref string) (*HostSession, error) {
-	org := BuildOrg()
-	var all []*HostSession
-	for _, t := range org.Teams {
-		for _, a := range t.Agents {
-			all = append(all, a.Sessions...)
-		}
-		all = append(all, t.Free...)
-	}
-	for _, g := range org.Free {
-		all = append(all, g.Sessions...)
-	}
+	all, _ := ScanSessions()
+	classify(all, teamsFor(all))
 	for _, s := range all {
 		if (strings.HasPrefix(ref, "%") && s.Pane == ref) || (ref != "" && s.SessionID == ref) {
 			return s, nil
@@ -59,6 +50,15 @@ func SendToSession(s *HostSession, o SendOptions) (*SendResult, error) {
 	}
 	if !IsSessionID(s.SessionID) {
 		return nil, fail(ExitFail, "not_found", "that session has no session ID sunstack can address")
+	}
+	if o.Op != "" && !opRe.MatchString(o.Op) {
+		return nil, fail(ExitUsage, "usage", "invalid --op: letters, digits, . _ - only, at most 64")
+	}
+	if o.ReplyTo != "" && !msgIDRe.MatchString(o.ReplyTo) {
+		return nil, fail(ExitUsage, "usage", "invalid --reply-to message id: %s", o.ReplyTo)
+	}
+	if o.FromSession != "" && !IsSessionID(o.FromSession) {
+		o.FromSession = ""
 	}
 	from := "user"
 	if o.FromLabel != "" {
@@ -210,7 +210,7 @@ func ResolveTeam(ref string) (*Project, error) {
 	var hits []*Project
 	for _, p := range IndexedProjects() {
 		t, _ := p.Team()
-		if t.ID == ref || t.Name == ref {
+		if t.ID == ref || strings.EqualFold(t.Name, ref) {
 			hits = append(hits, p)
 		}
 	}
@@ -224,13 +224,14 @@ func ResolveTeam(ref string) (*Project, error) {
 	for _, h := range hits {
 		roots = append(roots, h.Root)
 	}
-	return nil, fail(ExitUsage, "ambiguous", "several teams are named %s; use the team ID instead: %s", ref, strings.Join(roots, ", "))
+	return nil, fail(ExitUsage, "ambiguous", "%s matches several teams on this host (%s), for example two checkouts of one repo; address the session by its tmux pane or session ID instead (sunstack org --by host)", ref, strings.Join(roots, ", "))
 }
 
 // TeamLabel is how a sender in this team is named to another team.
 func (p *Project) TeamLabel(id string) string {
 	t, _ := p.Team()
-	return fmt.Sprintf("%s/%s", t.Name, id)
+	// A message header treats # as a comment, so keep it out of the name.
+	return fmt.Sprintf("%s/%s", strings.ReplaceAll(t.Name, "#", "-"), id)
 }
 
 // VerifySender checks that token is a live claim on id, for a message sent
