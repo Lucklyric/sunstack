@@ -46,7 +46,8 @@ and ones this session has already taken.
    - `handoff`: add the work to your board as a key result (with its objective), then do it or
      schedule it; to an agent, reply `done` with `--reply-to` when finished, or send a
      `question` if blocked.
-   - `fyi`: note what matters in context or on your board; no reply needed.
+   - `fyi`: note what matters in context or on your board; no reply needed. An "Align your
+     board" request is done by updating the board as asked at the save in step 3.
    - `done`: a reply to something you sent; close the matching key result or open question.
    - `shutdown`: stop taking new work, run the save skill (with the other messages' records),
      ack this message, reply `done` with
