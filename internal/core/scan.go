@@ -196,13 +196,15 @@ func codexSessions() ([]*HostSession, error) {
 		}
 		pid, _ := strconv.Atoi(f[0])
 		files, cwd, ferr := openFiles(pid)
-		if ferr != nil {
+		rollout := mainRollout(files)
+		if ferr != nil && rollout == "" {
+			// The check failed before it found the transcript: that is not
+			// the same as "no session here".
 			if processAlive(pid) {
 				failed = append(failed, strconv.Itoa(pid))
 			}
 			continue
 		}
-		rollout := mainRollout(files)
 		if rollout == "" {
 			continue // a helper process, not a session
 		}
@@ -231,18 +233,22 @@ func openFiles(pid int) ([]string, string, error) {
 			return nil, "", err
 		}
 		var files []string
+		var ferr error
 		for _, fd := range fds {
 			if t, err := os.Readlink(fd); err == nil {
 				files = append(files, t)
+			} else if !os.IsNotExist(err) {
+				ferr = err
 			}
 		}
-		return files, cwd, nil
+		return files, cwd, ferr
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	out, err := exec.CommandContext(ctx, "lsof", "-p", strconv.Itoa(pid), "-Fftn").Output()
-	if err != nil && len(out) == 0 {
-		return nil, "", fmt.Errorf("lsof: %v", err)
+	var lerr error
+	if err != nil {
+		lerr = fmt.Errorf("lsof: %v", err) // the caller decides with what was listed
 	}
 	var files []string
 	cwd, fd := "", ""
@@ -261,7 +267,7 @@ func openFiles(pid int) ([]string, string, error) {
 			}
 		}
 	}
-	return files, cwd, nil
+	return files, cwd, lerr
 }
 
 // processAlive reports whether pid still exists, so a process that exited

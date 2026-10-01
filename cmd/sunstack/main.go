@@ -1063,14 +1063,14 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 			return &core.Error{Code: core.ExitUsage, Reason: "usage", Msg: "--apply must be safe or all"}
 		}
 		var teams []*core.Project
+		hostWide := a.has("host") || a.flags["scan"] != ""
+		if hostWide && a.flags["root"] != "" {
+			return &core.Error{Code: core.ExitUsage, Reason: "usage", Msg: "use --root for one team, or --host / --scan for many, not both"}
+		}
 		if dir := a.flags["scan"]; dir != "" {
 			if _, err := core.ScanTeams(dir); err != nil {
 				return &core.Error{Code: core.ExitFail, Reason: "fs", Msg: err.Error()}
 			}
-		}
-		hostWide := a.has("host") || a.flags["scan"] != ""
-		if hostWide && a.flags["root"] != "" {
-			return &core.Error{Code: core.ExitUsage, Reason: "usage", Msg: "use --root for one team, or --host / --scan for many, not both"}
 		}
 		if hostWide {
 			teams = core.IndexedProjects()

@@ -201,6 +201,15 @@ func HostMove(sid, msgID string, ack bool) error {
 	if !msgIDRe.MatchString(msgID) {
 		return fail(ExitUsage, "usage", "invalid message id")
 	}
+	locks := filepath.Join(Home(), "locks")
+	if err := os.MkdirAll(locks, 0o755); err != nil {
+		return fail(ExitFail, "fs", "%v", err)
+	}
+	unlock, err := lockDir(filepath.Join(locks, "inbox-"+sid), "this session's inbox")
+	if err != nil {
+		return err
+	}
+	defer unlock()
 	pending := filepath.Join(hostInboxDir(sid), msgID+".md")
 	taken := filepath.Join(hostTakenDir(sid), msgID+".md")
 	src := ""

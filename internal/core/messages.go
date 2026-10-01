@@ -710,7 +710,7 @@ func findOp(m *Message, pending, archive, taken string) *Message {
 	for _, d := range dirs {
 		for _, n := range listNames(d, ".md") {
 			x, err := parseMessage(filepath.Join(d, n))
-			if err == nil && x.Op == m.Op && x.To == m.To && x.Session == m.Session && x.From == m.From &&
+			if err == nil && x.Op == m.Op && x.To == m.To && x.Session == m.Session && x.From == m.From && x.FromSession == m.FromSession &&
 				x.Type == m.Type && x.ReplyTo == m.ReplyTo && strings.TrimSpace(x.Body) == strings.TrimSpace(m.Body) {
 				return x
 			}

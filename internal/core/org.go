@@ -194,8 +194,11 @@ func classify(sessions []*HostSession, teams []*Project) map[string]map[string][
 						continue
 					}
 					bySession := c.Session != "" && x.SessionID == c.Session
+					// A pane can be reused by a later session: when both sides
+					// know their session ID, they must agree.
 					byPane := c.TmuxPane != "" && x.Pane == c.TmuxPane && sameServer(c) &&
-						(c.TmuxServer == "" || serverOf(x.socket) == c.TmuxServer)
+						sameTmuxServer(c, serverOf(x.socket), serverOf) &&
+						(c.Session == "" || x.SessionID == "" || c.Session == x.SessionID)
 					if bySession || byPane {
 						s = x
 						break
@@ -557,4 +560,17 @@ func tagFirst(entry, tag string) string {
 		return entry + "  " + tag
 	}
 	return first + "  " + tag + "\n" + rest
+}
+
+// sameTmuxServer reports whether a pane found on the server with PID pid is
+// on the claim's tmux server. Older claims have no server PID; their socket
+// is asked instead.
+func sameTmuxServer(c *Live, pid string, serverOf func(string) string) bool {
+	if pid == "" {
+		return false
+	}
+	if c.TmuxServer != "" {
+		return pid == c.TmuxServer
+	}
+	return serverOf(c.TmuxSocket) == pid
 }
