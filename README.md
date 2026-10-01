@@ -48,7 +48,8 @@ Skills run as `/sunstack:<name>` in Claude Code and `$sunstack:<name>` in Codex.
 - **Messages:** `send` → skill `message`; `check`, `take`, `ack` → skill `check`
 - **Sessions:** `sessions`, `spawn`, `dismiss`, `kill` → skill `spawn`
 - **Staffing:** `hr` → skill `hr` (suggests hires, splits and retirements from the project and the boards)
-- **Watch:** `team`, `log`, `inbox`, `pillar`, `tui` (also a bare `sunstack`)
+- **Your org on this machine:** `org` (what needs you, work by team, people, hosts), `teams`, `peek`, `team`, `log`, `inbox`, `pillar` → skill `org`; `tui` (also a bare `sunstack`, press `o` for the org tab)
+- **Who am I:** `whoami` → skill `whoami`; `doing` (one line on what a session works on) → skills `as` and `save`
 
 ## How agents reach each other
 
@@ -56,7 +57,7 @@ A message is always a file in the recipient's inbox (`sunstack/_local/inbox/<id>
 
 - **A live Claude Code or Codex session in tmux:** `send` types a one-line nudge (`/sunstack:check …` or `$sunstack:check …`) into its pane. It only types into a pane whose foreground program is that CLI, never into a shell.
 - **A Claude Code session elsewhere:** the plugin's prompt hook tells it about waiting messages at its next prompt.
-- **No live session:** the message waits; `sunstack spawn` starts a session for the agent in a new tmux window, with your approval.
+- **No live session:** the message waits; `sunstack spawn` starts a session for the agent in a tmux pane beside yours, with your approval.
 
 Several sessions of one agent share its inbox; a session takes a message before working on it, so only one handles it.
 

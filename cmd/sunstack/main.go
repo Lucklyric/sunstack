@@ -48,7 +48,7 @@ Boards:
 Sessions and messages:
   sunstack sessions [--json]                      every live session: name, tool, host, tmux place, resume command
   sunstack send <id|title|id_task> "<text>" [--type question|handoff|fyi|done|shutdown] [--reply-to MSG]
-                [--from ID --token T] [--no-nudge]
+                [--from ID --token T] [--no-nudge] [--op ID]
                                                   write a message to the agent's inbox, then type a one-line nudge
                                                   into a live Claude Code or Codex pane of that agent (tmux)
   sunstack check <id> --token T                   messages this session may handle (pending, and taken by it)

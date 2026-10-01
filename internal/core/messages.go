@@ -136,6 +136,14 @@ type SendResult struct {
 
 // resolveRecipient accepts an ID, a title with one agent, or a session name.
 func (p *Project) resolveRecipient(to string) (id, session string, err error) {
+	// The org view labels sessions <id>_<task>@<host>; this host's suffix is
+	// accepted, so a label can be pasted as is.
+	if i := strings.LastIndex(to, "@"); i > 0 {
+		if to[i+1:] != ThisHost().Name {
+			return "", "", fail(ExitFail, "not_found", "%s is on another host; messages between hosts come with peers (v0.9)", to)
+		}
+		to = to[:i]
+	}
 	if i := strings.LastIndex(to, "_"); i > 0 {
 		id, task := to[:i], to[i+1:]
 		if p.HasAgent(id) && ValidTask(task) {

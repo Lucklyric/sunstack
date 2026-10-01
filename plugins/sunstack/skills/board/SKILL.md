@@ -77,7 +77,7 @@ agent's board is written only by that agent, so this step asks each agent to fix
 3. For each approved agent, one message:
 
    ```sh
-   sunstack send "<id>" "Align your board: <the fixes from the line above>. Update it at your next save and set aligned: to the last directive checked." --type fyi
+   sunstack send "<id>" "Align your board: <the fixes from the line above>. Update it at your next save and set aligned: to the last directive checked." --type fyi --op "align-<today>-<id>"
    ```
 
    Add `--from "<id>" --token "<token>"` only if this session holds an agent and the request

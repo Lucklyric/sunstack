@@ -57,4 +57,5 @@ in its last prompt, if one does, so the user can run the as skill there.
   - `sunstack inbox <id>`: messages waiting for an agent (read only)
   - `sunstack log [--id <id>]`: the event log
   - `sunstack pillar <id>` or `sunstack pillar --team`: the pillars in effect, with their source
-- **A live dashboard**: tell the user to run `sunstack tui` in a terminal and press `o`.
+- **A live dashboard**: tell the user to run `sunstack tui` in a terminal, from inside a team's
+  project, and press `o`.

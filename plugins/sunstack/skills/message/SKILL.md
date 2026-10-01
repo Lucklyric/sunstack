@@ -39,7 +39,9 @@ sunstack send "<recipient>" "<text>" --type <type> --from "<id>" --token "<token
 ```
 
 Leave out `--from` and `--token` when this session has no identity. Add
-`--reply-to "<message id>"` for a reply.
+`--reply-to "<message id>"` for a reply. If you may send the same message again (a retry after
+an unclear result, or a step that can run twice), add `--op "<short id>"`: the same id and text
+return the earlier message instead of a second one.
 
 - **0**: tell the user the message id and whether a session was nudged or it waits.
 - **1 `not_found`**: the recipient does not exist or that session is gone; offer the agent ID
