@@ -948,6 +948,9 @@ func TestReview073(t *testing.T) {
 	}
 	expect(t, sh(t, p, nil, "take", "builder.alice", m, "--token", ta), 0, "take the orphaned message")
 
+	if runtime.GOOS == "windows" {
+		return // leftover locks are never reclaimed there, and file modes differ
+	}
 	// A lock left by a dead process is reclaimed; a live owner still blocks.
 	lock := filepath.Join(p, "sunstack", "_local", "locks", "builder.alice")
 	must(t, os.MkdirAll(lock, 0o755))
@@ -1160,7 +1163,7 @@ func TestHostInbox(t *testing.T) {
 
 func TestReachAndReopen(t *testing.T) {
 	home := t.TempDir()
-	env := []string{"SUNSTACK_HOME=" + filepath.Join(home, ".sunstack"), "HOME=" + home}
+	env := []string{"SUNSTACK_HOME=" + filepath.Join(home, ".sunstack"), "HOME=" + home, "USERPROFILE=" + home}
 	free := t.TempDir()
 	sid := "1a2b3c4d-0000-4000-8000-00000000abcd"
 	must(t, os.MkdirAll(filepath.Join(home, ".claude", "projects", "x"), 0o755))
