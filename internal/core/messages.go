@@ -26,6 +26,7 @@ var MessageTypes = []string{"question", "handoff", "fyi", "done", "shutdown"}
 // Message is one inbox entry.
 type Message struct {
 	ID, From, Via, To, Session, At, Type, ReplyTo string
+	Op                                            string // sender's operation ID, so a repeated send is not delivered twice
 	Body                                          string
 	State                                         string // pending, taken (by this session), taken by <label>
 	path                                          string
@@ -78,6 +79,8 @@ func parseMessage(path string) (*Message, error) {
 					m.Type = v
 				case "reply_to":
 					m.ReplyTo = v
+				case "op":
+					m.Op = v
 				}
 			}
 			m.Body = strings.TrimLeft(s[4+end+5:], "\n")
@@ -103,6 +106,9 @@ func (m *Message) text() string {
 	if m.ReplyTo != "" {
 		fmt.Fprintf(&b, "reply_to: %s\n", m.ReplyTo)
 	}
+	if m.Op != "" {
+		fmt.Fprintf(&b, "op: %s\n", m.Op)
+	}
 	b.WriteString("---\n")
 	b.WriteString(strings.TrimRight(m.Body, "\n") + "\n")
 	return b.String()
@@ -118,6 +124,7 @@ type SendOptions struct {
 	Token   string // the sender's token, required with From
 	Via     string // the agent session that sent it in the user's name, if any
 	NoNudge bool
+	Op      string // optional operation ID: the same ID and text return the earlier message
 }
 
 // SendResult says where a message went.
@@ -185,6 +192,14 @@ func (p *Project) Send(o SendOptions) (*SendResult, error) {
 	if err != nil {
 		return nil, err
 	}
+	if o.Op != "" {
+		if !opRe.MatchString(o.Op) {
+			return nil, fail(ExitUsage, "usage", "invalid --op: letters, digits, . _ - only, at most 64")
+		}
+		if prev := p.findOp(id, o.Op, o.Body); prev != nil {
+			return &SendResult{ID: prev.ID, To: id, Session: prev.Session, Note: "already sent with this --op; not sent again"}, nil
+		}
+	}
 	dir := p.inboxDir(id)
 	if err := p.noSymlink(dir); err != nil {
 		return nil, err
@@ -192,7 +207,7 @@ func (p *Project) Send(o SendOptions) (*SendResult, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, fail(ExitFail, "fs", "%v", err)
 	}
-	m := &Message{From: from, To: id, Session: session, At: now(), Type: o.Type, ReplyTo: o.ReplyTo, Body: o.Body}
+	m := &Message{From: from, To: id, Session: session, At: now(), Type: o.Type, ReplyTo: o.ReplyTo, Body: o.Body, Op: o.Op}
 	if from == "user" {
 		m.Via = o.Via
 	}
@@ -642,4 +657,23 @@ func (p *Project) CallerLabel(tool, session, pane, socket string) string {
 		}
 	}
 	return tool + " session"
+}
+
+var opRe = regexp.MustCompile(`^[A-Za-z0-9._-]{1,64}$`)
+
+// findOp returns an earlier message to id with the same operation ID and
+// text, pending, taken or already handled.
+func (p *Project) findOp(id, op, body string) *Message {
+	dirs := []string{p.inboxDir(id), p.messageArchive()}
+	taken, _ := filepath.Glob(filepath.Join(p.local("inbox", id, ".taken"), "*"))
+	dirs = append(dirs, taken...)
+	for _, d := range dirs {
+		for _, n := range listNames(d, ".md") {
+			m, err := parseMessage(filepath.Join(d, n))
+			if err == nil && m.Op == op && m.To == id && strings.TrimSpace(m.Body) == strings.TrimSpace(body) {
+				return m
+			}
+		}
+	}
+	return nil
 }

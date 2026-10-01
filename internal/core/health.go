@@ -54,6 +54,9 @@ func (p *Project) Health() []Check {
 	default:
 		cs = append(cs, ok("project", "AGENTS.md has one current sunstack block"))
 	}
+	if _, ok := p.Team(); !ok {
+		cs = append(cs, warn("migrate", "sunstack/TEAM is missing (the team's ID, so every host recognizes it)", "sunstack init"))
+	}
 	if _, err := os.Stat(p.teamBoardPath()); err != nil {
 		cs = append(cs, warn("migrate", "sunstack/BOARD.md is missing (the team's objectives and directives)", "sunstack init"))
 	}

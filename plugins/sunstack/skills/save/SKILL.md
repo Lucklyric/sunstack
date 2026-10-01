@@ -32,7 +32,9 @@ Every entry you write starts with today's date: `- <YYYY-MM-DD> ...`.
   ones to Done with today's date, add new ones under Now or Next, each tagged with the team
   objective it serves (`[O<n>]`) and its `needs:`. If a directive newer than `aligned:` is
   addressed to this agent, make the board follow it and set `aligned:` to the last one checked.
-  Leave other sessions' Now entries as they are. A key result that fits no objective goes to
+  Each Now entry this session owns ends with `(by: <session_name>@<host>)`, using the
+  `session_name` from session state and `hostname -s`, so sessions on other hosts can tell
+  whose it is. Leave other sessions' Now entries as they are. A key result that fits no objective goes to
   Open questions in context, for the user.
 - **context**: new decisions with reasons, pitfalls, open questions, and processed messages
   that had real effects. If a thread is finished, its conclusion goes in here too, so it is
@@ -138,5 +140,10 @@ context first, then delete against the new checksum.
 
 ## 6. Tidy
 
-Finally run `sunstack tidy "<id>" --root "<root>"`: it moves Done entries older than a week
-to the archive. If the board is still longer than about 40 lines, shorten Next.
+Run `sunstack tidy "<id>" --root "<root>"`: it moves Done entries older than a week to the
+archive. If the board is still longer than about 40 lines, shorten Next.
+
+## 7. Doing
+
+If what this session is doing has changed, update its line:
+`sunstack doing --root "<root>" "<id>" "<one line>" --token "<token>"` (`""` clears it).

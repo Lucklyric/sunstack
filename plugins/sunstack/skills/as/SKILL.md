@@ -76,6 +76,8 @@ the token.
      them.
   6. **Inbox.** If messages are listed, mention them. Handle them with the check skill when
      the first prompt asked for it (a spawned session), or when the user agrees.
+  7. **Doing.** Once you know what this session will work on, record it in one line, so the
+     org view shows it: `sunstack doing --root "<root>" "<id>" "<what, in under 120 characters>" --token "<token>"`.
 - **2 `missing_arguments`**: the first line names what is missing and the rest are the
   choices (for a title with several agents, only that title's). Rank them as in "Pick the
   agent" and ask the user: with AskUserQuestion if you have it, otherwise as numbered options

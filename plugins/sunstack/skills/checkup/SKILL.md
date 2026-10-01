@@ -24,7 +24,8 @@ Find out where this project stands and walk the user through the next steps, one
 sunstack health
 ```
 
-Exit 1 only means a check failed; read the output either way. If there is a project, also run:
+Exit 1 only means a check failed; read the output either way. `sunstack version` gives the CLI
+and protocol versions if the user asks. If there is a project, also run:
 
 ```sh
 sunstack team
@@ -88,6 +89,8 @@ How to do each kind of step:
   an `AGENTS.md` block and a `.gitignore` line right here. On yes, run `sunstack init`.
 - **PROTOCOL.md or AGENTS.md block is outdated**: `sunstack init --refresh`, then show the
   `git diff` of what changed.
+- **sunstack/TEAM is missing** (a team from before v0.8): `sunstack init` adds it. It gives the
+  team one ID on every host; commit it.
 - **install or rules missing or outdated**: `sunstack install` or `sunstack update`, as health
   says. They may ask their own questions in the terminal; if so, give the user the command to
   run themselves.
@@ -108,4 +111,9 @@ How to do each kind of step:
 - **rule changes waiting for approval / unread messages**: suggest taking on that agent
   (`/sunstack:as <id>`, Codex: `$sunstack:as <id>`); its save step asks about each proposal.
 
-When the user wants a live view instead, point them to `sunstack tui` in a terminal.
+When the user wants a live view instead, point them to `sunstack tui` in a terminal. For every
+team and session on this machine, hand over to the org skill.
+
+Only if the user asks to remove Sunstack from Claude Code or Codex: `sunstack uninstall`
+removes the plugin and its permission rules (it asks in the terminal, or needs `--yes`). It
+leaves every `sunstack/` folder alone.

@@ -25,9 +25,18 @@ const (
 	viewTeam view = iota
 	viewLog
 	viewInbox
+	viewOrg
 )
 
 type tick time.Time
+
+// orgMsg carries a finished org scan; the scan runs off the UI loop since it
+// lists processes and reads transcripts.
+type orgMsg struct{ o *core.Org }
+
+const orgRefresh = 10 * time.Second
+
+var orgViews = []struct{ key, name string }{{"attention", "needs you"}, {"team", "work"}, {"agent", "people"}, {"host", "hosts"}}
 
 type model struct {
 	p        *core.Project
@@ -40,6 +49,12 @@ type model struct {
 	w, h     int
 	note     string
 	updated  time.Time
+
+	org       *core.Org
+	orgAt     time.Time
+	orgBusy   bool
+	orgView   int // index into orgViews
+	orgScroll int
 }
 
 var (
@@ -85,7 +100,13 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.w, m.h = msg.Width, msg.Height
 	case tick:
 		m.reload()
+		if m.view == viewOrg && !m.orgBusy && time.Since(m.orgAt) > orgRefresh {
+			m.orgBusy = true
+			return m, tea.Batch(tickCmd(), orgCmd())
+		}
 		return m, tickCmd()
+	case orgMsg:
+		m.org, m.orgAt, m.orgBusy = msg.o, time.Now(), false
 	case tea.KeyMsg:
 		m.note = ""
 		switch msg.String() {
@@ -94,12 +115,26 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "esc":
 			m.view = viewTeam
 		case "up", "k":
-			if m.sel > 0 {
+			if m.view == viewOrg {
+				m.orgScroll = max(0, m.orgScroll-1)
+			} else if m.sel > 0 {
 				m.sel--
 			}
 		case "down", "j":
-			if m.sel < len(m.agents)-1 {
+			if m.view == viewOrg {
+				m.orgScroll++
+			} else if m.sel < len(m.agents)-1 {
 				m.sel++
+			}
+		case "o":
+			m.view = toggle(m.view, viewOrg)
+			if m.view == viewOrg && m.org == nil && !m.orgBusy {
+				m.orgBusy = true
+				return m, orgCmd()
+			}
+		case "1", "2", "3", "4":
+			if m.view == viewOrg {
+				m.orgView, m.orgScroll = int(msg.String()[0]-'1'), 0
 			}
 		case "l":
 			m.view = toggle(m.view, viewLog)
@@ -107,6 +142,10 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.view = toggle(m.view, viewInbox)
 		case "r":
 			m.reload()
+			if m.view == viewOrg && !m.orgBusy {
+				m.orgBusy = true
+				return m, orgCmd()
+			}
 		case "g":
 			m.note = m.goToPane()
 		case "c":
@@ -187,10 +226,15 @@ func (m *model) View() string {
 		body = m.logView()
 	case viewInbox:
 		body = m.inboxView()
+	case viewOrg:
+		body = m.orgPane()
 	default:
 		body = m.teamView()
 	}
-	help := cDim.Render("↑↓ select · l log · i inbox · g go to pane · c copy resume · r refresh · esc back · q quit")
+	help := cDim.Render("↑↓ select · o org · l log · i inbox · g go to pane · c copy resume · r refresh · esc back · q quit")
+	if m.view == viewOrg {
+		help = cDim.Render("1 needs you · 2 work · 3 people · 4 hosts · ↑↓ scroll · r refresh · o/esc back · q quit")
+	}
 	if m.note != "" {
 		help = cWarn.Render(m.note) + "  " + help
 	}
@@ -373,4 +417,35 @@ func wrap(s string, w int) string {
 		return s
 	}
 	return lipgloss.NewStyle().Width(w).Render(s)
+}
+
+func orgCmd() tea.Cmd { return func() tea.Msg { return orgMsg{core.BuildOrg()} } }
+
+// orgPane shows every team and session on this host, in one of four views.
+func (m *model) orgPane() string {
+	h := max(5, m.h-4)
+	var tabs []string
+	for i, v := range orgViews {
+		label := fmt.Sprintf("%d %s", i+1, v.name)
+		if i == m.orgView {
+			label = cSel.Render(label)
+		}
+		tabs = append(tabs, label)
+	}
+	head := cHeader.Render("Org") + "  " + strings.Join(tabs, "  ")
+	if m.org == nil {
+		return cBox.Width(m.w - 4).Height(h).Render(head + "\n" + cDim.Render("scanning sessions…"))
+	}
+	head += cDim.Render("  · scanned " + m.orgAt.Format("15:04:05"))
+	lines := strings.Split(strings.TrimRight(m.org.Text(orgViews[m.orgView].key), "\n"), "\n")
+	if m.orgScroll > len(lines)-1 {
+		m.orgScroll = max(0, len(lines)-1)
+	}
+	lines = lines[m.orgScroll:]
+	for i, l := range lines {
+		if r := []rune(l); len(r) > m.w-8 && m.w > 10 {
+			lines[i] = string(r[:m.w-9]) + "…"
+		}
+	}
+	return cBox.Width(m.w - 4).Height(h).Render(head + "\n" + strings.Join(clip(lines, h-1), "\n"))
 }

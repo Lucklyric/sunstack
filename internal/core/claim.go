@@ -27,6 +27,8 @@ type Live struct {
 	PaneTitle   string `json:"pane_title,omitempty"`  // the tmux pane title before as, restored on release
 	Spawned     bool   `json:"spawned,omitempty"`     // the pane was opened by sunstack spawn
 	TmuxServer  string `json:"tmux_server,omitempty"` // tmux server PID when claimed; pane IDs restart with a new server
+	Doing       string `json:"doing,omitempty"`       // one line: what this session is doing now
+	DoingAt     string `json:"doing_at,omitempty"`    // when Doing was set
 
 	path string // where it was read from
 }
@@ -353,6 +355,9 @@ func (p *Project) As(o AsOptions) (*AsResult, error) {
 	}
 	if replace != nil {
 		l.Spawned = replace.Spawned && replace.TmuxPane == l.TmuxPane
+		if res.Mode == "resumed" {
+			l.Doing, l.DoingAt = replace.Doing, replace.DoingAt
+		}
 		l.path = replace.path // resumed: rewritten in place; taken over: replaced
 		if res.Mode == "taken_over" {
 			p.removeLive(replace)
@@ -639,4 +644,33 @@ func (p *Project) ReleaseStale(target string) ([]string, error) {
 	}
 	_, dropped := p.pruneStale(id, claims, session)
 	return dropped, nil
+}
+
+// SetDoing records, in this session's claim, one line on what it is doing
+// now, so org views can show it without reading the session.
+func (p *Project) SetDoing(id, token, line string) error {
+	line = strings.TrimSpace(line)
+	if strings.ContainsAny(line, "\n\r") || len([]rune(line)) > 120 {
+		return fail(ExitUsage, "usage", "doing is one line of at most 120 characters")
+	}
+	if !ValidID(id) {
+		return fail(ExitUsage, "usage", "invalid id: %s", id)
+	}
+	unlock, err := p.lock(id)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	me, err := p.requireToken(id, token)
+	if err != nil {
+		return err
+	}
+	me.Doing, me.DoingAt = line, now()
+	if line == "" {
+		me.DoingAt = ""
+	}
+	if err := p.writeLive(id, me); err != nil {
+		return fail(ExitFail, "fs", "%v", err)
+	}
+	return nil
 }

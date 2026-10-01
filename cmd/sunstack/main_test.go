@@ -24,6 +24,13 @@ func TestMain(m *testing.M) {
 		panic(err)
 	}
 	bin = filepath.Join(dir, "sunstack")
+	// Keep tests away from the real ~/.sunstack (team index, sessions).
+	os.Setenv("SUNSTACK_HOME", filepath.Join(dir, "home"))
+	// The org tests use a fixture session list, never this machine's sessions.
+	os.Setenv("SUNSTACK_CODEX_SCAN", "off")
+	agents := filepath.Join(dir, "claude-agents.json")
+	os.WriteFile(agents, []byte("[]"), 0o644)
+	os.Setenv("SUNSTACK_CLAUDE_AGENTS", agents)
 	if runtime.GOOS == "windows" {
 		bin += ".exe"
 	}
@@ -980,5 +987,73 @@ func TestWhoami(t *testing.T) {
 	out, _ := hook.Output()
 	if !strings.Contains(string(out), tok) || !strings.Contains(string(out), `"hookEventName":"SessionStart"`) {
 		t.Errorf("SessionStart hook: %s", out)
+	}
+}
+
+func TestOrg(t *testing.T) {
+	p := fixture(t)
+	home := filepath.Join(t.TempDir(), "home")
+	expect(t, sh(t, p, []string{"SUNSTACK_HOME=" + home}, "init"), 0, "init adds TEAM")
+	team, err := os.ReadFile(filepath.Join(p, "sunstack", "TEAM"))
+	if err != nil || !strings.Contains(string(team), "id: ") {
+		t.Fatalf("TEAM: %s %v", team, err)
+	}
+	must(t, os.WriteFile(filepath.Join(p, "sunstack", "BOARD.md"), []byte("## Objectives\n- 2026-09-01 O1 Ship the API\n## User\n## Directives\n"), 0o644))
+	must(t, os.WriteFile(filepath.Join(p, "sunstack", "builder.alice", "board.md"), []byte("aligned: D0\n## Now\n- 2026-09-30 KR1 [O1] auth endpoints (by: builder.alice_api@h) (needs: user approval)\n## Next\n## Done\n"), 0o644))
+
+	env := []string{"SUNSTACK_HOME=" + home, "CLAUDECODE=1", "CLAUDE_CODE_SESSION_ID=sess-org"}
+	tok := field(tokenRe, sh(t, p, env, "as", "builder.alice", "--task", "api").out)
+	expect(t, sh(t, p, env, "doing", "builder.alice", "wiring the auth routes", "--token", tok), 0, "doing")
+	expect(t, sh(t, p, env, "doing", "builder.alice", "two\nlines", "--token", tok), 2, "doing is one line")
+
+	other := t.TempDir()
+	agents := filepath.Join(t.TempDir(), "agents.json")
+	must(t, os.WriteFile(agents, []byte(`[
+  {"pid":0,"sessionId":"sess-org","cwd":"`+filepath.ToSlash(p)+`","kind":"interactive","name":"a","status":"busy"},
+  {"pid":0,"sessionId":"sess-free","cwd":"`+filepath.ToSlash(filepath.Join(p, "src"))+`","kind":"interactive","name":"helper","status":"waiting"},
+  {"id":"bg","sessionId":"sess-bg","cwd":"`+filepath.ToSlash(other)+`","kind":"background","name":"bg job","state":"blocked"}
+]`), 0o644))
+	env = append(env, "SUNSTACK_CLAUDE_AGENTS="+agents)
+
+	r := sh(t, p, env, "teams")
+	if !strings.Contains(r.out, p) && !strings.Contains(r.out, filepath.Base(p)) {
+		t.Errorf("as registers the team: %s", r.out)
+	}
+	r = sh(t, p, env, "org")
+	expect(t, r, 0, "org")
+	for _, want := range []string{"Needs you", "builder.alice#KR1 is waiting on the user", "claude helper is waiting for you",
+		"bg job is blocked for you", "O1 Ship the API", "builder.alice#KR1 auth endpoints", "session builder.alice_api@",
+		"doing: wiring the auth routes", "free claude helper", "Sessions outside teams"} {
+		if !strings.Contains(r.out, want) {
+			t.Errorf("org missing %q:\n%s", want, r.out)
+		}
+	}
+	if r := sh(t, p, env, "org", "--by", "agent"); !strings.Contains(r.out, "now: KR1 auth endpoints (by builder.alice_api@h)") {
+		t.Errorf("people view: %s", r.out)
+	}
+	if r := sh(t, p, env, "org", "--by", "host"); !strings.Contains(r.out, "[free in ") {
+		t.Errorf("host view: %s", r.out)
+	}
+	r = sh(t, p, env, "org", "--json")
+	if !strings.Contains(r.out, `"schema": 1`) || strings.Contains(r.out, "null") {
+		t.Errorf("json: %s", r.out)
+	}
+	expect(t, sh(t, p, env, "org", "--by", "nope"), 2, "bad view")
+
+	// send --op delivers once.
+	m1 := field(msgRe, sh(t, p, env, "send", "reviewer", "please look", "--op", "op-1").out)
+	r = sh(t, p, env, "send", "reviewer", "please look", "--op", "op-1")
+	if field(msgRe, r.out) != m1 || !strings.Contains(r.out, "already sent") {
+		t.Errorf("op dedupe: %s", r.out)
+	}
+	if m3 := field(msgRe, sh(t, p, env, "send", "reviewer", "something else", "--op", "op-1").out); m3 == m1 {
+		t.Error("a different text with the same op is a new message")
+	}
+
+	// whoami picks up the Codex thread ID too.
+	cx := []string{"SUNSTACK_HOME=" + home, "CODEX_THREAD_ID=thread-9"}
+	ct := field(tokenRe, sh(t, p, cx, "as", "reviewer").out)
+	if r := sh(t, p, cx, "whoami"); !strings.Contains(r.out, "token: "+ct) {
+		t.Errorf("codex whoami by thread ID: %s", r.out)
 	}
 }

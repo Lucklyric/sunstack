@@ -164,6 +164,31 @@ func taskTaken(id, label string) error {
 	return fail(ExitClaim, "task_taken", "another session of %s is already named %s; pick a different --task", id, label)
 }
 
+// Peek returns the last n lines of a session's tmux pane: a session name
+// (<id> or <id>_<task>) in this project, or a pane ID like %12 on the
+// caller's or the default tmux server. Read only.
+func (p *Project) Peek(t, socket string, n int) (string, error) {
+	pane := t
+	if !strings.HasPrefix(t, "%") {
+		if p == nil {
+			return "", fail(ExitFail, "no_root", "name a pane (%%N), or run inside a Sunstack project to name a session")
+		}
+		id, c, err := p.target(t)
+		if err != nil {
+			return "", err
+		}
+		if c.TmuxPane == "" || !sameServer(c) {
+			return "", fail(ExitFail, "no_pane", "%s is not in a tmux pane sunstack knows", c.Label(id))
+		}
+		pane, socket = c.TmuxPane, c.TmuxSocket
+	}
+	screen := paneScreen(socket, pane)
+	if screen == "" {
+		return "", fail(ExitFail, "no_pane", "could not read tmux pane %s", pane)
+	}
+	return strings.Join(screenTail(screen, n), "\n") + "\n", nil
+}
+
 // target resolves an ID or a session name to exactly one live session.
 func (p *Project) target(t string) (string, *Live, error) {
 	id, session, err := p.resolveRecipient(t)

@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"time"
 
@@ -73,6 +74,14 @@ Team (run these yourself):
   sunstack library show <title>                   print a template's AGENT.md
   sunstack library save <id> [--as TITLE] [--force]  save an agent's AGENT.md as a personal template
   sunstack team                                   who is on the team, who holds whom, where
+  sunstack teams [--scan DIR] [--prune] [--json]  teams indexed on this host (~/.sunstack/teams.json)
+
+Org (every team and Claude Code or Codex session on this host):
+  sunstack org [--by team|agent|host] [--attention] [--json]
+                                                  what needs you, then work by team; --by agent: people,
+                                                  --by host: every session including free ones
+  sunstack peek <id_task|pane-id> [--lines N]     the end of a session's tmux pane, e.g. %12 (read only)
+  sunstack doing <id> "<line>" --token T          one line on what this session is doing now ("" clears)
   sunstack log [--id ID] [--follow]               the event log
   sunstack inbox <id>                             pending messages, read only
   sunstack pillar <id> | --team                   effective pillars with their source
@@ -176,8 +185,12 @@ func detectTool() (tool, session string) {
 	if s := os.Getenv("CLAUDE_CODE_SESSION_ID"); s != "" || os.Getenv("CLAUDECODE") != "" {
 		return "claude", s
 	}
-	if s := os.Getenv("CODEX_SESSION_ID"); s != "" {
-		return "codex", s
+	// Codex sets CODEX_THREAD_ID for every command; older builds may have
+	// used CODEX_SESSION_ID.
+	for _, k := range []string{"CODEX_THREAD_ID", "CODEX_SESSION_ID"} {
+		if s := os.Getenv(k); s != "" {
+			return "codex", s
+		}
 	}
 	return "", ""
 }
@@ -246,6 +259,7 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 			return err
 		}
 		fmt.Fprint(stdout, p.Bundle(r))
+		_ = p.Register()
 		return nil
 
 	case "snapshot":
@@ -387,6 +401,9 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 		done, err := core.Init(dir, a.has("refresh"))
 		if err != nil {
 			return err
+		}
+		if p, err := core.FindProject(dir); err == nil {
+			_ = p.Register()
 		}
 		if len(done) == 0 {
 			done = []string{"already initialized; nothing to change"}
@@ -680,7 +697,7 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 		return nil
 
 	case "send":
-		a, err := parse(rest, "root type reply-to from token", "no-nudge")
+		a, err := parse(rest, "root type reply-to from token op", "no-nudge")
 		if err == nil {
 			err = a.atMost(2, "send")
 		}
@@ -696,7 +713,7 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 		}
 		tool, session := detectTool()
 		r, err := p.Send(core.SendOptions{To: a.pos[0], Body: a.pos[1], Type: a.flags["type"], ReplyTo: a.flags["reply-to"],
-			From: a.flags["from"], Token: a.flags["token"], NoNudge: a.has("no-nudge"),
+			From: a.flags["from"], Token: a.flags["token"], NoNudge: a.has("no-nudge"), Op: a.flags["op"],
 			Via: p.CallerLabel(tool, session, os.Getenv("TMUX_PANE"), tmuxSocket())})
 		if err != nil {
 			return err
@@ -788,6 +805,7 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 		if err != nil {
 			return err
 		}
+		_ = p.Register()
 		where := "a pane beside this one"
 		if r.Window {
 			where = "a new tmux window"
@@ -888,6 +906,120 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 			return &core.Error{Code: core.ExitFail, Reason: "not_found", Msg: "this session holds no Sunstack identity here; run the as skill"}
 		}
 		fmt.Fprint(stdout, whoamiText(p, held))
+		return nil
+
+	case "org":
+		a, err := parse(rest, "by", "attention json")
+		if err == nil {
+			err = a.atMost(0, "org")
+		}
+		if err != nil {
+			return err
+		}
+		view := a.flags["by"]
+		switch view {
+		case "", "team", "agent", "host":
+		default:
+			return &core.Error{Code: core.ExitUsage, Reason: "usage", Msg: "--by must be team, agent or host"}
+		}
+		if a.has("attention") {
+			view = "attention"
+		}
+		o := core.BuildOrg()
+		if a.has("json") {
+			b, _ := json.MarshalIndent(o, "", "  ")
+			fmt.Fprintln(stdout, string(b))
+			return nil
+		}
+		fmt.Fprint(stdout, o.Text(view))
+		return nil
+
+	case "doing":
+		a, err := parse(rest, "root token", "")
+		if err == nil {
+			err = a.atMost(2, "doing")
+		}
+		if err != nil {
+			return err
+		}
+		if len(a.pos) < 2 {
+			return missing("id and a one-line description (\"\" clears it)")
+		}
+		p, err := core.FindProject(a.flags["root"])
+		if err != nil {
+			return err
+		}
+		if err := p.SetDoing(a.pos[0], a.flags["token"], a.pos[1]); err != nil {
+			return err
+		}
+		fmt.Fprintf(stdout, "sunstack: doing set for %s\n", a.pos[0])
+		return nil
+
+	case "peek":
+		a, err := parse(rest, "root lines", "")
+		if err == nil {
+			err = a.atMost(1, "peek")
+		}
+		if err != nil {
+			return err
+		}
+		if len(a.pos) < 1 {
+			return missing("session name or tmux pane (%N)")
+		}
+		n := 30
+		if v := a.flags["lines"]; v != "" {
+			if n, err = strconv.Atoi(v); err != nil || n < 1 || n > 500 {
+				return &core.Error{Code: core.ExitUsage, Reason: "usage", Msg: "--lines must be 1 to 500"}
+			}
+		}
+		p, _ := core.FindProject(a.flags["root"])
+		out, err := p.Peek(a.pos[0], tmuxSocket(), n)
+		if err != nil {
+			return err
+		}
+		fmt.Fprint(stdout, out)
+		return nil
+
+	case "teams":
+		a, err := parse(rest, "scan", "prune json")
+		if err == nil {
+			err = a.atMost(0, "teams")
+		}
+		if err != nil {
+			return err
+		}
+		if dir := a.flags["scan"]; dir != "" {
+			found, err := core.ScanTeams(dir)
+			if err != nil {
+				return &core.Error{Code: core.ExitFail, Reason: "fs", Msg: err.Error()}
+			}
+			fmt.Fprintf(stdout, "sunstack: found %d team(s) under %s\n", len(found), dir)
+		}
+		if a.has("prune") {
+			gone, err := core.PruneTeams()
+			if err != nil {
+				return &core.Error{Code: core.ExitFail, Reason: "fs", Msg: err.Error()}
+			}
+			for _, g := range gone {
+				fmt.Fprintf(stdout, "dropped %s (no team there any more)\n", g)
+			}
+		}
+		list := core.Teams()
+		if a.has("json") {
+			b, _ := json.MarshalIndent(map[string]any{"schema": 1, "host": core.ThisHost(), "teams": list}, "", "  ")
+			fmt.Fprintln(stdout, string(b))
+			return nil
+		}
+		if len(list) == 0 {
+			fmt.Fprintln(stdout, "no teams indexed on this host yet (they are added by init, as and spawn; or run sunstack teams --scan <dir>)")
+		}
+		for _, e := range list {
+			id := e.ID
+			if id == "" {
+				id = "(no TEAM file; run sunstack init there)"
+			}
+			fmt.Fprintf(stdout, "%-20s %s  %s  last seen %s\n", e.Name, e.Root, id, e.LastSeen)
+		}
 		return nil
 
 	case "hook":

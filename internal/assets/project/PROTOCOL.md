@@ -55,7 +55,8 @@ A proposal is `- <date> [pillars|agent|board] Proposed: <exact change> — <reas
 ## Identity and sessions
 
 - Several sessions may work as the same agent at once, like one person working on several tasks. Each session has its own token and a session name (`<id>_<task>`) no other live session of the agent uses.
-- Each session works on its own key results and threads. Do not rewrite another session's Now entries; if two sessions need the same key result, ask the user.
+- Each session works on its own key results and threads. A Now entry ends with `(by: <session_name>@<host>)`, naming the session that owns it, on any host. Do not rewrite another session's Now entries; if two sessions need the same key result, ask the user.
+- Each session keeps one `doing` line (`sunstack doing`) saying what it works on now; the org view shows it.
 - Everything shared is written through snapshot and commit. On a mismatch, merge: keep every other entry as it is, add yours. If your entry contradicts one written by another session, do not pick one: keep both, add an Open question, and tell the user.
 - Keep the root, ID and token that `as` returns in the conversation and pass them explicitly on every later call.
 - Before ending or switching identity, run the save skill, then `sunstack release`. Releasing ends only this session's claim.

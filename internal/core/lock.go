@@ -26,6 +26,11 @@ func (p *Project) lock(id string) (func(), error) {
 	if err := p.noSymlink(dir); err != nil {
 		return nil, err
 	}
+	return lockDir(dir, id)
+}
+
+// lockDir takes the mkdir lock at dir; name is used in the busy message.
+func lockDir(dir, id string) (func(), error) {
 	reclaimed := false
 	for i := 0; ; i++ {
 		err := os.Mkdir(dir, 0o755)
@@ -50,7 +55,11 @@ func (p *Project) lock(id string) (func(), error) {
 		}
 		time.Sleep(lockWait)
 	}
-	_ = os.WriteFile(filepath.Join(dir, "owner"), []byte(fmt.Sprintf("%s pid %d\n", now(), os.Getpid())), 0o644)
+	owner := fmt.Sprintf("%s pid %d", now(), os.Getpid())
+	if st := ProcStart(os.Getpid()); st != "" {
+		owner += " start " + st
+	}
+	_ = os.WriteFile(filepath.Join(dir, "owner"), []byte(owner+"\n"), 0o644)
 	return func() { os.RemoveAll(dir) }, nil
 }
 

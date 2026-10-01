@@ -36,6 +36,7 @@ type Item struct {
 	Due     string
 	Needs   []string // <id>#KR<n> or user#KR<n>
 	To      []string // directive addressees, or "all"
+	By      string   // the session that owns a Now entry: <id>_<task>@<host>
 	Done    bool
 }
 
@@ -44,7 +45,7 @@ func (it Item) Ref() string { return it.Owner + "#" + it.Key }
 
 var (
 	itemRe    = regexp.MustCompile(`^- (\d{4}-\d{2}-\d{2}) (O\d+|KR\d+|D\d+)\b\s*(?:\[(O\d+)\])?\s*(.*)$`)
-	attrRe    = regexp.MustCompile(`\((due|needs|to|via):\s*([^)]*)\)`)
+	attrRe    = regexp.MustCompile(`\((due|needs|to|via|by):\s*([^)]*)\)`)
 	alignedRe = regexp.MustCompile(`(?m)^aligned:\s*D(\d+)\s*$`)
 )
 
@@ -86,6 +87,8 @@ func parseBoard(owner string, doc []byte) (items []Item, undated []string) {
 				it.Needs = vals
 			case "to":
 				it.To = vals
+			case "by":
+				it.By = strings.TrimSpace(a[2])
 			}
 		}
 		if strings.Contains(rest, "(done)") {
@@ -222,6 +225,10 @@ func (b *Boards) Issues(today time.Time) []string {
 				continue
 			}
 			dep, ok := byRef[n]
+			if !ok && (strings.HasPrefix(n, "user ") || strings.HasPrefix(n, "user:")) {
+				out = append(out, fmt.Sprintf("%s is waiting on the user (%s)", it.Ref(), n))
+				continue
+			}
 			switch {
 			case !ok:
 				out = append(out, fmt.Sprintf("%s needs %s, which does not exist", it.Ref(), n))

@@ -62,6 +62,11 @@ func Init(dir string, refresh bool) ([]string, error) {
 			done = append(done, "created sunstack/"+f.name)
 		}
 	}
+	if made, err := ensureTeamFile(ss); err != nil {
+		return nil, fail(ExitFail, "fs", "%v", err)
+	} else if made {
+		done = append(done, "created sunstack/TEAM (the team's ID on every host; commit it)")
+	}
 	if changed {
 		if err := writeAtomic(agentsPath, newAgents); err != nil {
 			return nil, fail(ExitFail, "fs", "%v", err)
@@ -126,14 +131,7 @@ func routeBlock(src []byte) ([]byte, bool, error) {
 }
 
 // PersonalLibrary is ~/.sunstack/library, or $SUNSTACK_HOME/library.
-func PersonalLibrary() string {
-	home := os.Getenv("SUNSTACK_HOME")
-	if home == "" {
-		h, _ := os.UserHomeDir()
-		home = filepath.Join(h, ".sunstack")
-	}
-	return filepath.Join(home, "library")
-}
+func PersonalLibrary() string { return filepath.Join(Home(), "library") }
 
 // Template finds a role template: personal library first, then built-in.
 func Template(title string) ([]byte, string, bool) {
