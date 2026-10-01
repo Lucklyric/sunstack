@@ -68,8 +68,12 @@ do them in this order, one approval for the batch unless a change needs its own 
 1. `sunstack update` when the Claude Code or Codex rules are from an older version (the user
    may need to run it in a terminal, and a second time if the first run updated the binary;
    the rest continues after).
-2. `sunstack init --refresh`, then show `git diff` of `sunstack/` and `AGENTS.md`. This also
-   creates a missing `BOARD.md`.
+2. `sunstack migrate` shows what this team needs, each step marked `[auto]` (only adds files:
+   `TEAM`, `BOARD.md`, the `.gitignore` line, the host index) or `[ask ]` (rewrites files the
+   agents read: `PROTOCOL.md`, `README.md`, the `AGENTS.md` block). `update` and `as` already
+   run the `[auto]` steps. Show the `[ask ]` steps; on yes run `sunstack migrate --apply all`,
+   then show `git diff` of `sunstack/` and `AGENTS.md`. For every team on this machine at once:
+   `sunstack migrate --host` (add `--scan <folder>` to find teams not indexed yet).
 3. Agents without a `board.md`: `sunstack tidy --all` creates them. Tell the user that each
    agent fills its board at its next save, and that the team objectives come from the user
    (the board skill helps set them). Older `context.md` files may still have `Current state`

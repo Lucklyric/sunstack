@@ -1,6 +1,6 @@
 ---
 name: message
-description: Send a message to another Sunstack agent or to one of its sessions (a question, a handoff, an fyi, a done reply), which lands in its inbox and nudges a live Claude Code or Codex session of that agent through tmux. Use when the user says "sunstack send", "sunstack message", "/sunstack:message", "tell the reviewer agent ...", "hand this to <agent id>", or when this session, working as a Sunstack agent, needs something from a teammate or must reply to a message (to handle incoming messages, use the check skill). Only for projects with a Sunstack team (a sunstack/ folder).
+description: Send a message to another Sunstack agent, one of its sessions, an agent in another team on this machine, or any running Claude Code or Codex session (a question, a handoff, an fyi, a done reply), which lands in its inbox and nudges a live Claude Code or Codex session of that agent through tmux. Use when the user says "sunstack send", "sunstack message", "/sunstack:message", "tell the reviewer agent ...", "hand this to <agent id>", or when this session, working as a Sunstack agent, needs something from a teammate or must reply to a message (to handle incoming messages, use the check skill). Only for projects with a Sunstack team (a sunstack/ folder).
 ---
 
 # Sunstack: message
@@ -25,6 +25,12 @@ in tmux; otherwise the message waits and shows at that session's next prompt.
 - **Recipient**: an agent ID, a title with one agent, or a session name `<id>_<task>` (to reach
   one specific session). `sunstack sessions` lists live sessions; `sunstack team` lists agents.
   If it is unclear who should get it, rank by role against the request and ask the user.
+  - **Another team on this machine**: `<team>/<id>` or `<team>/<id>_<task>` (`sunstack teams`
+    lists team names).
+  - **Any Claude Code or Codex session, with or without an agent**: its tmux pane (`%12`) or
+    its session ID, from `sunstack org --by host`. A session without an agent gets it in its
+    host inbox; one working as an agent gets it in that agent's inbox. `shutdown` is not
+    allowed for a session without an agent.
 - **Type**: `question` (needs an answer), `handoff` (the recipient takes over a piece of work),
   `fyi` (no action needed), `done` (the reply that closes a question or handoff; use
   `--reply-to <message id>`), `shutdown` (only through the spawn skill's dismiss).

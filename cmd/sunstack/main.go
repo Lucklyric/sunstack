@@ -47,13 +47,14 @@ Boards:
 
 Sessions and messages:
   sunstack sessions [--json]                      every live session: name, tool, host, tmux place, resume command
-  sunstack send <id|title|id_task> "<text>" [--type question|handoff|fyi|done|shutdown] [--reply-to MSG]
+  sunstack send <id|title|id_task|team/id|pane-id|session-id> "<text>" [--type question|handoff|fyi|done|shutdown] [--reply-to MSG]
                 [--from ID --token T] [--no-nudge] [--op ID]
                                                   write a message to the agent's inbox, then type a one-line nudge
                                                   into a live Claude Code or Codex pane of that agent (tmux)
   sunstack check <id> --token T                   messages this session may handle (pending, and taken by it)
   sunstack take <id> <msg> --token T              take a message so no other session works on it
   sunstack ack <id> <msg> --token T               archive a handled message
+  sunstack check|take|ack --session [<msg>]       the same for a session that works as no agent (its host inbox)
   sunstack whoami [--root DIR]
   sunstack spawn <id|title> [--tool claude|codex] [--task LABEL] [--note "..."] [--window]
                                                   open a tmux window and start a session as that agent
@@ -75,6 +76,9 @@ Team (run these yourself):
   sunstack library save <id> [--as TITLE] [--force]  save an agent's AGENT.md as a personal template
   sunstack team                                   who is on the team, who holds whom, where
   sunstack teams [--scan DIR] [--prune] [--json]  teams indexed on this host (~/.sunstack/teams.json)
+  sunstack migrate [--host | --scan DIR] [--apply safe|all] [--json]
+                                                  what this team (or every indexed team) needs from an older
+                                                  version; safe steps run on update and as, the rest on --apply all
 
 Org (every team and Claude Code or Codex session on this host):
   sunstack org [--by team|agent|host] [--attention] [--json]
@@ -259,7 +263,7 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 			return err
 		}
 		fmt.Fprint(stdout, p.Bundle(r))
-		_ = p.Register()
+		fmt.Fprint(stdout, migrateNote(p))
 		return nil
 
 	case "snapshot":
@@ -707,22 +711,74 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 		if len(a.pos) < 2 {
 			return missing("recipient and message text")
 		}
-		p, err := core.FindProject(a.flags["root"])
-		if err != nil {
-			return err
-		}
 		tool, session := detectTool()
-		r, err := p.Send(core.SendOptions{To: a.pos[0], Body: a.pos[1], Type: a.flags["type"], ReplyTo: a.flags["reply-to"],
-			From: a.flags["from"], Token: a.flags["token"], NoNudge: a.has("no-nudge"), Op: a.flags["op"],
-			Via: p.CallerLabel(tool, session, os.Getenv("TMUX_PANE"), tmuxSocket())})
-		if err != nil {
-			return err
+		opts := core.SendOptions{To: a.pos[0], Body: a.pos[1], Type: a.flags["type"], ReplyTo: a.flags["reply-to"],
+			From: a.flags["from"], Token: a.flags["token"], NoNudge: a.has("no-nudge"), Op: a.flags["op"], FromSession: session}
+		p, perr := core.FindProject(a.flags["root"])
+		if p != nil {
+			opts.Via = p.CallerLabel(tool, session, os.Getenv("TMUX_PANE"), tmuxSocket())
+		} else if tool != "" {
+			opts.Via = tool + " session"
 		}
-		to := r.To
+		to := opts.To
+		external := strings.HasPrefix(to, "%") || core.IsSessionID(to) || strings.Contains(to, "/")
+		if external && opts.From != "" {
+			// Sending as an agent beyond its team: check the claim here, then
+			// name the sender <team>/<id> to the recipient.
+			if p == nil {
+				return perr
+			}
+			if err := p.VerifySender(opts.From, opts.Token); err != nil {
+				return err
+			}
+			opts.FromLabel = p.TeamLabel(opts.From)
+		}
+		var r *core.SendResult
+		var err2 error
+		switch {
+		case strings.HasPrefix(to, "%") || core.IsSessionID(to):
+			s, err := core.FindSession(to)
+			if err != nil {
+				return err
+			}
+			if s.Agent != "" {
+				// It works as an agent: deliver to that agent's session inbox.
+				dst, err := core.ResolveTeam(s.Team)
+				if err != nil {
+					return err
+				}
+				opts.To = strings.SplitN(s.Label, "@", 2)[0]
+				if p != nil && dst.Root == p.Root {
+					opts.FromLabel = "" // same team: the sender is named as usual
+				} else {
+					opts.From = ""
+				}
+				r, err2 = dst.Send(opts)
+			} else {
+				r, err2 = core.SendToSession(s, opts)
+			}
+		case strings.Contains(to, "/"):
+			team, agent, _ := strings.Cut(to, "/")
+			dst, err := core.ResolveTeam(team)
+			if err != nil {
+				return err
+			}
+			opts.To, opts.From = agent, ""
+			r, err2 = dst.Send(opts)
+		default:
+			if p == nil {
+				return perr
+			}
+			r, err2 = p.Send(opts)
+		}
+		if err2 != nil {
+			return err2
+		}
+		shown := r.To
 		if r.Session != "" {
-			to = r.Session
+			shown = r.Session
 		}
-		fmt.Fprintf(stdout, "sunstack: sent %s to %s\n", r.ID, to)
+		fmt.Fprintf(stdout, "sunstack: sent %s to %s\n", r.ID, shown)
 		if r.Nudged != "" {
 			fmt.Fprintf(stdout, "nudged session %s\n", r.Nudged)
 		} else {
@@ -731,12 +787,34 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 		return nil
 
 	case "check", "take", "ack":
-		a, err := parse(rest, "root token", "")
+		a, err := parse(rest, "root token", "session")
 		if err == nil {
 			err = a.atMost(map[string]int{"check": 1, "take": 2, "ack": 2}[cmd], cmd)
 		}
 		if err != nil {
 			return err
+		}
+		if a.has("session") {
+			// A session that works as no agent: its host inbox, found by its
+			// own session ID.
+			_, sid := detectTool()
+			switch cmd {
+			case "check":
+				ms, err := core.HostCheck(sid)
+				if err != nil {
+					return err
+				}
+				printMessages(stdout, ms)
+			case "take", "ack":
+				if len(a.pos) < 1 {
+					return missing("message-id")
+				}
+				if err := core.HostMove(sid, a.pos[len(a.pos)-1], cmd == "ack"); err != nil {
+					return err
+				}
+				fmt.Fprintf(stdout, "sunstack: %s %s\n", map[string]string{"take": "took", "ack": "acked"}[cmd], a.pos[len(a.pos)-1])
+			}
+			return nil
 		}
 		need := map[string]int{"check": 1, "take": 2, "ack": 2}[cmd]
 		if len(a.pos) < need {
@@ -752,20 +830,7 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 			if err != nil {
 				return err
 			}
-			if len(ms) == 0 {
-				fmt.Fprintln(stdout, "no messages")
-			}
-			for _, m := range ms {
-				from := m.From
-				if m.Via != "" {
-					from += " (via " + m.Via + ")"
-				}
-				fmt.Fprintf(stdout, "===== %s (%s) =====\nfrom: %s\ntype: %s\nat: %s\n", m.ID, m.State, from, m.Type, m.At)
-				if m.ReplyTo != "" {
-					fmt.Fprintf(stdout, "reply_to: %s\n", m.ReplyTo)
-				}
-				fmt.Fprintf(stdout, "\n%s\n", strings.TrimRight(m.Body, "\n"))
-			}
+			printMessages(stdout, ms)
 		case "take":
 			if err := p.Take(a.pos[0], a.flags["token"], a.pos[1]); err != nil {
 				return err
@@ -980,6 +1045,76 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 		fmt.Fprint(stdout, out)
 		return nil
 
+	case "migrate":
+		a, err := parse(rest, "root scan apply", "host json")
+		if err == nil {
+			err = a.atMost(0, "migrate")
+		}
+		if err != nil {
+			return err
+		}
+		apply := a.flags["apply"]
+		if apply != "" && apply != "safe" && apply != "all" {
+			return &core.Error{Code: core.ExitUsage, Reason: "usage", Msg: "--apply must be safe or all"}
+		}
+		var teams []*core.Project
+		if dir := a.flags["scan"]; dir != "" {
+			if _, err := core.ScanTeams(dir); err != nil {
+				return &core.Error{Code: core.ExitFail, Reason: "fs", Msg: err.Error()}
+			}
+		}
+		if p, err := core.FindProject(a.flags["root"]); err == nil && !a.has("host") && a.flags["scan"] == "" {
+			teams = []*core.Project{p}
+		} else {
+			teams = core.IndexedProjects()
+		}
+		core.ThisHost()
+		type row struct {
+			Root  string             `json:"root"`
+			Steps []core.MigrateStep `json:"steps"`
+			Done  []string           `json:"done,omitempty"`
+		}
+		var rows []row
+		for _, p := range teams {
+			r := row{Root: p.Root, Steps: p.MigratePlan()}
+			if apply != "" && len(r.Steps) > 0 {
+				d, err := p.Migrate(apply == "all")
+				if err != nil {
+					return err
+				}
+				r.Done = d
+			}
+			rows = append(rows, r)
+		}
+		if a.has("json") {
+			b, _ := json.MarshalIndent(map[string]any{"schema": 1, "teams": rows}, "", "  ")
+			fmt.Fprintln(stdout, string(b))
+			return nil
+		}
+		if len(rows) == 0 {
+			fmt.Fprintln(stdout, "no teams found (run inside a team, or sunstack migrate --scan <dir>)")
+		}
+		for _, r := range rows {
+			fmt.Fprintf(stdout, "%s\n", r.Root)
+			if len(r.Steps) == 0 {
+				fmt.Fprintln(stdout, "  up to date")
+			}
+			for _, s := range r.Steps {
+				kind := "ask "
+				if s.Safe {
+					kind = "auto"
+				}
+				fmt.Fprintf(stdout, "  [%s] %s\n", kind, s.What)
+			}
+			for _, d := range r.Done {
+				fmt.Fprintf(stdout, "  done: %s\n", d)
+			}
+		}
+		if apply == "" {
+			fmt.Fprintln(stdout, "\n[auto] steps only add files; --apply safe runs them. [ask] steps rewrite files agents read; --apply all runs everything after the user agrees. Commit the changed files afterwards.")
+		}
+		return nil
+
 	case "teams":
 		a, err := parse(rest, "scan", "prune json")
 		if err == nil {
@@ -1034,6 +1169,12 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 		_ = json.NewDecoder(stdin).Decode(&in)
 		p, err := core.FindProject(in.Cwd)
 		if err != nil {
+			// Outside a team, only the host inbox can hold something.
+			if in.Event != "SessionStart" {
+				if n := core.HostPending(in.SessionID); n > 0 {
+					hookContext(stdout, fmt.Sprintf("[sunstack] %d message(s) are waiting for this session. Use the Sunstack check skill (sunstack check --session) when it fits the current work.", n))
+				}
+			}
 			return nil
 		}
 		if in.Event == "SessionStart" {
@@ -1049,12 +1190,13 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 			return nil
 		}
 		lines := p.PendingForSession(in.SessionID, os.Getenv("TMUX_PANE"), tmuxSocket())
+		if n := core.HostPending(in.SessionID); n > 0 {
+			lines = append(lines, fmt.Sprintf("%d message(s) for this session itself (sunstack check --session)", n))
+		}
 		if len(lines) == 0 {
 			return nil
 		}
-		ctx := "[sunstack] " + strings.Join(lines, "; ") + ". Use the Sunstack check skill to handle them when it fits the current work."
-		b, _ := json.Marshal(map[string]any{"hookSpecificOutput": map[string]string{"hookEventName": "UserPromptSubmit", "additionalContext": ctx}})
-		fmt.Fprintln(stdout, string(b))
+		hookContext(stdout, "[sunstack] "+strings.Join(lines, "; ")+". Use the Sunstack check skill to handle them when it fits the current work.")
 		return nil
 
 	case "tui":
@@ -1165,6 +1307,24 @@ func lifecycle(cmd string, t setup.Targets, yes, skipBinary bool, args []string,
 			if setup.CodexRulesState() == "outdated" {
 				step("codex rule", setup.SetCodexRules(true))
 			}
+		}
+		// Bring the teams on this host up to this version: safe steps now,
+		// the rest is offered by the as and checkup skills.
+		core.ThisHost()
+		asks := 0
+		for _, p := range core.IndexedProjects() {
+			done, err := p.Migrate(false)
+			if err != nil {
+				step("migrate "+p.Root, err)
+				continue
+			}
+			for _, d := range done {
+				fmt.Fprintf(out, "migrated %s: %s\n", p.Root, d)
+			}
+			asks += len(p.PendingAsks())
+		}
+		if asks > 0 {
+			fmt.Fprintf(out, "%d team change(s) wait for your OK (protocol, README, AGENTS.md): run sunstack migrate --host, or /sunstack:checkup\n", asks)
 		}
 	case "uninstall":
 		if t.Claude {
@@ -1284,4 +1444,54 @@ func whoamiText(p *core.Project, held []core.Held) string {
 		b.WriteString(strings.TrimPrefix(p.StateText(h.ID, h.L.Token, h.L.Task), "\n"))
 	}
 	return b.String()
+}
+
+// migrateNote runs a team's safe migration steps at as, and tells the session
+// what it changed and which steps wait for the user.
+func migrateNote(p *core.Project) string {
+	done, _ := p.Migrate(false)
+	asks := p.PendingAsks()
+	if len(done) == 0 && len(asks) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("\n===== migration (this team was made by an older sunstack) =====\n")
+	for _, d := range done {
+		fmt.Fprintf(&b, "done: %s\n", d)
+	}
+	for _, a := range asks {
+		fmt.Fprintf(&b, "needs the user's OK: %s\n", a)
+	}
+	if len(asks) > 0 {
+		b.WriteString("Ask the user once; on yes run: sunstack migrate --apply all --root \"" + p.Root + "\"\n")
+	}
+	if len(done) > 0 || len(asks) > 0 {
+		b.WriteString("Then tell the user which files changed, to commit them.\n")
+	}
+	return b.String()
+}
+
+func printMessages(stdout io.Writer, ms []*core.Message) {
+	if len(ms) == 0 {
+		fmt.Fprintln(stdout, "no messages")
+	}
+	for _, m := range ms {
+		from := m.From
+		if m.Via != "" {
+			from += " (via " + m.Via + ")"
+		}
+		fmt.Fprintf(stdout, "===== %s (%s) =====\nfrom: %s\ntype: %s\nat: %s\n", m.ID, m.State, from, m.Type, m.At)
+		if m.FromSession != "" {
+			fmt.Fprintf(stdout, "from_session: %s\n", m.FromSession)
+		}
+		if m.ReplyTo != "" {
+			fmt.Fprintf(stdout, "reply_to: %s\n", m.ReplyTo)
+		}
+		fmt.Fprintf(stdout, "\n%s\n", strings.TrimRight(m.Body, "\n"))
+	}
+}
+
+func hookContext(stdout io.Writer, ctx string) {
+	b, _ := json.Marshal(map[string]any{"hookSpecificOutput": map[string]string{"hookEventName": "UserPromptSubmit", "additionalContext": ctx}})
+	fmt.Fprintln(stdout, string(b))
 }

@@ -1057,3 +1057,98 @@ func TestOrg(t *testing.T) {
 		t.Errorf("codex whoami by thread ID: %s", r.out)
 	}
 }
+
+func gitRepo(t *testing.T, dir, remote string) {
+	t.Helper()
+	for _, args := range [][]string{{"init", "-q"}, {"remote", "add", "origin", remote}} {
+		if out, err := exec.Command("git", append([]string{"-C", dir}, args...)...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %s", args, out)
+		}
+	}
+}
+
+func TestMigrate(t *testing.T) {
+	home := []string{"SUNSTACK_HOME=" + filepath.Join(t.TempDir(), "home")}
+	// The same team cloned at two paths gets the same ID without syncing.
+	var ids []string
+	for _, remote := range []string{"git@github.com:me/repo.git", "https://github.com/me/repo"} {
+		repo := t.TempDir()
+		gitRepo(t, repo, remote)
+		team := filepath.Join(repo, "work")
+		must(t, os.MkdirAll(team, 0o755))
+		p := fixture(t)
+		must(t, os.Rename(filepath.Join(p, "sunstack"), filepath.Join(team, "sunstack")))
+		r := sh(t, team, home, "migrate")
+		if !strings.Contains(r.out, "[auto] add sunstack/TEAM") || !strings.Contains(r.out, "[ask ] refresh sunstack/PROTOCOL.md") {
+			t.Errorf("plan: %s", r.out)
+		}
+		expect(t, sh(t, team, home, "migrate", "--apply", "safe"), 0, "safe")
+		proto, _ := os.ReadFile(filepath.Join(team, "sunstack", "PROTOCOL.md"))
+		if string(proto) != "# Sunstack protocol\n" {
+			t.Error("safe migration must not rewrite PROTOCOL.md")
+		}
+		b, _ := os.ReadFile(filepath.Join(team, "sunstack", "TEAM"))
+		ids = append(ids, field(regexp.MustCompile(`(?m)^id: (\S+)$`), string(b)))
+		expect(t, sh(t, team, home, "migrate", "--apply", "all"), 0, "all")
+		if r := sh(t, team, home, "migrate"); !strings.Contains(r.out, "up to date") {
+			t.Errorf("after all: %s", r.out)
+		}
+	}
+	if ids[0] == "" || ids[0] != ids[1] {
+		t.Errorf("team IDs differ across clones: %v", ids)
+	}
+
+	// as runs the safe steps and names the ones that wait for the user.
+	p := fixture(t)
+	r := sh(t, p, home, "as", "reviewer")
+	if !strings.Contains(r.out, "===== migration") || !strings.Contains(r.out, "done: created sunstack/TEAM") || !strings.Contains(r.out, "needs the user's OK: refresh sunstack/PROTOCOL.md") {
+		t.Errorf("as migration note: %s", r.out)
+	}
+}
+
+func TestHostInbox(t *testing.T) {
+	home := filepath.Join(t.TempDir(), "home")
+	a := fixture(t)
+	b := fixture(t)
+	env := []string{"SUNSTACK_HOME=" + home}
+	expect(t, sh(t, a, env, "init"), 0, "init a")
+	expect(t, sh(t, b, env, "init"), 0, "init b")
+	free := t.TempDir()
+	sid := "0f1e2d3c-4b5a-6978-8a9b-0c1d2e3f4a5b"
+	agents := filepath.Join(t.TempDir(), "agents.json")
+	must(t, os.WriteFile(agents, []byte(`[{"pid":0,"sessionId":"`+sid+`","cwd":"`+filepath.ToSlash(free)+`","kind":"interactive","name":"helper","status":"idle"}]`), 0o644))
+	env = append(env, "SUNSTACK_CLAUDE_AGENTS="+agents)
+
+	// An agent in team a writes to the free session, by its session ID.
+	tok := field(tokenRe, sh(t, a, env, "as", "builder.alice").out)
+	r := sh(t, a, env, "send", sid, "can you check the logs?", "--type", "question", "--from", "builder.alice", "--token", tok)
+	expect(t, r, 0, "send to a free session")
+	m := field(msgRe, r.out)
+
+	// The free session sees it through the hook and reads it by its own ID.
+	hook := exec.Command(bin, "hook")
+	hook.Env = append(cleanEnv(), env...)
+	hook.Stdin = strings.NewReader(`{"session_id":"` + sid + `","cwd":"` + filepath.ToSlash(free) + `"}`)
+	out, _ := hook.Output()
+	if !strings.Contains(string(out), "1 message(s) are waiting for this session") {
+		t.Errorf("hook outside a team: %s", out)
+	}
+	me := append([]string{"CLAUDECODE=1", "CLAUDE_CODE_SESSION_ID=" + sid}, env...)
+	r = sh(t, free, me, "check", "--session")
+	if !strings.Contains(r.out, m) || !strings.Contains(r.out, "from: "+filepath.Base(a)+"/builder.alice") || !strings.Contains(r.out, "check the logs") {
+		t.Errorf("check --session: %s", r.out)
+	}
+	expect(t, sh(t, free, me, "take", "--session", m), 0, "take")
+	expect(t, sh(t, free, me, "ack", "--session", m), 0, "ack")
+	expect(t, sh(t, free, me, "ack", "--session", m), 1, "acked twice")
+	expect(t, sh(t, free, []string{"SUNSTACK_HOME=" + home}, "check", "--session"), 2, "no session ID")
+
+	// The free session replies to a team agent in another team, by team name.
+	r = sh(t, free, me, "send", filepath.Base(a)+"/builder.alice", "logs look fine", "--type", "done", "--reply-to", m)
+	expect(t, r, 0, "send to team/agent")
+	if r := sh(t, a, env, "check", "builder.alice", "--token", tok); !strings.Contains(r.out, "logs look fine") || !strings.Contains(r.out, "from_session: "+sid) {
+		t.Errorf("reply in team a: %s", r.out)
+	}
+	expect(t, sh(t, a, env, "send", "nosuchteam/reviewer", "x"), 1, "unknown team")
+	expect(t, sh(t, a, env, "send", "%999", "x"), 1, "unknown pane")
+}

@@ -1,10 +1,13 @@
 package core
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -79,14 +82,52 @@ func (p *Project) Team() (TeamFile, bool) {
 	return t, t.ID != ""
 }
 
-// ensureTeamFile writes sunstack/TEAM if it is missing.
+// ensureTeamFile writes sunstack/TEAM if it is missing. An existing file is
+// never changed.
 func ensureTeamFile(dir string) (bool, error) {
 	path := filepath.Join(dir, "TEAM")
 	if _, err := os.Stat(path); err == nil {
 		return false, nil
 	}
-	body := fmt.Sprintf("# Sunstack team identity: the same on every host. Keep it in git; do not edit the id.\nid: %s\nname: %s\n", NewToken(), filepath.Base(filepath.Dir(dir)))
+	root := filepath.Dir(dir)
+	body := fmt.Sprintf("# Sunstack team identity: the same on every host. Keep it in git; do not edit the id.\nid: %s\nname: %s\n", teamIDFor(root), filepath.Base(root))
 	return true, writeAtomic(path, []byte(body))
+}
+
+// teamIDFor derives a team's ID from its repository's origin URL and the
+// team's folder inside the repository, so two hosts that add TEAM before
+// syncing still agree. Without a git remote it is random.
+func teamIDFor(root string) string {
+	top, err := exec.Command("git", "-C", root, "rev-parse", "--show-toplevel").Output()
+	remote := gitRemote(root)
+	if err != nil || remote == "" {
+		return NewToken()
+	}
+	rel, err := filepath.Rel(mustEval(strings.TrimSpace(string(top))), mustEval(root))
+	if err != nil {
+		return NewToken()
+	}
+	sum := sha256.Sum256([]byte(normalizeRemote(remote) + "\n" + filepath.ToSlash(rel)))
+	return hex.EncodeToString(sum[:8])
+}
+
+// normalizeRemote makes the SSH and HTTPS forms of one repository equal:
+// git@github.com:a/b.git and https://github.com/a/b both become github.com/a/b.
+func normalizeRemote(r string) string {
+	r = strings.TrimSpace(r)
+	if i := strings.Index(r, "://"); i >= 0 {
+		r = r[i+3:]
+		if j := strings.IndexByte(r, '@'); j >= 0 && j < strings.IndexByte(r+"/", '/') {
+			r = r[j+1:]
+		}
+	} else if i := strings.IndexByte(r, '@'); i >= 0 {
+		r = strings.Replace(r[i+1:], ":", "/", 1)
+	}
+	r = strings.TrimSuffix(strings.TrimSuffix(r, "/"), ".git")
+	if i := strings.IndexByte(r, '/'); i > 0 {
+		r = strings.ToLower(r[:i]) + r[i:]
+	}
+	return r
 }
 
 // TeamEntry is one team in this host's index.

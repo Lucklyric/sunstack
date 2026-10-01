@@ -14,7 +14,8 @@ remote or folder. It is read only.
 
 - Run every `sunstack` command on its own, with nothing chained after it.
 - Nothing here types into a session. To give a free session an identity, the user runs the as
-  skill in that session.
+  skill in that session. To ask a free session something, use the message skill with its pane
+  or session ID.
 - Summaries are on request only: reading a transcript costs time and tokens.
 
 ## 1. Look

@@ -40,12 +40,12 @@ Then, in Claude Code, `/sunstack:as builder.alice` (in Codex, `$sunstack:as buil
 
 Skills run as `/sunstack:<name>` in Claude Code and `$sunstack:<name>` in Codex. Each core command has a skill that drives it with the right questions:
 
-- **Set up and check:** `init`, `health`, `update` → skill `checkup` (also migrates an older project and suggests which agent fits the session)
+- **Set up and check:** `init`, `health`, `update`, `migrate` → skill `checkup` (also migrates an older project and suggests which agent fits the session)
 - **Work as an agent:** `as` (`--join`, `--task`) → skill `as`; `snapshot`, `commit`, `tidy` → skill `save`; `release` → skill `release`
 - **Objectives and alignment:** `board`, `amend --team BOARD.md` → skill `board`; `direct` → skill `direct`
 - **Self-improvement:** `amend` → skill `save` (you approve every change)
 - **Team members:** `hire`, `library` → skill `recruit`; `fire` → skill `fire`; `rename` → skill `checkup`
-- **Messages:** `send` → skill `message`; `check`, `take`, `ack` → skill `check`
+- **Messages:** `send` → skill `message` (to an agent, `<team>/<id>` in another team, or any Claude Code or Codex session by pane or session ID); `check`, `take`, `ack` → skill `check` (with `--session` for a session without an agent)
 - **Sessions:** `sessions`, `spawn`, `dismiss`, `kill` → skill `spawn`
 - **Staffing:** `hr` → skill `hr` (suggests hires, splits and retirements from the project and the boards)
 - **Your org on this machine:** `org` (what needs you, work by team, people, hosts), `teams`, `peek`, `team`, `log`, `inbox`, `pillar` → skill `org`; `tui` (also a bare `sunstack`, press `o` for the org tab)

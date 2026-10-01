@@ -76,7 +76,11 @@ the token.
      them.
   6. **Inbox.** If messages are listed, mention them. Handle them with the check skill when
      the first prompt asked for it (a spawned session), or when the user agrees.
-  7. **Doing.** Once you know what this session will work on, record it in one line, so the
+  7. **Migration.** If the output has a `migration` section, the team was made by an older
+     Sunstack. The `done:` lines already ran; tell the user which files changed so they commit
+     them. For `needs the user's OK:` lines, ask once (apply / later); on apply run the command
+     given there, then show the `git diff`.
+  8. **Doing.** Once you know what this session will work on, record it in one line, so the
      org view shows it: `sunstack doing --root "<root>" "<id>" "<what, in under 120 characters>" --token "<token>"`.
 - **2 `missing_arguments`**: the first line names what is missing and the rest are the
   choices (for a title with several agents, only that title's). Rank them as in "Pick the

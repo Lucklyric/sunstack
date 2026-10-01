@@ -27,6 +27,7 @@ var MessageTypes = []string{"question", "handoff", "fyi", "done", "shutdown"}
 type Message struct {
 	ID, From, Via, To, Session, At, Type, ReplyTo string
 	Op                                            string // sender's operation ID, so a repeated send is not delivered twice
+	FromSession                                   string // the sender's Claude session or Codex thread ID, for a reply to a session without an agent
 	Body                                          string
 	State                                         string // pending, taken (by this session), taken by <label>
 	path                                          string
@@ -81,6 +82,8 @@ func parseMessage(path string) (*Message, error) {
 					m.ReplyTo = v
 				case "op":
 					m.Op = v
+				case "from_session":
+					m.FromSession = v
 				}
 			}
 			m.Body = strings.TrimLeft(s[4+end+5:], "\n")
@@ -109,6 +112,9 @@ func (m *Message) text() string {
 	if m.Op != "" {
 		fmt.Fprintf(&b, "op: %s\n", m.Op)
 	}
+	if m.FromSession != "" {
+		fmt.Fprintf(&b, "from_session: %s\n", m.FromSession)
+	}
 	b.WriteString("---\n")
 	b.WriteString(strings.TrimRight(m.Body, "\n") + "\n")
 	return b.String()
@@ -125,6 +131,10 @@ type SendOptions struct {
 	Via     string // the agent session that sent it in the user's name, if any
 	NoNudge bool
 	Op      string // optional operation ID: the same ID and text return the earlier message
+	// FromLabel is a sender already checked in another team (<team>/<id>);
+	// the CLI sets it for messages between teams.
+	FromLabel   string
+	FromSession string // the sending CLI session's ID, if known
 }
 
 // SendResult says where a message went.
@@ -166,7 +176,7 @@ func (p *Project) resolveRecipient(to string) (id, session string, err error) {
 func newMessageID(from string) string {
 	b := make([]byte, 3)
 	_, _ = rand.Read(b)
-	f := strings.NewReplacer("_", "-", "/", "-").Replace(strings.ToLower(from))
+	f := regexp.MustCompile(`[^a-z0-9.-]+`).ReplaceAllString(strings.ToLower(from), "-")
 	return time.Now().UTC().Format("20060102T150405Z") + "-" + f + "-" + hex.EncodeToString(b)
 }
 
@@ -186,7 +196,9 @@ func (p *Project) Send(o SendOptions) (*SendResult, error) {
 		return nil, fail(ExitUsage, "usage", "invalid --reply-to message id: %s", o.ReplyTo)
 	}
 	from := "user"
-	if o.From != "" {
+	if o.FromLabel != "" {
+		from = o.FromLabel
+	} else if o.From != "" {
 		claims, err := p.Claims(o.From)
 		if err != nil {
 			return nil, err
@@ -215,7 +227,7 @@ func (p *Project) Send(o SendOptions) (*SendResult, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, fail(ExitFail, "fs", "%v", err)
 	}
-	m := &Message{From: from, To: id, Session: session, At: now(), Type: o.Type, ReplyTo: o.ReplyTo, Body: o.Body, Op: o.Op}
+	m := &Message{From: from, To: id, Session: session, At: now(), Type: o.Type, ReplyTo: o.ReplyTo, Body: o.Body, Op: o.Op, FromSession: o.FromSession}
 	if from == "user" {
 		m.Via = o.Via
 	}

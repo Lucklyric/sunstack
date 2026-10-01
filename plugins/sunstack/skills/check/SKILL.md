@@ -1,13 +1,20 @@
 ---
 name: check
-description: Handle the Sunstack messages waiting for this session's agent: read them, take one so no other session of the same agent works on it, act on it within the pillars and board, reply, and ack it. Use when a prompt starts with "/sunstack:check" or "$sunstack:check" (a nudge from another agent), when a Sunstack hook says messages are waiting, or when the user says "sunstack check" or "check my Sunstack inbox". Only for projects with a Sunstack team (a sunstack/ folder).
+description: Handle the Sunstack messages waiting for this session's agent, or for this session itself when it works as no agent: read them, take one so no other session of the same agent works on it, act on it within the pillars and board, reply, and ack it. Use when a prompt starts with "/sunstack:check" or "$sunstack:check" (a nudge from another agent), when a Sunstack hook says messages are waiting, or when the user says "sunstack check" or "check my Sunstack inbox". Only when Sunstack is installed.
 ---
 
 # Sunstack: check
 
 ## Rules
 
-- If there is no Sunstack team here (no `sunstack/PROTOCOL.md` in this folder or above), say so in one line and stop; the checkup skill sets one up.
+- **A session that works as no agent** (the hook said messages wait "for this session", or a
+  nudge arrived and `sunstack whoami` finds no identity): use its host inbox instead. Run
+  `sunstack check --session`, then `sunstack take --session <message id>` and
+  `sunstack ack --session <message id>`, with steps 2 and 3 below as they apply (there is no
+  board or context to record in; say what you did in your reply). Reply with the message skill
+  to the sender shown in `from` (`<team>/<id>` or an agent ID), or, when it is from the user via
+  another session, to its `from_session` ID.
+- Otherwise, if there is no Sunstack team here (no `sunstack/PROTOCOL.md` in this folder or above), say so in one line and stop; the checkup skill sets one up.
 - You need the root, id and token from this session's `session state` (printed by
   `sunstack as`). If you do not have them (for example after compaction or `/clear`),
   run `sunstack whoami` (with `--root` if you know it): it prints this session's state, found by

@@ -81,3 +81,11 @@ func TestOwnerDead(t *testing.T) {
 		t.Error("an old-style owner line with a live pid is not dead")
 	}
 }
+
+func TestNormalizeRemote(t *testing.T) {
+	for _, r := range []string{"git@github.com:Me/Repo.git", "https://github.com/Me/Repo", "https://tok@GitHub.com/Me/Repo.git/", "ssh://git@github.com/Me/Repo.git"} {
+		if got := normalizeRemote(r); got != "github.com/Me/Repo" {
+			t.Errorf("%s -> %s", r, got)
+		}
+	}
+}
