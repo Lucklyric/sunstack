@@ -49,7 +49,10 @@ Leave out `--from` and `--token` when this session has no identity. Add
 an unclear result, or a step that can run twice), add `--op "<short id>"`: the same id and text
 return the earlier message instead of a second one.
 
-- **0**: tell the user the message id and whether a session was nudged or it waits.
+- **0**: tell the user the message id and whether a session was nudged or it waits. If it
+  waits because the session is outside tmux, give the options in one line: it sees the message
+  at its next prompt, or the user exits it and runs `sunstack reopen <session id>` to move it
+  into tmux.
 - **1 `not_found`**: the recipient does not exist or that session is gone; offer the agent ID
   instead, or the spawn skill to start a session.
 - **2 `missing_arguments`**: a title with several agents; ask which one.

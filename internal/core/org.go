@@ -199,7 +199,7 @@ func (p *Project) orgTeam(sessions []*HostSession, today time.Time) *OrgTeam {
 			if s == nil {
 				// The claim exists but no running process matches it: outside
 				// tmux with no session ID recorded, or the session has ended.
-				s = &HostSession{Tool: c.Tool, Status: "not seen", Pane: c.TmuxPane, Where: TmuxWhere(c.TmuxSocket, c.TmuxPane)}
+				s = &HostSession{Tool: c.Tool, Status: "not seen", Reach: "none", SessionID: c.Session, Pane: c.TmuxPane, Where: TmuxWhere(c.TmuxSocket, c.TmuxPane)}
 			}
 			s.Team, s.TeamName, s.Agent, s.Label = t.ID, t.Name, st.ID, c.Label(st.ID)+"@"+host
 			s.Doing, s.DoingAt = c.Doing, c.DoingAt
@@ -236,10 +236,34 @@ func (o *Org) attention() []string {
 		seen[s] = true
 		out = append(out, fmt.Sprintf("%s: %s is %s for you (%s)", team, sessionName(s), s.Status, placeOf(s)))
 	}
+	outside := func(s *HostSession) string {
+		if s.SessionID != "" && s.Reach == "next prompt" {
+			return fmt.Sprintf("; or move it into tmux: exit it, then sunstack reopen %s", s.SessionID)
+		}
+		return ""
+	}
 	for _, t := range o.Teams {
 		for _, a := range t.Agents {
 			for _, s := range a.Sessions {
 				waiting(s, t.Name)
+			}
+			if a.Pending == 0 {
+				continue
+			}
+			reachable := false
+			for _, s := range a.Sessions {
+				reachable = reachable || s.Reach == "nudge"
+			}
+			switch {
+			case len(a.Sessions) == 0:
+				out = append(out, fmt.Sprintf("%s: %d message(s) wait for %s, which has no live session (sunstack spawn %s starts one)", t.Name, a.Pending, a.ID, a.ID))
+			case !reachable:
+				out = append(out, fmt.Sprintf("%s: %d message(s) wait for %s; its sessions are outside tmux, so they see them at their next prompt%s", t.Name, a.Pending, a.ID, outside(a.Sessions[0])))
+			}
+		}
+		for _, s := range t.Free {
+			if s.Pending > 0 && s.Reach != "nudge" {
+				out = append(out, fmt.Sprintf("%s: %d message(s) wait for %s; it is outside tmux, so it sees them at its next prompt%s", t.Name, s.Pending, sessionName(s), outside(s)))
 			}
 		}
 		for _, s := range t.Free {
@@ -255,6 +279,9 @@ func (o *Org) attention() []string {
 	for _, g := range o.Free {
 		for _, s := range g.Sessions {
 			waiting(s, g.Group)
+			if s.Pending > 0 && s.Reach != "nudge" {
+				out = append(out, fmt.Sprintf("%s: %d message(s) wait for %s; it is outside tmux, so it sees them at its next prompt%s", g.Group, s.Pending, sessionName(s), outside(s)))
+			}
 		}
 	}
 	return out
@@ -274,8 +301,12 @@ func placeOf(s *HostSession) string {
 	switch {
 	case s.Where != "":
 		return "tmux " + s.Where + " " + s.Pane
+	case s.Reach == "background":
+		return "background"
+	case s.SessionID != "":
+		return "outside tmux (messages wait for its next prompt), id " + s.SessionID
 	case s.PID > 0:
-		return fmt.Sprintf("pid %d", s.PID)
+		return fmt.Sprintf("outside tmux, pid %d", s.PID)
 	}
 	return "no tmux pane"
 }
@@ -343,6 +374,9 @@ func sessionLine(s *HostSession) string {
 
 func freeLine(s *HostSession) string {
 	line := fmt.Sprintf("%s  %s, %s", sessionName(s), s.Status, placeOf(s))
+	if s.Pending > 0 {
+		line += fmt.Sprintf(", %d message(s) waiting", s.Pending)
+	}
 	if s.Activity.Title != "" {
 		line += "\n      title: " + s.Activity.Title
 	}

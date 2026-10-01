@@ -86,6 +86,8 @@ Org (every team and Claude Code or Codex session on this host):
                                                   --by host: every session including free ones
   sunstack peek <id_task|pane-id> [--lines N]     the end of a session's tmux pane, e.g. %12 (read only)
   sunstack doing <id> "<line>" --token T          one line on what this session is doing now ("" clears)
+  sunstack reopen <session-id> [--window]         resume a closed session in a tmux pane beside this one, so
+                                                  messages wake it at once (exit it where it ran first)
   sunstack log [--id ID] [--follow]               the event log
   sunstack inbox <id>                             pending messages, read only
   sunstack pillar <id> | --team                   effective pillars with their source
@@ -1113,6 +1115,24 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 		if apply == "" {
 			fmt.Fprintln(stdout, "\n[auto] steps only add files; --apply safe runs them. [ask] steps rewrite files agents read; --apply all runs everything after the user agrees. Commit the changed files afterwards.")
 		}
+		return nil
+
+	case "reopen":
+		a, err := parse(rest, "", "window")
+		if err == nil {
+			err = a.atMost(1, "reopen")
+		}
+		if err != nil {
+			return err
+		}
+		if len(a.pos) < 1 {
+			return missing("session ID")
+		}
+		r, err := core.Reopen(core.ReopenOptions{SessionID: a.pos[0], Socket: tmuxSocket(), Server: tmuxServer(), Caller: os.Getenv("TMUX_PANE"), Window: a.has("window")})
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(stdout, "sunstack: reopened %s session %s in tmux pane %s (%s)\n", r.Tool, a.pos[0], r.Pane, r.Cwd)
 		return nil
 
 	case "teams":

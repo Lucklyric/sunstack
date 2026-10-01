@@ -1152,3 +1152,36 @@ func TestHostInbox(t *testing.T) {
 	expect(t, sh(t, a, env, "send", "nosuchteam/reviewer", "x"), 1, "unknown team")
 	expect(t, sh(t, a, env, "send", "%999", "x"), 1, "unknown pane")
 }
+
+func TestReachAndReopen(t *testing.T) {
+	home := t.TempDir()
+	env := []string{"SUNSTACK_HOME=" + filepath.Join(home, ".sunstack"), "HOME=" + home}
+	free := t.TempDir()
+	sid := "1a2b3c4d-0000-4000-8000-00000000abcd"
+	must(t, os.MkdirAll(filepath.Join(home, ".claude", "projects", "x"), 0o755))
+	must(t, os.WriteFile(filepath.Join(home, ".claude", "projects", "x", sid+".jsonl"), []byte(`{"type":"user","cwd":"`+filepath.ToSlash(free)+`","message":{"role":"user","content":"hi"}}`+"\n"), 0o644))
+	agents := filepath.Join(t.TempDir(), "agents.json")
+	must(t, os.WriteFile(agents, []byte(`[{"pid":0,"sessionId":"`+sid+`","cwd":"`+filepath.ToSlash(free)+`","kind":"interactive","name":"helper","status":"idle"}]`), 0o644))
+	running := append([]string{"SUNSTACK_CLAUDE_AGENTS=" + agents}, env...)
+
+	// A session outside tmux still gets the message, and org says how it will see it.
+	expect(t, sh(t, free, running, "send", sid, "ping"), 0, "send")
+	r := sh(t, free, running, "org")
+	if !strings.Contains(r.out, "outside tmux (messages wait for its next prompt)") ||
+		!strings.Contains(r.out, "1 message(s) wait for claude helper; it is outside tmux") ||
+		!strings.Contains(r.out, "sunstack reopen "+sid) {
+		t.Errorf("org reach: %s", r.out)
+	}
+	r = sh(t, free, running, "reopen", sid)
+	expect(t, r, 1, "reopen refuses a session that is still open")
+	if !strings.Contains(r.stderr, "still open") {
+		t.Errorf("running: %s", r.stderr)
+	}
+	// Once closed, reopen needs tmux, and says what to run without it.
+	r = sh(t, free, env, "reopen", sid)
+	expect(t, r, 1, "reopen outside tmux")
+	if !strings.Contains(r.stderr, "claude --resume "+sid) {
+		t.Errorf("no tmux: %s", r.stderr)
+	}
+	expect(t, sh(t, free, env, "reopen", "not-an-id"), 2, "bad id")
+}

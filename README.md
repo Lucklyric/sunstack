@@ -56,7 +56,7 @@ Skills run as `/sunstack:<name>` in Claude Code and `$sunstack:<name>` in Codex.
 A message is always a file in the recipient's inbox (`sunstack/_local/inbox/<id>/`), so it works everywhere and is never lost. Getting the recipient to look at it depends on where it runs:
 
 - **A live Claude Code or Codex session in tmux:** `send` types a one-line nudge (`/sunstack:check …` or `$sunstack:check …`) into its pane. It only types into a pane whose foreground program is that CLI, never into a shell.
-- **A Claude Code session elsewhere:** the plugin's prompt hook tells it about waiting messages at its next prompt.
+- **A Claude Code or Codex session outside tmux:** the message is delivered, and the plugin's prompt hook tells it at its next prompt. `sunstack org` marks such sessions; `sunstack reopen <session-id>` moves a closed one into a tmux pane so it can be woken.
 - **No live session:** the message waits; `sunstack spawn` starts a session for the agent in a tmux pane beside yours, with your approval.
 
 Several sessions of one agent share its inbox; a session takes a message before working on it, so only one handles it.

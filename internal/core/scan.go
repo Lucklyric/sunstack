@@ -34,7 +34,9 @@ type HostSession struct {
 	SessionID  string   `json:"session_id,omitempty"` // Claude session ID or Codex thread ID
 	Name       string   `json:"name,omitempty"`
 	Cwd        string   `json:"cwd,omitempty"`
-	Status     string   `json:"status"` // idle, busy, waiting, blocked, unknown
+	Status     string   `json:"status"`            // idle, busy, waiting, blocked, unknown
+	Reach      string   `json:"reach"`             // nudge (a tmux pane: woken at once), next prompt (no pane), background
+	Pending    int      `json:"pending,omitempty"` // messages in its host inbox (sessions without an agent)
 	TTY        string   `json:"tty,omitempty"`
 	Pane       string   `json:"pane,omitempty"`
 	Where      string   `json:"where,omitempty"` // tmux session:window.pane
@@ -84,6 +86,15 @@ func ScanSessions() ([]*HostSession, []string) {
 		if p, ok := panes[s.TTY]; ok && s.TTY != "" {
 			s.Pane, s.Where, s.socket = p.id, p.where, p.socket
 		}
+		switch {
+		case s.Kind == "background":
+			s.Reach = "background"
+		case s.Pane != "":
+			s.Reach = "nudge"
+		default:
+			s.Reach = "next prompt"
+		}
+		s.Pending = HostPending(s.SessionID)
 		if s.Tool == "codex" && s.Pane != "" && s.Status != "busy" {
 			if screen := paneScreen(s.socket, s.Pane); screen != "" && !ReadyForInput("codex", screen) && hasDialog(screen) {
 				s.Status = "waiting"

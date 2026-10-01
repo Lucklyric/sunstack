@@ -37,6 +37,18 @@ shows what needs the user, then work by team. Others:
 If a team the user expects is missing, run `sunstack teams --scan <folder>` (for example the
 vault or code root), then look again. `sunstack teams --prune` drops teams that are gone.
 
+**Reach.** Each session shows how a message gets to it:
+
+- a tmux pane: a message wakes it at once (a nudge typed into its idle input box)
+- `outside tmux (messages wait for its next prompt)`: the message is delivered, but the session
+  sees it only when the user next types in it
+- `background`: a Claude background session
+
+For a session outside tmux that should be reachable, offer the options: leave it (it sees
+messages at its next prompt), or move it into tmux: the user exits it where it runs (`/exit`),
+then `sunstack reopen <session id>` resumes the same conversation in a pane beside this one
+(`--window` for a new window). An agent's claim follows it to the new pane.
+
 ## 2. Report
 
 Lead with what needs the user, then a short line per team (objectives moving, who is working,
