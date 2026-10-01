@@ -196,8 +196,10 @@ func Teams() []TeamEntry { return readIndex() }
 func IndexedProjects() []*Project {
 	var out []*Project
 	for _, e := range readIndex() {
-		if _, err := os.Stat(filepath.Join(e.Root, "sunstack", "PROTOCOL.md")); err == nil {
-			out = append(out, &Project{Root: e.Root, Dir: filepath.Join(e.Root, "sunstack")})
+		// Through FindProject, so a symlinked sunstack/ is refused here too,
+		// and only an entry that is itself the team root counts.
+		if p, err := FindProject(e.Root); err == nil && p.Root == mustEval(e.Root) {
+			out = append(out, p)
 		}
 	}
 	return out

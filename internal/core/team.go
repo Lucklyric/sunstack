@@ -81,7 +81,10 @@ func Init(dir string, refresh bool) ([]string, error) {
 		}
 	}
 	gi := filepath.Join(root, ".gitignore")
-	b, _, _ := readMaybe(gi)
+	b, _, gerr := readMaybe(gi)
+	if gerr != nil {
+		return done, fail(ExitFail, "fs", "cannot read %s, left as it is: %v", gi, gerr)
+	}
 	if !hasLine(b, "sunstack/_local/") {
 		if len(b) > 0 && b[len(b)-1] != '\n' {
 			b = append(b, '\n')

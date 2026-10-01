@@ -215,13 +215,8 @@ func (p *Project) Send(o SendOptions) (*SendResult, error) {
 	if o.FromSession != "" && !IsSessionID(o.FromSession) {
 		o.FromSession = ""
 	}
-	if o.Op != "" {
-		if !opRe.MatchString(o.Op) {
-			return nil, fail(ExitUsage, "usage", "invalid --op: letters, digits, . _ - only, at most 64")
-		}
-		if prev := p.findOp(id, o.Op, o.Body); prev != nil {
-			return &SendResult{ID: prev.ID, To: id, Session: prev.Session, Note: "already sent with this --op; not sent again"}, nil
-		}
+	if o.Op != "" && !opRe.MatchString(o.Op) {
+		return nil, fail(ExitUsage, "usage", "invalid --op: letters, digits, . _ - only, at most 64")
 	}
 	dir := p.inboxDir(id)
 	if err := p.noSymlink(dir); err != nil {
@@ -234,6 +229,22 @@ func (p *Project) Send(o SendOptions) (*SendResult, error) {
 	if from == "user" {
 		m.Via = o.Via
 	}
+	release := func() {}
+	if o.Op != "" {
+		// Check and write under the recipient's lock, so two senders with
+		// the same --op deliver once. The nudge runs after the lock is freed.
+		unlock, err := p.lock(id)
+		if err != nil {
+			return nil, err
+		}
+		prev := findOp(m, p.inboxDir(id), p.messageArchive(), p.local("inbox", id, ".taken"))
+		if prev != nil {
+			unlock()
+			return &SendResult{ID: prev.ID, To: id, Session: prev.Session, Note: "already sent with this --op; not sent again"}, nil
+		}
+		release = unlock
+	}
+	defer func() { release() }()
 	// Create the temporary file exclusively, so two senders never share a
 	// name; readers only see the .md after the rename.
 	var tmp string
@@ -259,6 +270,8 @@ func (p *Project) Send(o SendOptions) (*SendResult, error) {
 		os.Remove(tmp)
 		return nil, fail(ExitFail, "fs", "%v", err)
 	}
+	release()
+	release = func() {}
 	fields := []string{m.Type, m.ID}
 	if session != "" {
 		fields = append(fields, "session="+session)
@@ -684,17 +697,22 @@ func (p *Project) CallerLabel(tool, session, pane, socket string) string {
 
 var opRe = regexp.MustCompile(`^[A-Za-z0-9._-]{1,64}$`)
 
-// findOp returns an earlier message to id with the same operation ID and
-// text, pending, taken or already handled.
-func (p *Project) findOp(id, op, body string) *Message {
-	dirs := []string{p.inboxDir(id), p.messageArchive()}
-	taken, _ := filepath.Glob(filepath.Join(p.local("inbox", id, ".taken"), "*"))
-	dirs = append(dirs, taken...)
+// findOp returns an earlier message with the same operation ID and the same
+// recipient, session, sender, type, reply and text: pending, taken (in any
+// folder under taken) or already handled.
+func findOp(m *Message, pending, archive, taken string) *Message {
+	dirs := []string{pending, archive}
+	if taken != "" {
+		t, _ := filepath.Glob(filepath.Join(taken, "*"))
+		dirs = append(dirs, taken)
+		dirs = append(dirs, t...)
+	}
 	for _, d := range dirs {
 		for _, n := range listNames(d, ".md") {
-			m, err := parseMessage(filepath.Join(d, n))
-			if err == nil && m.Op == op && m.To == id && strings.TrimSpace(m.Body) == strings.TrimSpace(body) {
-				return m
+			x, err := parseMessage(filepath.Join(d, n))
+			if err == nil && x.Op == m.Op && x.To == m.To && x.Session == m.Session && x.From == m.From &&
+				x.Type == m.Type && x.ReplyTo == m.ReplyTo && strings.TrimSpace(x.Body) == strings.TrimSpace(m.Body) {
+				return x
 			}
 		}
 	}

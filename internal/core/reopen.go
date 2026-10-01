@@ -103,8 +103,13 @@ func Reopen(o ReopenOptions) (*ReopenResult, error) {
 	if err != nil || pane == "" {
 		return nil, fail(ExitFail, "tmux", "could not open a tmux pane (%v); rerun with --window", err)
 	}
-	if err := exec.Command("tmux", TmuxArgs(o.Socket, "send-keys", "-t", pane, "-l", cmd)...).Run(); err == nil {
+	err = exec.Command("tmux", TmuxArgs(o.Socket, "send-keys", "-t", pane, "-l", cmd)...).Run()
+	if err == nil {
 		err = exec.Command("tmux", TmuxArgs(o.Socket, "send-keys", "-t", pane, "Enter")...).Run()
+	}
+	if err != nil {
+		exec.Command("tmux", TmuxArgs(o.Socket, "kill-pane", "-t", pane)...).Run()
+		return nil, fail(ExitFail, "tmux", "could not start %s in the new pane: %v", tool, err)
 	}
 	res.Pane = pane
 	// An agent session keeps its claim: point it at the new pane.

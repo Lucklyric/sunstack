@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -179,6 +180,7 @@ func claudeSessions() ([]*HostSession, error) {
 // codexSessions finds codex processes with a terminal and the thread each
 // holds open.
 func codexSessions() ([]*HostSession, error) {
+	var failed []string
 	if runtime.GOOS == "windows" || os.Getenv("SUNSTACK_CODEX_SCAN") == "off" {
 		return nil, nil
 	}
@@ -193,7 +195,13 @@ func codexSessions() ([]*HostSession, error) {
 			continue
 		}
 		pid, _ := strconv.Atoi(f[0])
-		files, cwd := openFiles(pid)
+		files, cwd, ferr := openFiles(pid)
+		if ferr != nil {
+			if processAlive(pid) {
+				failed = append(failed, strconv.Itoa(pid))
+			}
+			continue
+		}
 		rollout := mainRollout(files)
 		if rollout == "" {
 			continue // a helper process, not a session
@@ -205,27 +213,36 @@ func codexSessions() ([]*HostSession, error) {
 		}
 		list = append(list, s)
 	}
+	if len(failed) > 0 {
+		return list, fmt.Errorf("could not inspect codex process(es) %s", strings.Join(failed, ", "))
+	}
 	return list, nil
 }
 
 // openFiles lists the files a process holds open and its working directory.
-func openFiles(pid int) ([]string, string) {
+func openFiles(pid int) ([]string, string, error) {
 	if runtime.GOOS == "linux" {
-		cwd, _ := os.Readlink("/proc/" + strconv.Itoa(pid) + "/cwd")
-		fds, _ := filepath.Glob("/proc/" + strconv.Itoa(pid) + "/fd/*")
+		cwd, err := os.Readlink("/proc/" + strconv.Itoa(pid) + "/cwd")
+		if err != nil {
+			return nil, "", err
+		}
+		fds, err := filepath.Glob("/proc/" + strconv.Itoa(pid) + "/fd/*")
+		if err != nil {
+			return nil, "", err
+		}
 		var files []string
 		for _, fd := range fds {
 			if t, err := os.Readlink(fd); err == nil {
 				files = append(files, t)
 			}
 		}
-		return files, cwd
+		return files, cwd, nil
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	out, err := exec.CommandContext(ctx, "lsof", "-p", strconv.Itoa(pid), "-Fftn").Output()
 	if err != nil && len(out) == 0 {
-		return nil, ""
+		return nil, "", fmt.Errorf("lsof: %v", err)
 	}
 	var files []string
 	cwd, fd := "", ""
@@ -244,7 +261,13 @@ func openFiles(pid int) ([]string, string) {
 			}
 		}
 	}
-	return files, cwd
+	return files, cwd, nil
+}
+
+// processAlive reports whether pid still exists, so a process that exited
+// during the scan is not reported as a failed check.
+func processAlive(pid int) bool {
+	return exec.Command("ps", "-p", strconv.Itoa(pid)).Run() == nil
 }
 
 // mainRollout picks the session's own rollout among the open files, skipping

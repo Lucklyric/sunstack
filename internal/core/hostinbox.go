@@ -25,12 +25,26 @@ func hostArchive() string            { return filepath.Join(Home(), "log", "mess
 
 // FindSession finds a running session on this host by tmux pane (%N) or by
 // session ID, with its team and agent if it has one.
-func FindSession(ref string) (*HostSession, error) {
+func FindSession(ref, callerSocket string) (*HostSession, error) {
 	all, _ := ScanSessions()
 	classify(all, teamsFor(all))
+	caller := ""
+	if strings.HasPrefix(ref, "%") {
+		// Pane IDs repeat across tmux servers: only the caller's counts.
+		pid, ok := serverPID(callerSocket)
+		if !ok {
+			return nil, fail(ExitFail, "no_tmux", "a pane ID names a pane on your own tmux server; run inside tmux, or use the session ID (sunstack org --by host)")
+		}
+		caller = pid
+	}
 	for _, s := range all {
-		if (strings.HasPrefix(ref, "%") && s.Pane == ref) || (ref != "" && s.SessionID == ref) {
+		if ref != "" && s.SessionID == ref {
 			return s, nil
+		}
+		if strings.HasPrefix(ref, "%") && s.Pane == ref {
+			if pid, ok := serverPID(s.socket); ok && pid == caller {
+				return s, nil
+			}
 		}
 	}
 	return nil, fail(ExitFail, "not_found", "no running Claude Code or Codex session %s on this host (sunstack org --by host lists them)", ref)
@@ -69,19 +83,31 @@ func SendToSession(s *HostSession, o SendOptions) (*SendResult, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, fail(ExitFail, "fs", "%v", err)
 	}
-	if o.Op != "" {
-		for _, d := range []string{dir, hostTakenDir(s.SessionID), hostArchive()} {
-			for _, n := range listNames(d, ".md") {
-				if m, err := parseMessage(filepath.Join(d, n)); err == nil && m.Op == o.Op && m.To == to && strings.TrimSpace(m.Body) == strings.TrimSpace(o.Body) {
-					return &SendResult{ID: m.ID, To: to, Note: "already sent with this --op; not sent again"}, nil
-				}
-			}
-		}
-	}
 	m := &Message{From: from, To: to, At: now(), Type: o.Type, ReplyTo: o.ReplyTo, Body: o.Body, Op: o.Op, FromSession: o.FromSession}
 	if from == "user" {
 		m.Via = o.Via
 	}
+	release := func() {}
+	if o.Op != "" {
+		locks := filepath.Join(Home(), "locks")
+		if err := os.MkdirAll(locks, 0o755); err != nil {
+			return nil, fail(ExitFail, "fs", "%v", err)
+		}
+		unlock, err := lockDir(filepath.Join(locks, "inbox-"+s.SessionID), "this session's inbox")
+		if err != nil {
+			return nil, err
+		}
+		if prev := findOp(m, dir, hostArchive(), ""); prev != nil {
+			unlock()
+			return &SendResult{ID: prev.ID, To: to, Note: "already sent with this --op; not sent again"}, nil
+		}
+		if prev := findOp(m, hostTakenDir(s.SessionID), "", ""); prev != nil {
+			unlock()
+			return &SendResult{ID: prev.ID, To: to, Note: "already sent with this --op; not sent again"}, nil
+		}
+		release = unlock
+	}
+	defer func() { release() }()
 	var tmp string
 	for i := 0; ; i++ {
 		m.ID = newMessageID(from)
@@ -105,6 +131,8 @@ func SendToSession(s *HostSession, o SendOptions) (*SendResult, error) {
 		os.Remove(tmp)
 		return nil, fail(ExitFail, "fs", "%v", err)
 	}
+	release()
+	release = func() {}
 	res := &SendResult{ID: m.ID, To: to}
 	if o.NoNudge {
 		res.Note = "not nudged (--no-nudge)"

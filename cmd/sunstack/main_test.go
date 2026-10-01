@@ -1236,3 +1236,65 @@ func TestReviewFixes082(t *testing.T) {
 		t.Errorf("send to an agent session by ID: %s %s", r.out, r.stderr)
 	}
 }
+
+func TestCodexReviewFixes(t *testing.T) {
+	home := []string{"SUNSTACK_HOME=" + filepath.Join(t.TempDir(), "home")}
+	p := fixture(t)
+	expect(t, sh(t, p, home, "init"), 0, "init")
+
+	// A bad --root never widens to every indexed team.
+	expect(t, sh(t, p, home, "migrate", "--root", filepath.Join(p, "nope"), "--apply", "all"), 1, "bad root")
+	expect(t, sh(t, p, home, "migrate", "--root", p, "--host"), 2, "root and host together")
+
+	// An unreadable .gitignore is left alone.
+	q := fixture(t)
+	gi := filepath.Join(q, ".gitignore")
+	must(t, os.WriteFile(gi, []byte("secret.env\n"), 0o000))
+	expect(t, sh(t, q, home, "migrate", "--apply", "safe"), 1, "unreadable gitignore")
+	must(t, os.Chmod(gi, 0o644))
+	if b, _ := os.ReadFile(gi); string(b) != "secret.env\n" {
+		t.Errorf(".gitignore was rewritten: %q", b)
+	}
+
+	// A team whose sunstack/ became a symlink drops out of the index.
+	r := fixture(t)
+	expect(t, sh(t, r, home, "init"), 0, "init r")
+	elsewhere := t.TempDir()
+	must(t, os.Rename(filepath.Join(r, "sunstack"), filepath.Join(elsewhere, "sunstack")))
+	must(t, os.Symlink(filepath.Join(elsewhere, "sunstack"), filepath.Join(r, "sunstack")))
+	if out := sh(t, p, home, "migrate", "--host").out; strings.Contains(out, r) {
+		t.Errorf("symlinked team still migrated: %s", out)
+	}
+
+	// --op matches the whole message: another session is another message.
+	tok := field(tokenRe, sh(t, p, home, "as", "builder.alice", "--task", "api").out)
+	sh(t, p, home, "as", "builder.alice", "--join", "--task", "docs")
+	_ = tok
+	m1 := field(msgRe, sh(t, p, home, "send", "builder.alice_api", "same", "--op", "o1").out)
+	m2 := field(msgRe, sh(t, p, home, "send", "builder.alice_docs", "same", "--op", "o1").out)
+	if m1 == "" || m1 == m2 {
+		t.Errorf("different sessions with one --op: %q %q", m1, m2)
+	}
+
+	// Concurrent sends with one --op deliver once.
+	var wg sync.WaitGroup
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func() { defer wg.Done(); sh(t, p, home, "send", "reviewer", "race", "--op", "race-1", "--no-nudge") }()
+	}
+	wg.Wait()
+	n := 0
+	for _, f := range listMD(t, filepath.Join(p, "sunstack", "_local", "inbox", "reviewer")) {
+		if b, _ := os.ReadFile(f); strings.Contains(string(b), "op: race-1") {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Errorf("concurrent --op sends delivered %d messages", n)
+	}
+}
+
+func listMD(t *testing.T, dir string) []string {
+	m, _ := filepath.Glob(filepath.Join(dir, "*.md"))
+	return m
+}

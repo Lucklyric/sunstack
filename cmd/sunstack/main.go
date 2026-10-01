@@ -742,7 +742,7 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 		var err2 error
 		switch {
 		case strings.HasPrefix(to, "%") || core.IsSessionID(to):
-			s, err := core.FindSession(to)
+			s, err := core.FindSession(to, tmuxSocket())
 			if err != nil {
 				return err
 			}
@@ -1068,10 +1068,18 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 				return &core.Error{Code: core.ExitFail, Reason: "fs", Msg: err.Error()}
 			}
 		}
-		if p, err := core.FindProject(a.flags["root"]); err == nil && !a.has("host") && a.flags["scan"] == "" {
-			teams = []*core.Project{p}
-		} else {
+		hostWide := a.has("host") || a.flags["scan"] != ""
+		if hostWide && a.flags["root"] != "" {
+			return &core.Error{Code: core.ExitUsage, Reason: "usage", Msg: "use --root for one team, or --host / --scan for many, not both"}
+		}
+		if hostWide {
 			teams = core.IndexedProjects()
+		} else {
+			p, err := core.FindProject(a.flags["root"])
+			if err != nil {
+				return err // never widen a failed lookup to every team
+			}
+			teams = []*core.Project{p}
 		}
 		core.ThisHost()
 		type row struct {

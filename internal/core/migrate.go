@@ -31,7 +31,9 @@ func (p *Project) MigratePlan() []MigrateStep {
 	if _, err := os.Stat(p.teamBoardPath()); err != nil {
 		out = append(out, MigrateStep{"create sunstack/BOARD.md (team objectives and directives)", true})
 	}
-	if gi, _, _ := readMaybe(filepath.Join(p.Root, ".gitignore")); !hasLine(gi, "sunstack/_local/") {
+	if gi, _, err := readMaybe(filepath.Join(p.Root, ".gitignore")); err != nil {
+		out = append(out, MigrateStep{"fix .gitignore by hand: it cannot be read (" + err.Error() + ")", false})
+	} else if !hasLine(gi, "sunstack/_local/") {
 		out = append(out, MigrateStep{"add sunstack/_local/ to .gitignore", true})
 	}
 	if b, err := os.ReadFile(filepath.Join(p.Dir, "PROTOCOL.md")); err == nil && !bytes.Equal(b, assets.Protocol()) {
@@ -79,7 +81,11 @@ func (p *Project) Migrate(all bool) ([]string, error) {
 			done = append(done, "created sunstack/BOARD.md")
 		}
 		gi := filepath.Join(p.Root, ".gitignore")
-		if b, _, _ := readMaybe(gi); !hasLine(b, "sunstack/_local/") {
+		b, _, err := readMaybe(gi)
+		if err != nil {
+			return done, fail(ExitFail, "fs", "cannot read %s, left as it is: %v", gi, err)
+		}
+		if !hasLine(b, "sunstack/_local/") {
 			if len(b) > 0 && b[len(b)-1] != '\n' {
 				b = append(b, '\n')
 			}
