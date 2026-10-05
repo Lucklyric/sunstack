@@ -26,6 +26,11 @@ addressees: `all`, titles (`researcher`: every researcher), or IDs (`researcher.
 Check the IDs and titles against `sunstack team`. If the instruction is vague (no clear
 action, or unclear who it is for), ask one question with 2 to 4 concrete suggestions.
 
+A directive sets direction for whole roles. If the user instead wants one agent to do one
+piece of work with a result, that is a task: offer to send it as a task brief with the message
+skill (Goal, Scope, Done when, Verify, Report), so the agent knows its limits and how to prove
+it is done.
+
 If it conflicts with a pillar or an earlier directive (`sunstack board` lists them), point
 that out and ask how to resolve it before adding.
 

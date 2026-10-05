@@ -35,7 +35,10 @@ resume it. `sunstack team` shows the same per agent.
    - several sessions are being started at once;
    - long background work the user does not need to watch;
    - the user asked for a separate window.
-3. Show the plan (agent, tool, task, first instruction, pane or window) and ask:
+   If the new session is for a piece of work with a result, write a task brief (the message
+   skill's template: Goal, Scope, Done when, Verify, Report) to a file and pass it with
+   `--brief`; the session finds it in its inbox as its first task.
+3. Show the plan (agent, tool, task, first instruction, brief, pane or window) and ask:
    start / edit / cancel.
 4. On yes:
 
@@ -43,7 +46,7 @@ resume it. `sunstack team` shows the same per agent.
    sunstack spawn "<id>" --tool <claude|codex> --task "<task>" --note "<first instruction>"
    ```
 
-   Add `--window` for a new window. It splits this pane (side by side when wide, else
+   Add `--window` for a new window, and `--brief "<brief file>"` for a task brief. It splits this pane (side by side when wide, else
    stacked) in the project root, claims the agent for the new session, and starts the CLI
    with a first prompt that takes on the identity. The new session may stop at its first-run
    prompts (folder trust, sign-in); tell the user which pane to look at.
@@ -51,6 +54,11 @@ resume it. `sunstack team` shows the same per agent.
      be at a login or trust prompt, or have exited. Tell the user which pane to look at.
    - **4 `task_taken`**: another session of that agent already has this task label; pick
      another.
+   - **4 `team_full`**: the team already has `max_sessions` live sessions (`sunstack/TEAM`,
+     default 6); the error lists them with their `doing` lines. Offer to finish one (dismiss) or
+     to start it anyway; only on the user's yes rerun with `--over-cap`. A lead handing out
+     many tasks starts the next session when one finishes, not all at once.
+   - **2 `missing_brief`**: the brief lacks the labels named; fill them in. Nothing was opened.
    - **1 `no_space`**: this pane is too small to split; offer `--window` instead.
    - **1 `no_tmux`**: give the manual steps above.
    - **1 / 2 other**: show the error.

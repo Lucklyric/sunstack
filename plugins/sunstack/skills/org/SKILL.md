@@ -49,6 +49,12 @@ messages at its next prompt), or move it into tmux: the user exits it where it r
 then `sunstack reopen <session id>` resumes the same conversation in a pane beside this one
 (`--window` for a new window). An agent's claim follows it to the new pane.
 
+**Asks.** Agents' questions for the user show in the attention list as
+`<id>#Q<n> asks the user: <question> (options: ...) (default: <answer> after <date>)`. Offer
+to go through them in one pass. For each answer the user gives, run
+`sunstack answer --root "<team root>" "<id>" Q<n> "<answer>"`. Asks "decided by default" stay
+listed until archived, so the user can overrule one with an answer message.
+
 ## 2. Report
 
 Lead with what needs the user, then a short line per team (objectives moving, who is working,

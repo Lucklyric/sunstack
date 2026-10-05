@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -54,13 +55,19 @@ func ThisHost() HostInfo {
 
 // TeamFile is sunstack/TEAM: the team's ID and name, committed with the team
 // so every host recognizes it, whatever the path.
-type TeamFile struct{ ID, Name string }
+type TeamFile struct {
+	ID, Name    string
+	MaxSessions int // live sessions per team on a host before spawn refuses (§16.7)
+}
+
+// DefaultMaxSessions is the session cap when TEAM sets none.
+const DefaultMaxSessions = 6
 
 func (p *Project) teamFilePath() string { return filepath.Join(p.Dir, "TEAM") }
 
 // Team reads sunstack/TEAM. ok is false for a team made before v0.8.
 func (p *Project) Team() (TeamFile, bool) {
-	t := TeamFile{Name: filepath.Base(p.Root)}
+	t := TeamFile{Name: filepath.Base(p.Root), MaxSessions: DefaultMaxSessions}
 	b, err := os.ReadFile(p.teamFilePath())
 	if err != nil {
 		return t, false
@@ -77,6 +84,8 @@ func (p *Project) Team() (TeamFile, bool) {
 			if v = strings.TrimSpace(v); v != "" {
 				t.Name = v
 			}
+		case "max_sessions":
+			t.MaxSessions, _ = strconv.Atoi(strings.TrimSpace(v))
 		}
 	}
 	return t, t.ID != ""

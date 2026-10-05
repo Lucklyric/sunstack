@@ -11,14 +11,16 @@ import (
 
 // SpawnOptions are the inputs of `sunstack spawn`.
 type SpawnOptions struct {
-	Arg    string // agent ID or title
-	Tool   string // claude or codex
-	Task   string // session label
-	Socket string // tmux server of the caller, from $TMUX
-	Server string // that server's PID
-	Note   string // what the new session should do first, in words
-	Window bool   // open a new tmux window instead of a pane beside the caller
-	Caller string // the caller's pane, from $TMUX_PANE
+	Arg     string // agent ID or title
+	Tool    string // claude or codex
+	Task    string // session label
+	Socket  string // tmux server of the caller, from $TMUX
+	Server  string // that server's PID
+	Note    string // what the new session should do first, in words
+	Window  bool   // open a new tmux window instead of a pane beside the caller
+	Caller  string // the caller's pane, from $TMUX_PANE
+	Brief   string // a task brief, put in the new session's inbox (checked by the caller)
+	OverCap bool   // start it even when the team is at max_sessions
 }
 
 // SpawnResult is a started session. Running is false when the CLI was not
@@ -42,6 +44,11 @@ func (p *Project) Spawn(o SpawnOptions) (*SpawnResult, error) {
 	}
 	if strings.ContainsAny(o.Note, "'\n") {
 		return nil, fail(ExitUsage, "usage", "keep single quotes and line breaks out of the note")
+	}
+	if !o.OverCap {
+		if err := p.checkCap(); err != nil {
+			return nil, err
+		}
 	}
 	if o.Socket == "" {
 		return nil, fail(ExitFail, "no_tmux", "spawn opens a tmux window, so run it inside tmux; otherwise start %s yourself and take on the agent there", o.Tool)
@@ -134,6 +141,12 @@ func (p *Project) Spawn(o SpawnOptions) (*SpawnResult, error) {
 		return nil, fail(ExitFail, "tmux", "could not start %s: %v", o.Tool, err)
 	}
 	p.LogEvent("spawn", name, "tool="+o.Tool, "pane="+pane)
+	if o.Brief != "" {
+		// No nudge: the first prompt already checks the inbox.
+		if _, err := p.Send(SendOptions{To: name, Body: o.Brief, Type: "task", NoNudge: true}); err != nil {
+			return nil, fail(ExitFail, "brief", "started %s but could not deliver the brief: %v; send it with sunstack send %s --type task --file <brief>", name, err, name)
+		}
+	}
 	running := false
 	for i := 0; i < 20 && !running; i++ {
 		time.Sleep(250 * time.Millisecond)
@@ -293,4 +306,29 @@ func (p *Project) Kill(t string) (string, error) {
 	p.requeue(id, rest)
 	p.LogEvent("kill", name, "pane="+c.TmuxPane)
 	return "closed " + name + " (pane " + c.TmuxPane + ")", nil
+}
+
+// checkCap refuses a spawn when the team already has max_sessions live
+// sessions (§16.7), listing them so the user can choose one to finish.
+func (p *Project) checkCap() error {
+	tf, _ := p.Team()
+	if tf.MaxSessions <= 0 {
+		tf.MaxSessions = DefaultMaxSessions
+	}
+	var live []string
+	for _, id := range p.Agents() {
+		claims, _ := p.Claims(id)
+		claims, _ = p.pruneStale(id, claims, "")
+		for _, c := range claims {
+			line := c.Label(id)
+			if c.Doing != "" {
+				line += " (doing: " + c.Doing + ")"
+			}
+			live = append(live, line)
+		}
+	}
+	if len(live) < tf.MaxSessions {
+		return nil
+	}
+	return fail(ExitClaim, "team_full", "the team has %d live session(s), at its max_sessions: %d (sunstack/TEAM): %s; finish one first (sunstack dismiss), or pass --over-cap after the user agrees", len(live), tf.MaxSessions, strings.Join(live, ", "))
 }

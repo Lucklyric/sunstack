@@ -399,6 +399,7 @@ func (p *Project) As(o AsOptions) (*AsResult, error) {
 func (p *Project) Bundle(r *AsResult) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "sunstack: %s %s\n", r.Mode, r.ID)
+	b.WriteString(p.sinceLastSave(r.ID))
 	section := func(title, path string) {
 		if c, err := os.ReadFile(path); err == nil {
 			fmt.Fprintf(&b, "\n===== %s =====\n%s", title, c)

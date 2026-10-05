@@ -56,7 +56,10 @@ the token.
 
 ## Handle the exit code
 
-- **0**: the output is your identity. Read all of it: protocol, team pillars, the team
+- **0**: the output is your identity. If it starts with "Since your last save", read that
+  first: the commits, other agents' needs on you, and new messages since your last save. Then
+  continue from your board's Now entries; do not redo work the board marks done or rerun checks
+  a `verified:` line records. Read all of it: protocol, team pillars, the team
   `BOARD.md`, `AGENT.md`, agent pillars, your `board.md`, context, threads, inbox. From now on
   act as this agent, within the pillars and toward the objectives. Keep the `session state`
   values (root, id, token, task) in the conversation; every later save or release needs them.

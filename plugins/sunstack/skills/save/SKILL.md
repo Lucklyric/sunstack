@@ -36,6 +36,21 @@ Every entry you write starts with today's date: `- <YYYY-MM-DD> ...`.
   `session_name` from session state and `hostname -s`, so sessions on other hosts can tell
   whose it is. Leave other sessions' Now entries as they are. A key result that fits no objective goes to
   Open questions in context, for the user.
+  - **Done needs proof**: an entry moving to Done ends with `(verified: <how> [@ <commit>])`,
+    naming checks this session actually ran (`go test ./...`, `ran the backtest on 2026-09`,
+    `user reviewed`), with the short commit when there is one. With nothing to run, write
+    `(verified: none, <reason>)`. Never write a check you did not run.
+  - **Asks**: a decision only the user can make goes under `## Asks`:
+    `- <date> Q<n> <question> (options: <a> | <b>) (default: <a> after <date>) (by: <session>@<host>)`.
+    The default is required; pick the safer choice and a date a few days out. Key results that
+    wait on it carry `needs: user#Q<n>`. An `answer` message, or the user's answer in this
+    session, moves it to Done with `(answered: <answer>)` and a Decision. An ask past its
+    date with no answer: take the default, move it to Done with `(answered: default)`, add
+    `- <date> Took the default for Q<n>: <answer>` under Decisions, and tell the user. Never
+    make an ask of something that needs explicit approval (step 2, hires, fires, anything
+    irreversible).
+  - **Leave it resumable**: each Now entry this session owns says where it stands and the next
+    step, so a fresh session can continue from the board alone.
 - **context**: new decisions with reasons, pitfalls, open questions, and processed messages
   that had real effects. If a thread is finished, its conclusion goes in here too, so it is
   committed before the thread is removed (end of step 5). Not a log of steps, not what git or the code already shows. Write
@@ -50,6 +65,13 @@ Every entry you write starts with today's date: `- <YYYY-MM-DD> ...`.
   change: go to step 2.
 - **AGENT.md**: should this agent's way of working change for this project? Also a rule
   change: step 2.
+- **repeats**: compare this session's new Pitfalls with the ones already in context, and look
+  for a correction the user gave twice in this session. Each repeat gets one proposal, the
+  strongest that works, in this order: a check that catches it (a test, lint or script in the
+  project, or a `checkup` check when it is about Sunstack itself), then a pillar line, then a
+  line in `AGENT.md`. A check is ordinary project work: offer it to the user. A pillar or
+  `AGENT.md` line goes through step 2. Record a declined proposal under Proposals with
+  `declined` and the date, and do not propose that repeat again.
 
 The user can also ask directly to change a pillar or this agent's `AGENT.md`; handle it in
 step 2 the same way. If nothing is worth keeping, say so and stop.
@@ -143,7 +165,14 @@ context first, then delete against the new checksum.
 Run `sunstack tidy "<id>" --root "<root>"`: it moves Done entries older than a week to the
 archive. If the board is still longer than about 40 lines, shorten Next.
 
-## 7. Doing
+## 7. Before a stop
+
+When this save comes before `release`, a pause, or the end of the session: finish or back out
+of the current step and start nothing new. Run `git status --short` in the project folder; if
+there are uncommitted files, list them and ask the user whether to commit them as one `wip:`
+commit. Never commit without that yes, and record the answer in the Now entry.
+
+## 8. Doing
 
 If what this session is doing has changed, update its line:
 `sunstack doing --root "<root>" "<id>" "<one line>" --token "<token>"` (`""` clears it).

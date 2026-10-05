@@ -1,6 +1,6 @@
 ---
 name: message
-description: Send a message to another Sunstack agent, one of its sessions, an agent in another team on this machine, or any running Claude Code or Codex session (a question, a handoff, an fyi, a done reply), which lands in its inbox and nudges a live Claude Code or Codex session of that agent through tmux. Use when the user says "sunstack send", "sunstack message", "/sunstack:message", "tell the reviewer agent ...", "hand this to <agent id>", or when this session, working as a Sunstack agent, needs something from a teammate or must reply to a message (to handle incoming messages, use the check skill). Only when Sunstack is installed.
+description: Send a message to another Sunstack agent, one of its sessions, an agent in another team on this machine, or any running Claude Code or Codex session (a task with a brief, a question, a handoff, an fyi, a done reply), which lands in its inbox and nudges a live Claude Code or Codex session of that agent through tmux. Use when the user says "sunstack send", "sunstack message", "/sunstack:message", "tell the reviewer agent ...", "hand this to <agent id>", or when this session, working as a Sunstack agent, needs something from a teammate or must reply to a message (to handle incoming messages, use the check skill). Only when Sunstack is installed.
 ---
 
 # Sunstack: message
@@ -31,9 +31,25 @@ in tmux; otherwise the message waits and shows at that session's next prompt.
     its session ID, from `sunstack org --by host`. A session without an agent gets it in its
     host inbox; one working as an agent gets it in that agent's inbox. `shutdown` is not
     allowed for a session without an agent.
-- **Type**: `question` (needs an answer), `handoff` (the recipient takes over a piece of work),
+- **Type**: `task` (work with a result, carried by a brief; see below), `question` (needs an answer), `handoff` (the recipient takes over a piece of work as it stands),
   `fyi` (no action needed), `done` (the reply that closes a question or handoff; use
   `--reply-to <message id>`), `shutdown` (only through the spawn skill's dismiss).
+- **Brief, for a `task`**: write it to a file in this session's scratch or temporary folder, one
+  label per line (a label may continue on indented lines below it):
+
+  ```text
+  Goal: <the outcome, in one sentence a stranger could act on>
+  Scope: <what it may change, and what it must not touch>
+  Done when:
+    - <checkable criterion>
+  Verify: <the exact commands or steps that prove it>
+  Report: <what the reply must contain>
+  Context: <files, messages or earlier reports it cannot see otherwise> (optional)
+  Timebox: <when to stop and report what is done> (optional)
+  Not: <anything else forbidden> (optional)
+  ```
+
+  A field you cannot fill means the task is not scoped yet: settle it with the user first.
 - If the user asked you to send it, show the exact text, recipient and type first and ask
   (send / edit / cancel), unless they already gave the exact wording. An agent's own routine
   `done` reply needs no confirmation.
@@ -44,6 +60,8 @@ in tmux; otherwise the message waits and shows at that session's next prompt.
 sunstack send "<recipient>" "<text>" --type <type> --from "<id>" --token "<token>"
 ```
 
+For a `task`, or any long text, pass the file instead of the text:
+`sunstack send "<recipient>" --type task --file "<brief file>" --from "<id>" --token "<token>"`.
 Leave out `--from` and `--token` when this session has no identity. Add
 `--reply-to "<message id>"` for a reply. If you may send the same message again (a retry after
 an unclear result, or a step that can run twice), add `--op "<short id>"`: the same id and text
@@ -56,9 +74,10 @@ return the earlier message instead of a second one.
 - **1 `not_found`**: the recipient does not exist or that session is gone; offer the agent ID
   instead, or the spawn skill to start a session.
 - **2 `missing_arguments`**: a title with several agents; ask which one.
+- **2 `missing_brief`**: the brief lacks the labels it names; fill them in and send again.
 - **4 `token`**: this session no longer holds the identity; stop and tell the user.
 
 ## 3. Follow up
 
-For a `question` or `handoff`, note it on your board (`needs: <id>#KR<n>` if it blocks a key
+For a `task`, `question` or `handoff`, note it on your board (`needs: <id>#KR<n>` if it blocks a key
 result) or in context under Open questions, so the next save keeps track of it.

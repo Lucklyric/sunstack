@@ -52,6 +52,7 @@ type OrgAgent struct {
 	ID       string         `json:"id"`
 	Duty     string         `json:"duty"`
 	Now      []string       `json:"now"`
+	Done     []string       `json:"done"` // Done entries still on the board, with how each was checked
 	Pending  int            `json:"pending"`
 	Sessions []*HostSession `json:"sessions"`
 }
@@ -135,6 +136,9 @@ func (o *Org) fillEmpty() {
 		for _, a := range t.Agents {
 			if a.Now == nil {
 				a.Now = []string{}
+			}
+			if a.Done == nil {
+				a.Done = []string{}
 			}
 			if a.Sessions == nil {
 				a.Sessions = []*HostSession{}
@@ -262,6 +266,13 @@ func (p *Project) orgTeam(sessions []*HostSession, byAgent map[string][]*HostSes
 				}
 				a.Now = append(a.Now, line)
 			}
+			if it.Section == "Done" {
+				v := it.Verified
+				if v == "" {
+					v = "missing"
+				}
+				a.Done = append(a.Done, fmt.Sprintf("%s %s (verified: %s)", it.Key, it.Text, v))
+			}
 		}
 		a.Sessions = append(a.Sessions, byAgent[st.ID]...)
 		t.Agents = append(t.Agents, a)
@@ -328,7 +339,7 @@ func (o *Org) attention() []string {
 			waiting(s, t.Name)
 		}
 		for _, is := range t.Issues {
-			if strings.Contains(is, "user") || strings.Contains(is, " was due ") || strings.Contains(is, "not aligned") ||
+			if strings.Contains(is, "user") || strings.Contains(is, "decided by default") || strings.Contains(is, " was due ") || strings.Contains(is, "not aligned") ||
 				strings.Contains(is, "does not exist") || strings.Contains(is, "is not an objective") {
 				out = append(out, t.Name+": "+is)
 			}
@@ -503,6 +514,9 @@ func (o *Org) writePeople(b *strings.Builder) {
 			fmt.Fprintf(b, "  %s  %s\n", a.ID, a.Duty)
 			for _, n := range a.Now {
 				fmt.Fprintf(b, "    now: %s\n", n)
+			}
+			for _, d := range a.Done {
+				fmt.Fprintf(b, "    done: %s\n", d)
 			}
 			if a.Pending > 0 {
 				fmt.Fprintf(b, "    %d message(s) waiting\n", a.Pending)

@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -43,12 +44,15 @@ Boards:
   sunstack board [id]                             objectives, key results by objective, directives, and what
                                                   needs attention (stale, overdue, blocked, not aligned)
   sunstack direct "<text>" [--to ID,TITLE,...]    add a dated directive from the user to BOARD.md (default: all)
+  sunstack answer <id> Q<n> "<answer>"            answer an agent's ask (its board's Asks); the agent records it
   sunstack tidy <id> | --team | --all             archive old finished entries by month; creates a missing board
 
 Sessions and messages:
   sunstack sessions [--json]                      every live session: name, tool, host, tmux place, resume command
-  sunstack send <id|title|id_task|team/id|pane-id|session-id> "<text>" [--type question|handoff|fyi|done|shutdown] [--reply-to MSG]
-                [--from ID --token T] [--no-nudge] [--op ID]
+  sunstack send <id|title|id_task|team/id|pane-id|session-id> "<text>"|--file F [--type task|question|handoff|fyi|done|shutdown]
+                [--reply-to MSG] [--from ID --token T] [--no-nudge] [--op ID]
+                                                  a task carries a brief: Goal, Scope, Done when, Verify, Report
+                                                  (Context, Timebox, Not optional); a brief missing one is refused
                                                   write a message to the agent's inbox, then type a one-line nudge
                                                   into a live Claude Code or Codex pane of that agent (tmux)
   sunstack check <id> --token T                   messages this session may handle (pending, and taken by it)
@@ -56,8 +60,9 @@ Sessions and messages:
   sunstack ack <id> <msg> --token T               archive a handled message
   sunstack check|take|ack --session [<msg>]       the same for a session that works as no agent (its host inbox)
   sunstack whoami [--root DIR]
-  sunstack spawn <id|title> [--tool claude|codex] [--task LABEL] [--note "..."] [--window]
-                                                  split this pane (--window: a new window) and start a session as that agent
+  sunstack spawn <id|title> [--tool claude|codex] [--task LABEL] [--note "..."] [--brief FILE] [--window] [--over-cap]
+                                                  split this pane (--window: a new window) and start a session as that agent;
+                                                  --brief puts a task in its inbox; refused at max_sessions (sunstack/TEAM, default 6)
   sunstack dismiss <id|id_task>                   ask a session to finish (a shutdown message)
   sunstack kill <id_task|id> [--yes]              close that one session's tmux pane now (asks first; unsaved work is lost)
   sunstack hr                                     staffing facts: load, idle agents, uncovered objectives, gaps,
@@ -154,6 +159,17 @@ func (a *args) atMost(n int, cmd string) error {
 		return &core.Error{Code: core.ExitUsage, Reason: "usage", Msg: fmt.Sprintf("too many arguments for %s: %s (see sunstack help)", cmd, strings.Join(a.pos[n:], " "))}
 	}
 	return nil
+}
+
+var askKeyRe = regexp.MustCompile(`^Q[0-9]+$`)
+
+// readBody reads a message body or brief from a file.
+func readBody(path string) (string, error) {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return "", &core.Error{Code: core.ExitFail, Reason: "not_found", Msg: fmt.Sprintf("cannot read %s: %v", path, err)}
+	}
+	return string(b), nil
 }
 
 // tmuxSocket is the server socket from $TMUX ("socket,pid,session").
@@ -607,6 +623,45 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 		fmt.Fprint(stdout, out)
 		return nil
 
+	case "answer":
+		// The user answers an agent's ask (§16.4). The agent writes its own
+		// board, so this only sends it the answer.
+		a, err := parse(rest, "root", "no-nudge")
+		if err == nil {
+			err = a.atMost(3, "answer")
+		}
+		if err != nil {
+			return err
+		}
+		if len(a.pos) < 3 {
+			return missing("id, ask key (Q<n>) and answer")
+		}
+		if !askKeyRe.MatchString(a.pos[1]) {
+			return &core.Error{Code: core.ExitUsage, Reason: "usage", Msg: "the ask key looks like Q1 (see the Asks on sunstack board)"}
+		}
+		p, err := core.FindProject(a.flags["root"])
+		if err != nil {
+			return err
+		}
+		ask, ok := p.OpenAsk(a.pos[0], a.pos[1])
+		if !ok {
+			return &core.Error{Code: core.ExitFail, Reason: "not_found", Msg: fmt.Sprintf("%s has no open ask %s", a.pos[0], a.pos[1])}
+		}
+		tool, session := detectTool()
+		body := fmt.Sprintf("%s: %s\n\nThe ask was: %s\n", ask.Key, a.pos[2], ask.Text)
+		r, err := p.Send(core.SendOptions{To: a.pos[0], Body: body, Type: "answer", NoNudge: a.has("no-nudge"), FromSession: session,
+			Via: p.CallerLabel(tool, session, os.Getenv("TMUX_PANE"), tmuxSocket())})
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(stdout, "sunstack: sent %s to %s\n", r.ID, r.To)
+		if r.Nudged != "" {
+			fmt.Fprintf(stdout, "nudged session %s\n", r.Nudged)
+		} else {
+			fmt.Fprintf(stdout, "%s\n", r.Note)
+		}
+		return nil
+
 	case "direct":
 		a, err := parse(rest, "root to", "")
 		if err == nil {
@@ -706,18 +761,30 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 		return nil
 
 	case "send":
-		a, err := parse(rest, "root type reply-to from token op", "no-nudge")
+		a, err := parse(rest, "root type reply-to from token op file", "no-nudge")
 		if err == nil {
 			err = a.atMost(2, "send")
 		}
 		if err != nil {
 			return err
 		}
-		if len(a.pos) < 2 {
+		var body string
+		if a.has("file") {
+			// The body from a file, so a long brief needs no shell quoting.
+			if len(a.pos) > 1 {
+				return &core.Error{Code: core.ExitUsage, Reason: "usage", Msg: "give the message text or --file, not both"}
+			}
+			if body, err = readBody(a.flags["file"]); err != nil {
+				return err
+			}
+		} else if len(a.pos) == 2 {
+			body = a.pos[1]
+		}
+		if len(a.pos) < 1 || (len(a.pos) < 2 && !a.has("file")) {
 			return missing("recipient and message text")
 		}
 		tool, session := detectTool()
-		opts := core.SendOptions{To: a.pos[0], Body: a.pos[1], Type: a.flags["type"], ReplyTo: a.flags["reply-to"],
+		opts := core.SendOptions{To: a.pos[0], Body: body, Type: a.flags["type"], ReplyTo: a.flags["reply-to"],
 			From: a.flags["from"], Token: a.flags["token"], NoNudge: a.has("no-nudge"), Op: a.flags["op"], FromSession: session}
 		p, perr := core.FindProject(a.flags["root"])
 		if p != nil {
@@ -850,7 +917,7 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 		return nil
 
 	case "spawn":
-		a, err := parse(rest, "root tool task note", "window")
+		a, err := parse(rest, "root tool task note brief", "window over-cap")
 		if err == nil {
 			err = a.atMost(1, "spawn")
 		}
@@ -859,6 +926,16 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 		}
 		if len(a.pos) < 1 {
 			return missing("id")
+		}
+		brief := ""
+		if a.has("brief") {
+			// Checked before anything opens: a bad brief costs no session.
+			if brief, err = readBody(a.flags["brief"]); err != nil {
+				return err
+			}
+			if err := core.CheckBrief(brief); err != nil {
+				return err
+			}
 		}
 		p, err := core.FindProject(a.flags["root"])
 		if err != nil {
@@ -871,7 +948,7 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 			}
 		}
 		r, err := p.Spawn(core.SpawnOptions{Arg: a.pos[0], Tool: tool, Task: a.flags["task"], Socket: tmuxSocket(), Server: tmuxServer(), Note: a.flags["note"],
-			Window: a.has("window"), Caller: os.Getenv("TMUX_PANE")})
+			Window: a.has("window"), Caller: os.Getenv("TMUX_PANE"), Brief: brief, OverCap: a.has("over-cap")})
 		if err != nil {
 			return err
 		}
@@ -1218,7 +1295,7 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 			if len(held) == 0 {
 				return nil
 			}
-			ctx := "[sunstack] " + whoamiText(p, held) + "Before more Sunstack work, reload the identity files: run the as skill with this id and --token (it resumes the claim, no new one)."
+			ctx := "[sunstack] " + whoamiText(p, held) + rulesText(p, held) + "Before more Sunstack work, reload the identity files: run the as skill with this id and --token (it resumes the claim, no new one)."
 			b, _ := json.Marshal(map[string]any{"hookSpecificOutput": map[string]string{"hookEventName": "SessionStart", "additionalContext": ctx}})
 			fmt.Fprintln(stdout, string(b))
 			return nil
@@ -1279,7 +1356,7 @@ func lifecycle(cmd string, t setup.Targets, yes, skipBinary bool, args []string,
 			step("claude plugin", setup.InstallClaude(out))
 			if setup.HasClaudeRules() {
 				fmt.Fprintf(out, "Claude Code already has the sunstack permission rules\n")
-			} else if yes || setup.Confirm(stdin, out, fmt.Sprintf("Update %s: allow %q (no prompt before each call), and ask before sunstack amend, hire, rename, fire, kill and direct (you approve every rule change and every new or deleted agent)?", setup.ClaudeSettingsPath(), setup.AllowRule), false) {
+			} else if yes || setup.Confirm(stdin, out, fmt.Sprintf("Update %s: allow %q (no prompt before each call), and ask before sunstack amend, hire, rename, fire, kill, direct and answer (you approve every rule change and every new or deleted agent)?", setup.ClaudeSettingsPath(), setup.AllowRule), false) {
 				_, err := setup.SetClaudeRules(true)
 				step("permission rules", err)
 				if err == nil {
@@ -1294,7 +1371,7 @@ func lifecycle(cmd string, t setup.Targets, yes, skipBinary bool, args []string,
 			err := setup.SetCodexRules(true)
 			step("codex rule", err)
 			if err == nil {
-				fmt.Fprintf(out, "wrote %s: Codex asks before sunstack amend, hire, rename, fire, kill and direct\n", setup.CodexRulesPath())
+				fmt.Fprintf(out, "wrote %s: Codex asks before sunstack amend, hire, rename, fire, kill, direct and answer\n", setup.CodexRulesPath())
 			}
 			if setup.CodexAutoReviewsApprovals() {
 				fmt.Fprintln(out, "note: your Codex config sets approvals_reviewer, so Codex approval prompts go to an automatic reviewer, not to you. The rule then cannot guarantee you see each amend; the skill still asks you before every rule change.")
@@ -1407,7 +1484,7 @@ func health(root string, out io.Writer) error {
 	cs = append(cs, core.Check{Level: "ok", Area: "install", Msg: "sunstack " + version})
 	if _, err := exec.LookPath("claude"); err == nil {
 		if setup.HasClaudeRules() {
-			cs = append(cs, core.Check{Level: "ok", Area: "install", Msg: "Claude Code allows sunstack and asks before amend, hire, rename, fire, kill and direct"})
+			cs = append(cs, core.Check{Level: "ok", Area: "install", Msg: "Claude Code allows sunstack and asks before amend, hire, rename, fire, kill, direct and answer"})
 		} else {
 			if setup.HasAllowRule() {
 				cs = append(cs, core.Check{Level: "warn", Area: "migrate", Msg: "Claude Code permission rules are from an older sunstack", Fix: "sunstack update"})
@@ -1419,13 +1496,13 @@ func health(root string, out io.Writer) error {
 	if _, err := exec.LookPath("codex"); err == nil {
 		switch setup.CodexRulesState() {
 		case "current":
-			cs = append(cs, core.Check{Level: "ok", Area: "install", Msg: "Codex asks before amend, hire, rename, fire, kill and direct (" + setup.CodexRulesPath() + ")"})
+			cs = append(cs, core.Check{Level: "ok", Area: "install", Msg: "Codex asks before amend, hire, rename, fire, kill, direct and answer (" + setup.CodexRulesPath() + ")"})
 		case "outdated":
 			cs = append(cs, core.Check{Level: "warn", Area: "migrate", Msg: "Codex rules are from an older sunstack", Fix: "sunstack update"})
 		case "foreign":
 			cs = append(cs, core.Check{Level: "warn", Area: "install", Msg: setup.CodexRulesPath() + " was not written by sunstack", Fix: "merge the sunstack rules by hand"})
 		default:
-			cs = append(cs, core.Check{Level: "warn", Area: "install", Msg: "Codex rules for amend, hire, rename, fire, kill and direct are missing", Fix: "sunstack install --codex"})
+			cs = append(cs, core.Check{Level: "warn", Area: "install", Msg: "Codex rules for amend, hire, rename, fire, kill, direct and answer are missing", Fix: "sunstack install --codex"})
 		}
 		if setup.CodexAutoReviewsApprovals() {
 			cs = append(cs, core.Check{Level: "warn", Area: "install", Msg: "Codex approvals_reviewer sends approval prompts to an automatic reviewer; rule changes rely on the skill asking you"})
@@ -1476,6 +1553,37 @@ func whoamiText(p *core.Project, held []core.Held) string {
 			fmt.Fprintf(&b, "This session holds %s.\n", h.L.Label(h.ID))
 		}
 		b.WriteString(strings.TrimPrefix(p.StateText(h.ID, h.L.Token, h.L.Task), "\n"))
+	}
+	return b.String()
+}
+
+// pillarCap bounds each agent's pillar text in the SessionStart hook.
+const pillarCap = 4096
+
+// rulesText gives back each held agent's effective pillars and unaligned
+// directives after compaction (§16.3), so an agent that acts before it
+// reloads its identity still has its rules.
+func rulesText(p *core.Project, held []core.Held) string {
+	var b strings.Builder
+	boards := p.LoadBoards()
+	seen := map[string]bool{}
+	for _, h := range held {
+		if seen[h.ID] {
+			continue
+		}
+		seen[h.ID] = true
+		pillars, err := p.Pillars(h.ID)
+		if err != nil {
+			continue
+		}
+		if len(pillars) > pillarCap {
+			cut := strings.LastIndex(pillars[:pillarCap], "\n")
+			pillars = pillars[:cut+1] + fmt.Sprintf("... run sunstack pillar %s for the rest\n", h.ID)
+		}
+		fmt.Fprintf(&b, "===== pillars of %s (follow them now, before the reload) =====\n%s", h.ID, pillars)
+		for _, d := range boards.Unaligned(h.ID) {
+			fmt.Fprintf(&b, "not aligned: %s %s %s\n", d.Key, d.Date, d.Text)
+		}
 	}
 	return b.String()
 }

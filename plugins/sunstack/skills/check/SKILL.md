@@ -49,6 +49,15 @@ and ones this session has already taken.
    A message `from: user` that shows `from_session` came through another session: reply to
    that session ID with `--reply-to`. One typed in a terminal (no `from_session`) has nowhere
    to reply to: answer it in this session's own output, where the user reads it, and carry on.
+   - `task`: add a Now entry with the Goal as its text, the Done when criteria and
+     `(by: <session>@<host>)`, then do it inside its Scope. Stop at its Timebox if one is set,
+     and report what is done so far. Reply `done --reply-to <message id>` with what Report asks
+     for and a `verified:` line naming the checks you actually ran (`verified: none, <reason>`
+     when there was nothing to run). Put findings outside the scope in the reply as
+     follow-ups; do not act on them.
+   - `answer`: the user's answer to one of your Asks (`Q<n>: <answer>`). At the save in step 3,
+     move that ask to Done with `(answered: <answer>)`, record the decision under Decisions, and
+     unblock the key results that named `user#Q<n>`.
    - `question`: answer it; to an agent, with the message skill
      (`--type done --reply-to <message id>`).
    - `handoff`: add the work to your board as a key result (with its objective), then do it or
@@ -56,7 +65,8 @@ and ones this session has already taken.
      `question` if blocked.
    - `fyi`: note what matters in context or on your board; no reply needed. An "Align your
      board" request is done by updating the board as asked at the save in step 3.
-   - `done`: a reply to something you sent; close the matching key result or open question.
+   - `done`: a reply to something you sent; close the matching key result or open question. A
+     reply to a `task` without a `verified:` line is not finished: ask for it.
    - `shutdown`: stop taking new work, run the save skill (with the other messages' records),
      ack this message, reply `done` with
      `--reply-to` if it came from an agent, run the release skill, then tell the user this

@@ -2,6 +2,7 @@ package setup
 
 import (
 	"os"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -97,5 +98,19 @@ func TestCodexRulesOnlyTouchOwnFile(t *testing.T) {
 	}
 	if b, _ := os.ReadFile(path); string(b) != "# my own rules\n" {
 		t.Errorf("user file changed: %q", b)
+	}
+}
+
+// Commands that speak for the user or need the user's approval ask first in
+// both CLIs; answer (§16.4) settles an agent's ask in the user's name.
+func TestUserOnlyCommandsAsk(t *testing.T) {
+	for _, c := range []string{"amend", "hire", "rename", "fire", "kill", "direct", "answer"} {
+		if c != "amend" && !slices.Contains(AskRules, "Bash(sunstack "+c+" *)") {
+			t.Errorf("Claude Code does not ask before sunstack %s", c)
+		}
+		if !strings.Contains(codexRules, `pattern = ["sunstack", "`+c+`"],
+    decision = "prompt"`) {
+			t.Errorf("Codex does not ask before sunstack %s", c)
+		}
 	}
 }

@@ -21,7 +21,7 @@ import (
 // messages go back to the inbox.
 
 // MessageTypes are the kinds of message.
-var MessageTypes = []string{"question", "handoff", "fyi", "done", "shutdown"}
+var MessageTypes = []string{"task", "question", "handoff", "fyi", "done", "answer", "shutdown"}
 
 // Message is one inbox entry.
 type Message struct {
@@ -191,6 +191,11 @@ func (p *Project) Send(o SendOptions) (*SendResult, error) {
 	}
 	if !hasType(o.Type) {
 		return nil, fail(ExitUsage, "usage", "type must be one of %s", strings.Join(MessageTypes, ", "))
+	}
+	if o.Type == "task" {
+		if err := CheckBrief(o.Body); err != nil {
+			return nil, err
+		}
 	}
 	if o.ReplyTo != "" && !msgIDRe.MatchString(o.ReplyTo) {
 		return nil, fail(ExitUsage, "usage", "invalid --reply-to message id: %s", o.ReplyTo)

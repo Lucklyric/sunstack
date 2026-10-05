@@ -27,25 +27,29 @@ const (
 
 // Item is one dated board entry.
 type Item struct {
-	Owner   string // agent ID, or "user" for the team board
-	Key     string // O1, KR1, D1
-	Date    string // YYYY-MM-DD: last updated, or done
-	Section string // Objectives, User, Directives, Now, Next, Done
-	Obj     string // the objective a key result serves
-	Text    string
-	Due     string
-	Needs   []string // <id>#KR<n> or user#KR<n>
-	To      []string // directive addressees, or "all"
-	By      string   // the session that owns a Now entry: <id>_<task>@<host>
-	Done    bool
+	Owner    string // agent ID, or "user" for the team board
+	Key      string // O1, KR1, D1
+	Date     string // YYYY-MM-DD: last updated, or done
+	Section  string // Objectives, User, Directives, Now, Next, Done
+	Obj      string // the objective a key result serves
+	Text     string
+	Due      string
+	Needs    []string // <id>#KR<n> or user#KR<n>
+	To       []string // directive addressees, or "all"
+	By       string   // the session that owns a Now entry: <id>_<task>@<host>
+	Verified string   // how a Done entry was checked: <how> [@ <rev>], or none, <reason>
+	Options  string   // an ask's choices: a | b
+	Default  string   // an ask's default: <answer> after <date>
+	Answered string   // how an ask was settled: the answer, or "default"
+	Done     bool
 }
 
 // Ref names a key result across the team: <owner>#<key>.
 func (it Item) Ref() string { return it.Owner + "#" + it.Key }
 
 var (
-	itemRe    = regexp.MustCompile(`^- (\d{4}-\d{2}-\d{2}) (O\d+|KR\d+|D\d+)\b\s*(?:\[(O\d+)\])?\s*(.*)$`)
-	attrRe    = regexp.MustCompile(`\((due|needs|to|via|by):\s*([^)]*)\)`)
+	itemRe    = regexp.MustCompile(`^- (\d{4}-\d{2}-\d{2}) (O\d+|KR\d+|D\d+|Q\d+)\b\s*(?:\[(O\d+)\])?\s*(.*)$`)
+	attrRe    = regexp.MustCompile(`\((due|needs|to|via|by|verified|options|default|answered):\s*([^)]*)\)`)
 	alignedRe = regexp.MustCompile(`(?m)^aligned:\s*D(\d+)\s*$`)
 )
 
@@ -89,6 +93,14 @@ func parseBoard(owner string, doc []byte) (items []Item, undated []string) {
 				it.To = vals
 			case "by":
 				it.By = strings.TrimSpace(a[2])
+			case "verified":
+				it.Verified = strings.TrimSpace(a[2])
+			case "options":
+				it.Options = strings.TrimSpace(a[2])
+			case "default":
+				it.Default = strings.TrimSpace(a[2])
+			case "answered":
+				it.Answered = strings.TrimSpace(a[2])
 			}
 		}
 		if strings.Contains(rest, "(done)") {
@@ -101,6 +113,42 @@ func parseBoard(owner string, doc []byte) (items []Item, undated []string) {
 		items = append(items, it)
 	}
 	return items, undated
+}
+
+// askIssues says what an ask needs (§16.4): an answer from the user, a
+// default, or the agent to take its default once the date has passed.
+func askIssues(it Item, today time.Time) []string {
+	if it.Done {
+		if it.Answered == "default" {
+			return []string{fmt.Sprintf("%s was decided by default: %s", it.Ref(), it.Text)}
+		}
+		return nil
+	}
+	line := fmt.Sprintf("%s asks the user: %s", it.Ref(), it.Text)
+	if it.Options != "" {
+		line += " (options: " + it.Options + ")"
+	}
+	if it.Default == "" {
+		return []string{line, fmt.Sprintf("%s has no default; add (default: <answer> after <date>)", it.Ref())}
+	}
+	line += " (default: " + it.Default + ")"
+	out := []string{line}
+	if _, date, ok := strings.Cut(it.Default, " after "); ok && strings.TrimSpace(date) < today.Format("2006-01-02") {
+		out = append(out, fmt.Sprintf("%s passed its default date %s; the agent takes the default at its next save", it.Ref(), strings.TrimSpace(date)))
+	}
+	return out
+}
+
+// OpenAsk finds an agent's open ask by key.
+func (p *Project) OpenAsk(id, key string) (Item, bool) {
+	doc, _, _ := readMaybe(p.boardPath(id))
+	items, _ := parseBoard(id, doc)
+	for _, it := range items {
+		if it.Key == key && it.Section == "Asks" && !it.Done {
+			return it, true
+		}
+	}
+	return Item{}, false
 }
 
 func splitList(s string) []string {
@@ -123,7 +171,7 @@ func aligned(doc []byte) int {
 }
 
 func keyNum(key string) int {
-	n, _ := strconv.Atoi(strings.TrimLeft(key, "OKRD"))
+	n, _ := strconv.Atoi(strings.TrimLeft(key, "OKRDQ"))
 	return n
 }
 
@@ -211,7 +259,7 @@ func (b *Boards) Issues(today time.Time) []string {
 	}
 	sort.Strings(ids)
 	check := func(it Item) {
-		if it.Done {
+		if it.Done || strings.HasPrefix(it.Key, "Q") {
 			return
 		}
 		switch {
@@ -222,6 +270,16 @@ func (b *Boards) Issues(today time.Time) []string {
 		}
 		for _, n := range it.Needs {
 			if n == "user" {
+				continue
+			}
+			if q, isAsk := strings.CutPrefix(n, "user#"); isAsk && strings.HasPrefix(q, "Q") {
+				// An ask on the agent's own board (§16.4).
+				switch ask, ok := byRef[it.Owner+"#"+q]; {
+				case !ok:
+					out = append(out, fmt.Sprintf("%s needs %s, which is not in its Asks", it.Ref(), n))
+				case !ask.Done:
+					out = append(out, fmt.Sprintf("%s is waiting on the user (%s)", it.Ref(), q))
+				}
 				continue
 			}
 			dep, ok := byRef[n]
@@ -251,6 +309,15 @@ func (b *Boards) Issues(today time.Time) []string {
 	for _, id := range ids {
 		for _, it := range b.Agents[id] {
 			check(it)
+		}
+		for _, it := range b.Agents[id] {
+			// Proof of done (§16.2): a Done entry says how it was checked.
+			if it.Section == "Done" && it.Verified == "" && !strings.HasPrefix(it.Key, "Q") {
+				out = append(out, fmt.Sprintf("%s is done without a verified: line", it.Ref()))
+			}
+			if strings.HasPrefix(it.Key, "Q") {
+				out = append(out, askIssues(it, today)...)
+			}
 		}
 		for _, d := range b.Unaligned(id) {
 			out = append(out, fmt.Sprintf("%s has not aligned with %s", id, d.Key))

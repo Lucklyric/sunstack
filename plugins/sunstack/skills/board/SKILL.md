@@ -36,7 +36,11 @@ Summarize for the user, short:
 - **Needs attention**, grouped: blocked (waiting on someone), broken (needs something that
   does not exist, or serves no objective), stale (Now entry not updated for a week), overdue,
   undated, and directives an agent has not aligned with yet;
-- where the user is the blocker (`user#KR<n>`, or an agent waiting on `user`).
+- where the user is the blocker (`user#KR<n>`, or an agent waiting on `user`);
+- **Asks** (`<id>#Q<n> asks the user: ...`): each question with its options and default, so the
+  user can answer them in one pass. Answer with
+  `sunstack answer "<id>" Q<n> "<answer>"` once the user has chosen; asks decided by default
+  are listed so the user can overrule them.
 
 ## 3. Offer next steps
 
@@ -67,7 +71,8 @@ agent's board is written only by that agent, so this step asks each agent to fix
 
 1. From the `sunstack board` output, group what needs attention by agent: directives it has
    not aligned with, key results with no or an unknown objective, `needs:` pointing at a key
-   result that does not exist, stale Now entries, overdue and undated entries. A broken need
+   result that does not exist, stale Now entries, overdue and undated entries, Done entries
+   without a `verified:` line, asks without a default, and asks past their default date. A broken need
    (A needs B#KR2, B has none) goes to whichever of the two should change; if unclear, ask.
    Leave out what only the user can fix (objectives, the user's own key results) and list it
    separately for the user.

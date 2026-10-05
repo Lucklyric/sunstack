@@ -59,8 +59,13 @@ func SendToSession(s *HostSession, o SendOptions) (*SendResult, error) {
 	if o.Type == "" {
 		o.Type = "fyi"
 	}
-	if !hasType(o.Type) || o.Type == "shutdown" {
-		return nil, fail(ExitUsage, "usage", "type must be question, handoff, fyi or done for a session without an agent")
+	if !hasType(o.Type) || o.Type == "shutdown" || o.Type == "answer" {
+		return nil, fail(ExitUsage, "usage", "type must be task, question, handoff, fyi or done for a session without an agent")
+	}
+	if o.Type == "task" {
+		if err := CheckBrief(o.Body); err != nil {
+			return nil, err
+		}
 	}
 	if !IsSessionID(s.SessionID) {
 		return nil, fail(ExitFail, "not_found", "that session has no session ID sunstack can address")
