@@ -264,7 +264,7 @@ func (m *model) nextView() string {
 	rightW := m.w - min(46, m.w/2) - 6
 	right := []string{cHeader.Render(fmt.Sprintf("%d. %s", m.nextSel+1, tierName(it.Kind))), "", wrap(it.Text, rightW), "",
 		cHeader.Render("do: ") + wrap(it.Do, rightW-4), "", cDim.Render("owner: " + it.Owner)}
-	return m.panes("Next, most urgent first", left, m.nextSel, right, 0)
+	return m.panes("Next, most urgent first", left, m.nextSel, right, m.nextScroll)
 }
 
 func tierName(k string) string {

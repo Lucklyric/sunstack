@@ -3,6 +3,7 @@ package tui
 import (
 	"os"
 	"os/exec"
+	"runtime"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -144,6 +145,8 @@ func key(k string) tea.KeyMsg {
 		return tea.KeyMsg{Type: tea.KeyTab}
 	case "esc":
 		return tea.KeyMsg{Type: tea.KeyEsc}
+	case "pgdown":
+		return tea.KeyMsg{Type: tea.KeyPgDown}
 	}
 	return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(k)}
 }
@@ -383,5 +386,47 @@ func TestRemembersLastTabAndTeam(t *testing.T) {
 	}
 	if m = startModel(alpha, false); m.view != viewTeam || m.p.Root != alpha.Root {
 		t.Errorf("a broken file opens the folder's team on the team tab, got %d", m.view)
+	}
+}
+
+// Saving never writes through a symlink left at the temporary name.
+func TestStateSaveIgnoresSymlink(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlinks need privileges on Windows")
+	}
+	home := t.TempDir()
+	t.Setenv("SUNSTACK_HOME", home)
+	sentinel := filepath.Join(t.TempDir(), "sentinel")
+	os.WriteFile(sentinel, []byte("keep"), 0o644)
+	if err := os.Symlink(sentinel, filepath.Join(home, "tui.json.tmp")); err != nil {
+		t.Fatal(err)
+	}
+	p := newTeam(t, t.TempDir(), "builder.a")
+	m := startModel(p, false)
+	m.Update(key("n"))
+	if b, _ := os.ReadFile(sentinel); string(b) != "keep" {
+		t.Errorf("the save wrote through the symlink: %q", b)
+	}
+	if s, ok := loadState(); !ok || s.View != "next" {
+		t.Errorf("state not saved: %+v %v", s, ok)
+	}
+}
+
+// pgdown scrolls the Next tab's detail pane, so a long item's action shows.
+func TestNextDetailScrolls(t *testing.T) {
+	t.Setenv("SUNSTACK_HOME", t.TempDir())
+	p := newTeam(t, t.TempDir(), "builder.a")
+	m := newModel(p, false)
+	m.w, m.h = 90, 12
+	m.view = viewNext
+	m.nextItems = []core.Issue{{Kind: "user", Owner: "user", Text: strings.Repeat("a long decision to read ", 40), Do: "the action at the end"}}
+	if strings.Contains(m.View(), "the action at the end") {
+		t.Fatal("the test needs the action below the fold")
+	}
+	for i := 0; i < 3 && !strings.Contains(m.View(), "the action at the end"); i++ {
+		m.Update(key("pgdown"))
+	}
+	if !strings.Contains(m.View(), "the action at the end") {
+		t.Errorf("pgdown did not scroll the detail:\n%s", m.View())
 	}
 }

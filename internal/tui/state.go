@@ -49,10 +49,19 @@ func (m *model) saveState() {
 	if os.MkdirAll(filepath.Dir(path), 0o755) != nil {
 		return
 	}
-	tmp := path + ".tmp"
-	if os.WriteFile(tmp, b, 0o644) == nil && os.Rename(tmp, path) == nil {
-		m.saved = s
+	// A fresh temporary file of our own: never one left at a fixed name, and
+	// never shared with another dashboard saving at the same time.
+	f, err := os.CreateTemp(filepath.Dir(path), ".tui-*.json")
+	if err != nil {
+		return
 	}
+	_, werr := f.Write(b)
+	cerr := f.Close()
+	if werr != nil || cerr != nil || os.Rename(f.Name(), path) != nil {
+		os.Remove(f.Name())
+		return
+	}
+	m.saved = s
 }
 
 // startModel opens the dashboard: the folder's team (or, outside a team, the

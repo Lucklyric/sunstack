@@ -32,6 +32,7 @@ type Message struct {
 	Body                                          string
 	State                                         string // pending, taken (by this session), taken by <label>
 	path                                          string
+	mod                                           time.Time // the file's time, to order messages sent in the same second
 }
 
 var msgIDRe = regexp.MustCompile(`^[0-9]{8}T[0-9]{6}Z-[a-z0-9._-]+-[0-9a-f]{6}$`)
@@ -142,6 +143,9 @@ type SendOptions struct {
 	FromLabel   string
 	FromSession string // the sending CLI session's ID, if known
 	Follows     string // an earlier task this task follows up; its brief and replies are quoted
+	// FromAnswer marks the answer command (approval-gated): only it may send
+	// an answer, which speaks for the user on an ask.
+	FromAnswer bool
 }
 
 // SendResult says where a message went.
@@ -203,6 +207,9 @@ func (p *Project) Send(o SendOptions) (*SendResult, error) {
 		if err := CheckBrief(o.Body); err != nil {
 			return nil, err
 		}
+	}
+	if o.Type == "answer" && !o.FromAnswer {
+		return nil, fail(ExitUsage, "usage", "an answer speaks for the user; only sunstack answer sends one")
 	}
 	if o.Follows != "" {
 		if o.Type != "task" {

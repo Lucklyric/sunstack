@@ -741,7 +741,7 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 		}
 		tool, session := detectTool()
 		body := fmt.Sprintf("%s: %s\n\nThe ask was: %s\n", ask.Key, a.pos[2], ask.Text)
-		r, err := p.Send(core.SendOptions{To: a.pos[0], Body: body, Type: "answer", NoNudge: a.has("no-nudge"), FromSession: session,
+		r, err := p.Send(core.SendOptions{To: a.pos[0], Body: body, Type: "answer", FromAnswer: true, NoNudge: a.has("no-nudge"), FromSession: session,
 			Via: p.CallerLabel(tool, session, os.Getenv("TMUX_PANE"), tmuxSocket())})
 		if err != nil {
 			return err
@@ -1036,8 +1036,9 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 		if err != nil {
 			return err
 		}
-		callerTool, _ := detectTool()
-		r, err := p.Spawn(core.SpawnOptions{Arg: a.pos[0], Tool: a.flags["tool"], DefaultTool: callerTool, Task: a.flags["task"], Socket: tmuxSocket(), Server: tmuxServer(), Note: a.flags["note"],
+		callerTool, callerSession := detectTool()
+		r, err := p.Spawn(core.SpawnOptions{Arg: a.pos[0], Tool: a.flags["tool"], DefaultTool: callerTool,
+			FromSession: callerSession, Via: p.CallerLabel(callerTool, callerSession, os.Getenv("TMUX_PANE"), tmuxSocket()), Task: a.flags["task"], Socket: tmuxSocket(), Server: tmuxServer(), Note: a.flags["note"],
 			Window: a.has("window"), Caller: os.Getenv("TMUX_PANE"), Brief: brief, OverCap: a.has("over-cap")})
 		if err != nil {
 			return err

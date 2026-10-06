@@ -17,7 +17,11 @@ var haltRe = regexp.MustCompile(`(?m)^halt:[ \t]*(\S+)[ \t]+(.+?)[ \t]*\n?$`)
 
 // Halted returns the halt line's date and reason, if the team is halted.
 func (p *Project) Halted() (date, reason string, ok bool) {
-	doc, _, _ := readMaybe(p.teamBoardPath())
+	doc, _, err := readMaybe(p.teamBoardPath())
+	if err != nil {
+		// A halt that cannot be read must not end quietly.
+		return today(), fmt.Sprintf("BOARD.md cannot be read (%v); treat the team as halted until it can", err), true
+	}
 	if m := haltRe.FindSubmatch(doc); m != nil {
 		return string(m[1]), string(m[2]), true
 	}

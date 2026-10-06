@@ -23,6 +23,8 @@ type SpawnOptions struct {
 	Caller      string // the caller's pane, from $TMUX_PANE
 	Brief       string // a task brief, put in the new session's inbox (checked by the caller)
 	OverCap     bool   // start it even when the team is at max_sessions
+	Via         string // the agent session that spawned it, for the brief
+	FromSession string // that session's CLI session ID, so a reply can reach it
 }
 
 // SpawnResult is a started session. Running is false when the CLI was not
@@ -50,13 +52,17 @@ func (p *Project) Spawn(o SpawnOptions) (*SpawnResult, error) {
 	if strings.ContainsAny(o.Note, "'\n") {
 		return nil, fail(ExitUsage, "usage", "keep single quotes and line breaks out of the note")
 	}
+	// One spawn at a time per team, from the cap check until the new claim
+	// is written, so two spawns cannot both pass a cap of one.
+	unlockSpawn, err := p.lock("_spawn_")
+	if err != nil {
+		return nil, err
+	}
+	defer func() { unlockSpawn() }()
 	if !o.OverCap {
 		if err := p.checkCap(); err != nil {
 			return nil, err
 		}
-	}
-	if o.Socket == "" {
-		return nil, fail(ExitFail, "no_tmux", "spawn opens a tmux window, so run it inside tmux; otherwise start %s yourself and take on the agent there", o.Tool)
 	}
 	id, err := p.resolve(o.Arg)
 	if err != nil {
@@ -78,6 +84,9 @@ func (p *Project) Spawn(o SpawnOptions) (*SpawnResult, error) {
 		default:
 			o.Tool = "claude"
 		}
+	}
+	if o.Socket == "" {
+		return nil, fail(ExitFail, "no_tmux", "spawn opens a tmux window, so run it inside tmux; otherwise start %s yourself and take on the agent there", o.Tool)
 	}
 	if _, err := exec.LookPath(o.Tool); err != nil {
 		return nil, fail(ExitFail, "no_cli", "%s is not on PATH", o.Tool)
@@ -130,9 +139,21 @@ func (p *Project) Spawn(o SpawnOptions) (*SpawnResult, error) {
 	}
 	werr := p.writeLive(id, l)
 	unlock()
+	unlockSpawn()
+	unlockSpawn = func() {}
 	if werr != nil {
 		closePane()
 		return nil, fail(ExitFail, "fs", "%v", werr)
+	}
+	if o.Brief != "" {
+		// Before the CLI starts, so its first inbox check finds it; no
+		// nudge, since the first prompt checks the inbox. It keeps the
+		// caller's session, so the reply has a way back.
+		if _, err := p.Send(SendOptions{To: name, Body: o.Brief, Type: "task", NoNudge: true, Via: o.Via, FromSession: o.FromSession}); err != nil {
+			p.removeLive(l)
+			closePane()
+			return nil, fail(ExitFail, "brief", "could not deliver the brief to %s: %v", name, err)
+		}
 	}
 	exec.Command("tmux", TmuxArgs(o.Socket, "select-pane", "-t", pane, "-T", name)...).Run()
 
@@ -160,12 +181,6 @@ func (p *Project) Spawn(o SpawnOptions) (*SpawnResult, error) {
 		return nil, fail(ExitFail, "tmux", "could not start %s: %v", o.Tool, err)
 	}
 	p.LogEvent("spawn", name, "tool="+o.Tool, "pane="+pane)
-	if o.Brief != "" {
-		// No nudge: the first prompt already checks the inbox.
-		if _, err := p.Send(SendOptions{To: name, Body: o.Brief, Type: "task", NoNudge: true}); err != nil {
-			return nil, fail(ExitFail, "brief", "started %s but could not deliver the brief: %v; send it with sunstack send %s --type task --file <brief>", name, err, name)
-		}
-	}
 	running := false
 	for i := 0; i < 20 && !running; i++ {
 		time.Sleep(250 * time.Millisecond)
@@ -336,9 +351,13 @@ func (p *Project) checkCap() error {
 	}
 	var live []string
 	for _, id := range p.Agents() {
+		// Read only: a claim whose pane is gone is not counted, and is left
+		// for release --stale, which takes the agent's lock.
 		claims, _ := p.Claims(id)
-		claims, _ = p.pruneStale(id, claims, "")
 		for _, c := range claims {
+			if paneGone(c) {
+				continue
+			}
 			line := c.Label(id)
 			if c.Doing != "" {
 				line += " (doing: " + c.Doing + ")"

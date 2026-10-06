@@ -146,7 +146,8 @@ func (p *Project) OpenAsk(id, key string) (Item, bool) {
 	doc, _, _ := readMaybe(p.boardPath(id))
 	items, _ := parseBoard(id, doc)
 	for _, it := range items {
-		if it.Key == key && it.Section == "Asks" && !it.Done {
+		// An open ask, or one decided by default, which the user may overrule.
+		if it.Key == key && ((it.Section == "Asks" && !it.Done) || it.Answered == "default") {
 			return it, true
 		}
 	}

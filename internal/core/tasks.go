@@ -29,6 +29,7 @@ type TaskInfo struct {
 type TaskReply struct {
 	ID, At   string
 	Verified bool // it carries a verified: line
+	mod      time.Time
 }
 
 // allMessages reads every message of the team: pending, taken and archived.
@@ -39,6 +40,9 @@ func (p *Project) allMessages() []*Message {
 		for _, f := range files {
 			if m, err := parseMessage(f); err == nil {
 				m.State = state
+				if st, err := os.Stat(f); err == nil {
+					m.mod = st.ModTime()
+				}
 				out = append(out, m)
 			}
 		}
@@ -71,11 +75,29 @@ func (p *Project) findMessage(id string) *Message {
 // Tasks lists every task message with its replies, oldest first.
 func (p *Project) Tasks() []*TaskInfo {
 	msgs := p.allMessages()
+	// A reply counts only when it comes from the agent the task went to.
+	to := map[string]string{}
+	for _, m := range msgs {
+		if m.Type == "task" {
+			to[m.ID] = m.To
+		}
+	}
 	replies := map[string][]TaskReply{}
 	for _, m := range msgs {
-		if m.Type == "done" && m.ReplyTo != "" {
-			replies[m.ReplyTo] = append(replies[m.ReplyTo], TaskReply{ID: m.ID, At: m.At, Verified: strings.Contains(strings.ToLower(m.Body), "verified:")})
+		if m.Type == "done" && m.ReplyTo != "" && to[m.ReplyTo] != "" && m.From == to[m.ReplyTo] {
+			replies[m.ReplyTo] = append(replies[m.ReplyTo], TaskReply{ID: m.ID, At: m.At, Verified: hasVerifiedLine(m.Body), mod: m.mod})
 		}
+	}
+	for id := range replies {
+		// Oldest first, wherever stored: by the second in the ID, then by the
+		// file's time, which a move to the archive keeps.
+		rs := replies[id]
+		sort.Slice(rs, func(i, j int) bool {
+			if a, b := rs[i].ID[:16], rs[j].ID[:16]; a != b {
+				return a < b
+			}
+			return rs[i].mod.Before(rs[j].mod)
+		})
 	}
 	var out []*TaskInfo
 	for _, m := range msgs {
@@ -121,12 +143,11 @@ func (p *Project) taskFindings(today time.Time) []Issue {
 		if followed[t.ID] {
 			continue // judged at the end of its chain
 		}
+		// A round failed when its latest reply carries no verified: line.
 		failed := 0
 		for c := t; c != nil; c = byID[c.Follows] {
-			for _, r := range c.Replies {
-				if !r.Verified {
-					failed++
-				}
+			if n := len(c.Replies); n > 0 && !c.Replies[n-1].Verified {
+				failed++
 			}
 			if c.Follows == "" {
 				break
@@ -210,4 +231,20 @@ func (p *Project) followContext(id string) (string, error) {
 		}
 	}
 	return b.String(), nil
+}
+
+// hasVerifiedLine says whether a reply carries its own verified: line with
+// something after it. Quoted lines and "not verified:" do not count.
+func hasVerifiedLine(body string) bool {
+	for _, l := range strings.Split(body, "\n") {
+		l = strings.TrimSpace(l)
+		if strings.HasPrefix(l, ">") {
+			continue
+		}
+		l = strings.TrimPrefix(strings.ToLower(l), "(")
+		if v, ok := strings.CutPrefix(l, "verified:"); ok && strings.TrimSpace(strings.TrimSuffix(v, ")")) != "" {
+			return true
+		}
+	}
+	return false
 }

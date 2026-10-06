@@ -209,7 +209,7 @@ func (m *model) key(k string) tea.Cmd {
 		case viewOrg:
 			m.orgSel, m.orgScroll = max(0, m.orgSel-1), 0
 		case viewNext:
-			m.nextSel = max(0, m.nextSel-1)
+			m.nextSel, m.nextScroll = max(0, m.nextSel-1), 0
 		default:
 			if m.sel > 0 {
 				m.sel--
@@ -222,6 +222,7 @@ func (m *model) key(k string) tea.Cmd {
 			m.orgScroll = 0
 		case viewNext:
 			m.nextSel++
+			m.nextScroll = 0
 		default:
 			if m.sel < len(m.agents)-1 {
 				m.sel++
@@ -231,10 +232,17 @@ func (m *model) key(k string) tea.Cmd {
 		return m.show(toggle(m.view, viewOrg))
 	case "n":
 		return m.show(toggle(m.view, viewNext))
-	case "pgdown":
-		m.orgScroll += 10
-	case "pgup":
-		m.orgScroll = max(0, m.orgScroll-10)
+	case "pgdown", "pgup":
+		// Scroll the detail pane of the view in front.
+		step := 10
+		if k == "pgup" {
+			step = -10
+		}
+		if m.view == viewNext {
+			m.nextScroll = max(0, m.nextScroll+step)
+		} else {
+			m.orgScroll = max(0, m.orgScroll+step)
+		}
 	case "l":
 		m.view = toggle(m.view, viewLog)
 	case "i":

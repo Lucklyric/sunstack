@@ -198,7 +198,7 @@ func TestAsks(t *testing.T) {
 	r = sh(t, p, home, "check", "builder.alice", "--token", tok)
 	requireContains(t, r.out, "type: answer", "Q1: parquet")
 	expect(t, sh(t, p, home, "answer", "builder.alice", "Q9", "x"), 1, "no such open ask")
-	expect(t, sh(t, p, home, "answer", "builder.alice", "Q4", "x"), 1, "an answered ask is closed")
+	expect(t, sh(t, p, home, "answer", "builder.alice", "Q4", "x"), 0, "a default can be overruled (v0.8.11)")
 	expect(t, sh(t, p, home, "answer", "builder.alice", "KR1", "x"), 2, "not an ask key")
 	expect(t, sh(t, p, home, "answer", "builder.alice", "Q1"), 2, "no answer text")
 }
