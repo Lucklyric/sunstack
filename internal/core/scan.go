@@ -508,7 +508,13 @@ func tmuxPanes() map[string]paneInfo {
 		sockets = append(sockets, strings.SplitN(t, ",", 2)[0])
 	}
 	for _, sock := range sockets {
-		b, err := exec.Command("tmux", TmuxArgs(sock, "list-panes", "-a", "-F", "#{pane_tty}\t#{pane_id}\t#{session_name}:#{window_index}.#{pane_index}")...).Output()
+		cmd := exec.Command("tmux", TmuxArgs(sock, "list-panes", "-a", "-F", "#{pane_tty}\t#{pane_id}\t#{session_name}:#{window_index}.#{pane_index}")...)
+		if sock == "" {
+			// The default server: inside another server, $TMUX would
+			// point tmux there instead.
+			cmd.Env = withoutTMUX(os.Environ())
+		}
+		b, err := cmd.Output()
 		if err != nil {
 			continue
 		}
@@ -535,4 +541,14 @@ func processTTY(pid int) string {
 		return ""
 	}
 	return t
+}
+
+func withoutTMUX(env []string) []string {
+	var out []string
+	for _, e := range env {
+		if !strings.HasPrefix(e, "TMUX=") && !strings.HasPrefix(e, "TMUX_PANE=") {
+			out = append(out, e)
+		}
+	}
+	return out
 }

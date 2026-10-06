@@ -5,6 +5,7 @@ package tui
 import (
 	"encoding/base64"
 	"fmt"
+	"github.com/charmbracelet/x/ansi"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -238,7 +239,7 @@ func (m *model) View() string {
 	if m.note != "" {
 		help = cWarn.Render(m.note) + "  " + help
 	}
-	return lipgloss.JoinVertical(lipgloss.Left, head, body, help)
+	return lipgloss.JoinVertical(lipgloss.Left, fit(head, m.w), body, fit(help, m.w))
 }
 
 func (m *model) teamView() string {
@@ -253,7 +254,7 @@ func (m *model) teamView() string {
 	if len(events) > 5 {
 		events = events[len(events)-5:]
 	}
-	bottom := []string{cBox.Width(m.w - 4).Render(cHeader.Render("Events") + "\n" + strings.Join(orNone(events), "\n"))}
+	bottom := []string{cBox.Width(m.w - 4).Render(cHeader.Render("Events") + "\n" + strings.Join(fitAll(orNone(events), m.w-6), "\n"))}
 	var warn []string
 	for _, c := range m.warnings {
 		warn = append(warn, cWarn.Render("⚠ ")+c.Msg)
@@ -262,7 +263,7 @@ func (m *model) teamView() string {
 		warn = append(warn[:3], cDim.Render(fmt.Sprintf("… %d more (sunstack health)", len(m.warnings)-3)))
 	}
 	if len(warn) > 0 {
-		bottom = append(bottom, cBox.Width(m.w-4).Render(strings.Join(warn, "\n")))
+		bottom = append(bottom, cBox.Width(m.w-4).Render(strings.Join(fitAll(warn, m.w-6), "\n")))
 	}
 	used := 2 // title and help lines
 	for _, b := range bottom {
@@ -283,21 +284,24 @@ func (m *model) teamView() string {
 			dot, state = cWarn.Render("?"), cWarn.Render("claim file damaged")
 		} else if n := len(a.Claims); n > 0 {
 			dot = cOn.Render("●")
-			state = fmt.Sprintf("%d session(s)", n)
+			state = "1 session"
+			if n > 1 {
+				state = fmt.Sprintf("%d sessions", n)
+			}
 			for _, w := range a.Where {
 				if w == "pane closed" {
-					state += " " + cWarn.Render("pane closed")
+					state += ", " + cWarn.Render("pane gone")
 					break
 				}
 			}
 		}
-		line := fmt.Sprintf("%s %-20s %s", dot, a.ID, state)
+		line := fit(fmt.Sprintf("%s %-20s %s", dot, a.ID, state), leftW-2)
 		if i == m.sel {
 			line = cSel.Render(line)
 			selRow = len(rows)
 		}
 		rows = append(rows, line)
-		rows = append(rows, cDim.Render(fmt.Sprintf("    inbox %d · proposals %d · threads %d", a.Inbox, len(a.Proposals), len(a.Threads))))
+		rows = append(rows, fit(cDim.Render(fmt.Sprintf("    inbox %d · proposals %d · threads %d", a.Inbox, len(a.Proposals), len(a.Threads))), leftW-2))
 	}
 	// Scroll so the selected agent (its line and the summary under it) stays visible.
 	if selRow < m.offset {
@@ -307,7 +311,8 @@ func (m *model) teamView() string {
 	}
 	m.offset = max(0, min(m.offset, max(0, len(rows)-bodyH)))
 	left := cBox.Width(leftW).Height(bodyH).Render(strings.Join(clip(rows[m.offset:], bodyH), "\n"))
-	right := cBox.Width(rightW).Height(bodyH).Render(strings.Join(clip(m.details(rightW), bodyH), "\n"))
+	details := fitAll(strings.Split(strings.Join(m.details(rightW), "\n"), "\n"), rightW-2)
+	right := cBox.Width(rightW).Height(bodyH).Render(strings.Join(clip(details, bodyH), "\n"))
 	top := lipgloss.JoinHorizontal(lipgloss.Top, left, right)
 	return lipgloss.JoinVertical(lipgloss.Left, append([]string{top}, bottom...)...)
 }
@@ -367,7 +372,7 @@ func (m *model) logView() string {
 	if len(lines) > h {
 		lines = lines[len(lines)-h:]
 	}
-	return cBox.Width(m.w - 4).Height(h).Render(cHeader.Render("Events · "+label) + "\n" + strings.Join(orNone(lines), "\n"))
+	return cBox.Width(m.w - 4).Height(h).Render(cHeader.Render("Events · "+label) + "\n" + strings.Join(fitAll(orNone(lines), m.w-6), "\n"))
 }
 
 func (m *model) inboxView() string {
@@ -379,7 +384,7 @@ func (m *model) inboxView() string {
 	for _, e := range m.p.Inbox(a.ID) {
 		lines = append(lines, fmt.Sprintf("%s  %-8s from %-16s %s", e.At, e.Type, e.From, e.File))
 	}
-	return cBox.Width(m.w - 4).Height(max(5, m.h-4)).Render(cHeader.Render("Inbox · "+a.ID) + "\n" + strings.Join(orNone(lines), "\n"))
+	return cBox.Width(m.w - 4).Height(max(5, m.h-4)).Render(cHeader.Render("Inbox · "+a.ID) + "\n" + strings.Join(fitAll(orNone(lines), m.w-6), "\n"))
 }
 
 func sectionLines(doc []byte, name string) []string {
@@ -442,10 +447,22 @@ func (m *model) orgPane() string {
 		m.orgScroll = max(0, len(lines)-1)
 	}
 	lines = lines[m.orgScroll:]
-	for i, l := range lines {
-		if r := []rune(l); len(r) > m.w-8 && m.w > 10 {
-			lines[i] = string(r[:m.w-9]) + "…"
-		}
+	return cBox.Width(m.w - 4).Height(h).Render(fit(head, m.w-6) + "\n" + strings.Join(clip(fitAll(lines, m.w-6), h-1), "\n"))
+}
+
+// fit cuts a line to w display columns, so a box never wraps it: wide
+// characters count twice, and color codes not at all.
+func fit(s string, w int) string {
+	if w <= 1 || lipgloss.Width(s) <= w {
+		return s
 	}
-	return cBox.Width(m.w - 4).Height(h).Render(head + "\n" + strings.Join(clip(lines, h-1), "\n"))
+	return ansi.Truncate(s, w, "…")
+}
+
+func fitAll(lines []string, w int) []string {
+	out := make([]string, len(lines))
+	for i, l := range lines {
+		out[i] = fit(l, w)
+	}
+	return out
 }

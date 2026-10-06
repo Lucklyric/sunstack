@@ -50,6 +50,7 @@ func (it Item) Ref() string { return it.Owner + "#" + it.Key }
 var (
 	itemRe    = regexp.MustCompile(`^- (\d{4}-\d{2}-\d{2}) (O\d+|KR\d+|D\d+|Q\d+)\b\s*(?:\[(O\d+)\])?\s*(.*)$`)
 	attrRe    = regexp.MustCompile(`\((due|needs|to|via|by|verified|options|default|answered):\s*([^)]*)\)`)
+	keyRe     = regexp.MustCompile(`^KR\d+$`)
 	alignedRe = regexp.MustCompile(`(?m)^aligned:\s*D(\d+)\s*$`)
 )
 
@@ -313,6 +314,9 @@ func (b *Boards) Findings(today time.Time) []Issue {
 					add("user", it.Owner, fmt.Sprintf("sunstack answer %s %s \"<answer>\"", it.Owner, q), "%s is waiting on the user (%s)", it.Ref(), q)
 				}
 				continue
+			}
+			if keyRe.MatchString(n) {
+				n = it.Owner + "#" + n // a bare key is on the agent's own board
 			}
 			dep, ok := byRef[n]
 			if !ok && (strings.HasPrefix(n, "user ") || strings.HasPrefix(n, "user:")) {

@@ -211,7 +211,15 @@ func classify(sessions []*HostSession, teams []*Project) map[string]map[string][
 				if s == nil {
 					// No running process matches the claim: outside tmux with
 					// no session ID recorded, or the session has ended.
-					s = &HostSession{Tool: c.Tool, Status: "not seen", Reach: "none", SessionID: c.Session, Pane: c.TmuxPane, Where: TmuxWhere(c.TmuxSocket, c.TmuxPane)}
+					where := TmuxWhere(c.TmuxSocket, c.TmuxPane)
+					if where != "" && where != "pane closed" && c.TmuxServer != "" && !sameServer(c) {
+						// A restarted server reuses pane IDs: the one
+						// recorded is not this session's any more.
+						where = "pane closed"
+					} else if where != "" && where != "pane closed" && where != "tmux unavailable" && !paneRunsTool(c.TmuxSocket, c.TmuxPane, c.Tool) {
+						where = "left pane" // the pane is there, but the session is not
+					}
+					s = &HostSession{Tool: c.Tool, Status: "not seen", Reach: "none", SessionID: c.Session, Pane: c.TmuxPane, Where: where}
 				}
 				s.Team, s.TeamName, s.TeamRoot, s.Agent, s.Label = tid, tf.Name, p.Root, id, c.Label(id)+"@"+host
 				s.Doing, s.DoingAt = c.Doing, c.DoingAt
@@ -369,6 +377,10 @@ func sessionName(s *HostSession) string {
 
 func placeOf(s *HostSession) string {
 	switch {
+	case s.Where == "pane closed":
+		return "pane " + s.Pane + " closed"
+	case s.Where == "left pane":
+		return "pane " + s.Pane + " no longer runs " + s.Tool
 	case s.Where != "":
 		return "tmux " + s.Where + " " + s.Pane
 	case s.Reach == "background":
