@@ -2,6 +2,7 @@ package tui
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -188,10 +189,14 @@ func teamTreeModel(t *testing.T) (*model, *core.Project) {
 // The Team tab is the session tree of this team only.
 func TestTeamTabIsTeamTree(t *testing.T) {
 	m, p := teamTreeModel(t)
-	// Before the scan: agents, and sessions from their claims.
+	// Before the scan: agents, and sessions from their claims. Without tmux
+	// (Windows CI) a claim's pane cannot be checked, so it is not shown gone.
 	v := m.View()
 	fits(t, v, m.w, "team before scan")
-	requireAll(t, v, "builder.a", "builder.a_x", "pane gone", "reviewer.r", "no session", "Events")
+	requireAll(t, v, "builder.a", "reviewer.r", "no session", "Events")
+	if _, err := exec.LookPath("tmux"); err == nil {
+		requireAll(t, v, "builder.a_x", "pane gone")
+	}
 	if n := strings.Count(v, "\n") + 1; n > m.h {
 		t.Errorf("%d lines on a %d-line screen", n, m.h)
 	}
