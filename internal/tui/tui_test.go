@@ -323,3 +323,65 @@ func TestOrgTwoPanes(t *testing.T) {
 		t.Errorf("%d lines on a %d-line screen", n, m.h)
 	}
 }
+
+// The dashboard reopens on the tab and team used last, kept in
+// ~/.sunstack/tui.json; a team folder still opens its own team.
+func TestRemembersLastTabAndTeam(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("SUNSTACK_HOME", home)
+	base := t.TempDir()
+	alpha := newTeam(t, filepath.Join(base, "alpha"), "builder.a")
+	beta := newTeam(t, filepath.Join(base, "beta"), "builder.b")
+
+	m := startModel(alpha, false)
+	m.w, m.h = 100, 30
+	m.Update(key("n"))
+	m.Update(key("q"))
+	if b, err := os.ReadFile(filepath.Join(home, "tui.json")); err != nil || !strings.Contains(string(b), `"next"`) {
+		t.Fatalf("state not saved: %s %v", b, err)
+	}
+
+	// Outside a team: the last team, on the last tab.
+	m = startModel(nil, false)
+	if m.p == nil || m.p.Root != alpha.Root || m.view != viewNext {
+		t.Fatalf("outside a team: got team %v view %d", m.p, m.view)
+	}
+	// In another team's folder: that team, on the last tab.
+	m = startModel(beta, false)
+	if m.p.Root != beta.Root || m.view != viewNext {
+		t.Fatalf("in beta: got %s view %d", m.p.Root, m.view)
+	}
+	// --org wins over the saved tab.
+	if m = startModel(beta, true); m.view != viewOrg {
+		t.Errorf("--org opens the host view, got %d", m.view)
+	}
+	// Switching team through the picker is remembered too.
+	m = startModel(alpha, false)
+	m.Update(key("t"))
+	for i := 0; i < 5 && m.view == viewPicker; i++ {
+		if m.pickSel < len(m.teams) && m.teams[m.pickSel].Root == beta.Root {
+			m.Update(key("enter"))
+			break
+		}
+		m.Update(key("down"))
+	}
+	m.Update(key("o"))
+	m.Update(key("q"))
+	if m = startModel(nil, false); m.p == nil || m.p.Root != beta.Root || m.view != viewOrg {
+		t.Fatalf("after switching: got %v view %d", m.p, m.view)
+	}
+
+	// The last team is gone: the picker, with no error.
+	os.RemoveAll(beta.Root)
+	if m = startModel(nil, false); m.view != viewPicker || m.p != nil {
+		t.Errorf("a removed team falls back to the picker, got %v view %d", m.p, m.view)
+	}
+	// A broken file is ignored.
+	os.WriteFile(filepath.Join(home, "tui.json"), []byte("{not json"), 0o644)
+	if m = startModel(nil, false); m.view != viewPicker {
+		t.Errorf("a broken file falls back to the picker, got %d", m.view)
+	}
+	if m = startModel(alpha, false); m.view != viewTeam || m.p.Root != alpha.Root {
+		t.Errorf("a broken file opens the folder's team on the team tab, got %d", m.view)
+	}
+}

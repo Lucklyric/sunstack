@@ -66,6 +66,7 @@ type model struct {
 	nextSel    int
 	nextItems  []core.Issue
 	orgSel     int
+	saved      savedState // what tui.json holds, so it is written only on a change
 }
 
 var (
@@ -81,7 +82,7 @@ var (
 // Run starts the dashboard for project p, on the host (org) view when org
 // is set. With no project (outside any team) it shows the host view only.
 func Run(p *core.Project, org bool) error {
-	m := newModel(p, org)
+	m := startModel(p, org)
 	m.cwd, _ = os.Getwd()
 	m.reload()
 	_, err := tea.NewProgram(m, tea.WithAltScreen()).Run()
@@ -149,7 +150,9 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case orgMsg:
 		m.org, m.orgAt, m.orgBusy = msg.o, time.Now(), false
 	case tea.KeyMsg:
-		return m, m.key(msg.String())
+		cmd := m.key(msg.String())
+		m.saveState()
+		return m, cmd
 	}
 	return m, nil
 }

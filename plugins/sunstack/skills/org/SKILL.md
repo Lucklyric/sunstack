@@ -84,4 +84,4 @@ first, hand over to the next skill.
 - **A live dashboard**: tell the user to run `sunstack` (or `sunstack tui`) in a terminal. In a
   team folder it opens on that team; elsewhere on a picker of this host's teams. Tabs Team,
   Next and Org (tab or n and o), `t` to switch team, `?` for the keys. `sunstack tui --org`
-  opens on the host view.
+  opens on the host view. It reopens on the last tab and team used.
