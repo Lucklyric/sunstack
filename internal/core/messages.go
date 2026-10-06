@@ -28,6 +28,7 @@ type Message struct {
 	ID, From, Via, To, Session, At, Type, ReplyTo string
 	Op                                            string // sender's operation ID, so a repeated send is not delivered twice
 	FromSession                                   string // the sender's Claude session or Codex thread ID, for a reply to a session without an agent
+	Follows                                       string // the earlier task this one follows up (§17.4)
 	Body                                          string
 	State                                         string // pending, taken (by this session), taken by <label>
 	path                                          string
@@ -84,6 +85,8 @@ func parseMessage(path string) (*Message, error) {
 					m.Op = v
 				case "from_session":
 					m.FromSession = v
+				case "follows":
+					m.Follows = v
 				}
 			}
 			m.Body = strings.TrimLeft(s[4+end+5:], "\n")
@@ -115,6 +118,9 @@ func (m *Message) text() string {
 	if m.FromSession != "" {
 		fmt.Fprintf(&b, "from_session: %s\n", m.FromSession)
 	}
+	if m.Follows != "" {
+		fmt.Fprintf(&b, "follows: %s\n", m.Follows)
+	}
 	b.WriteString("---\n")
 	b.WriteString(strings.TrimRight(m.Body, "\n") + "\n")
 	return b.String()
@@ -135,6 +141,7 @@ type SendOptions struct {
 	// the CLI sets it for messages between teams.
 	FromLabel   string
 	FromSession string // the sending CLI session's ID, if known
+	Follows     string // an earlier task this task follows up; its brief and replies are quoted
 }
 
 // SendResult says where a message went.
@@ -197,6 +204,16 @@ func (p *Project) Send(o SendOptions) (*SendResult, error) {
 			return nil, err
 		}
 	}
+	if o.Follows != "" {
+		if o.Type != "task" {
+			return nil, fail(ExitUsage, "usage", "--follows is for a task")
+		}
+		ctx, err := p.followContext(o.Follows)
+		if err != nil {
+			return nil, err
+		}
+		o.Body = strings.TrimRight(o.Body, "\n") + "\n" + ctx
+	}
 	if o.ReplyTo != "" && !msgIDRe.MatchString(o.ReplyTo) {
 		return nil, fail(ExitUsage, "usage", "invalid --reply-to message id: %s", o.ReplyTo)
 	}
@@ -230,7 +247,7 @@ func (p *Project) Send(o SendOptions) (*SendResult, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, fail(ExitFail, "fs", "%v", err)
 	}
-	m := &Message{From: from, To: id, Session: session, At: now(), Type: o.Type, ReplyTo: o.ReplyTo, Body: o.Body, Op: o.Op, FromSession: o.FromSession}
+	m := &Message{From: from, To: id, Session: session, At: now(), Type: o.Type, ReplyTo: o.ReplyTo, Body: o.Body, Op: o.Op, FromSession: o.FromSession, Follows: o.Follows}
 	if from == "user" {
 		m.Via = o.Via
 	}

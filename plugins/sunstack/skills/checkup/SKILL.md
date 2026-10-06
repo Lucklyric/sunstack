@@ -58,6 +58,9 @@ Suggest what this session should be, from what the user has been doing in this c
 
 ## 4. Offer the steps
 
+Setup and migration come first, here. For the team's work beyond setup (asks, blocked work,
+board drift), hand over to the next skill, which ranks everything in one list.
+
 Offer the first step, or let the user pick one (options: do it / skip / stop). Do one step per
 answer, then run `sunstack health` again and offer the next.
 

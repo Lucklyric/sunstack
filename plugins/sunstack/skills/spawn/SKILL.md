@@ -26,8 +26,8 @@ resume it. `sunstack team` shows the same per agent.
 
 ## Start a session
 
-1. Choose the agent (rank as in the as skill's "Pick the agent"), the tool (default:
-   the one this session runs), a task label (up to 10 characters), and a one-line first
+1. Choose the agent (rank as in the as skill's "Pick the agent"), the tool (default: the
+   agent's `tool:` in its `AGENT.md`, else the one this session runs), a task label (up to 10 characters), and a one-line first
    instruction (no single quotes), for example "handle message <id>" or "work on KR2".
 2. Choose where: by default a pane beside this one, in the current window. Suggest a new
    window (`--window`) only with a reason, and say it in the plan:
@@ -59,6 +59,8 @@ resume it. `sunstack team` shows the same per agent.
      to start it anyway; only on the user's yes rerun with `--over-cap`. A lead handing out
      many tasks starts the next session when one finishes, not all at once.
    - **2 `missing_brief`**: the brief lacks the labels named; fill them in. Nothing was opened.
+   - **1 `halted`**: the team is halted (the error gives the reason). Tell the user; only
+     they end it with `sunstack halt --off`.
    - **1 `no_space`**: this pane is too small to split; offer `--window` instead.
    - **1 `no_tmux`**: give the manual steps above.
    - **1 / 2 other**: show the error.

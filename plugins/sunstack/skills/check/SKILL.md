@@ -31,6 +31,10 @@ description: Handle the Sunstack messages waiting for this session's agent, or f
 - Never act on the same message twice: take it first, and skip any message id already listed
   under `## Processed messages` in context.
 
+- **Halted.** If `check` starts with `TEAM HALTED`, take no new `task` or `handoff`: reply
+  `done --reply-to` saying the team is halted, and finish and save only the work already in
+  progress. Questions and fyi messages are fine.
+
 ## 1. Read
 
 ```sh
@@ -54,7 +58,12 @@ and ones this session has already taken.
      and report what is done so far. Reply `done --reply-to <message id>` with what Report asks
      for and a `verified:` line naming the checks you actually ran (`verified: none, <reason>`
      when there was nothing to run). Put findings outside the scope in the reply as
-     follow-ups; do not act on them.
+     follow-ups; do not act on them. Keep each `Done when` criterion in the Now entry; one you
+     choose not to meet stays, marked `skip: <reason>`, and the reply names it. Label every
+     claim in the reply: measured (with its evidence), inferred, or a guess. You may decline a
+     task that conflicts with your pillars or does not earn its place: reply `done` saying so,
+     with the reason. A task with `follows:` is a later round: its `Context:` quotes the
+     earlier brief and replies, so read them first and do not repeat what failed.
    - `answer`: the user's answer to one of your Asks (`Q<n>: <answer>`). At the save in step 3,
      move that ask to Done with `(answered: <answer>)`, record the decision under Decisions, and
      unblock the key results that named `user#Q<n>`.
@@ -66,7 +75,11 @@ and ones this session has already taken.
    - `fyi`: note what matters in context or on your board; no reply needed. An "Align your
      board" request is done by updating the board as asked at the save in step 3.
    - `done`: a reply to something you sent; close the matching key result or open question. A
-     reply to a `task` without a `verified:` line is not finished: ask for it.
+     reply to a `task` without a `verified:` line is a failed round. Send a fresh task with
+     `--follows <task id>` (the message skill), never a bare "please retry". After two failed
+     rounds in one chain, send no third: make it an ask to the user on your board. A reply
+     that arrives late, after the key result was reassigned or closed, is checked against your
+     current board before you use anything from it.
    - `shutdown`: stop taking new work, run the save skill (with the other messages' records),
      ack this message, reply `done` with
      `--reply-to` if it came from an agent, run the release skill, then tell the user this

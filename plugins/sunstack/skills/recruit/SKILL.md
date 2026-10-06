@@ -112,6 +112,11 @@ approval of the command itself; that prompt is expected.
 
 ## 6. Optional follow-ups
 
+- For a reviewer, suggest the CLI opposite to the builders' (`tool: codex` when they work in
+  Claude Code, and the other way round), so reviews come from a different model. On yes, the
+  line goes into the new `AGENT.md` frontmatter before step 5 creates it, or through the save
+  skill's approval step afterwards. `spawn` then starts that agent on its own tool.
+
 - Suggest one to three first key results for the new agent, each tagged with a team objective
   from `sunstack board`. They are written by the agent's first session (`/sunstack:as <id>`,
   then save), not by you.

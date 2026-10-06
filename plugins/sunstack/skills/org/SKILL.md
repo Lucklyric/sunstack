@@ -55,11 +55,16 @@ to go through them in one pass. For each answer the user gives, run
 `sunstack answer --root "<team root>" "<id>" Q<n> "<answer>"`. Asks "decided by default" stay
 listed until archived, so the user can overrule one with an answer message.
 
+**Open tasks.** `sunstack tasks` lists tasks sent and not yet answered, with replies;
+`--all` shows closed ones too, `--from <id>` one sender's. Check progress read-only (tasks,
+`org --by agent`, `peek`, the recipient's board). Never send "are you done?".
+
 ## 2. Report
 
 Lead with what needs the user, then a short line per team (objectives moving, who is working,
 anything stale). For free sessions in a team's project, say which agent's role fits the work
-in its last prompt, if one does, so the user can run the as skill there.
+in its last prompt, if one does, so the user can run the as skill there. To pick what to do
+first, hand over to the next skill.
 
 ## 3. Drill in, on request
 

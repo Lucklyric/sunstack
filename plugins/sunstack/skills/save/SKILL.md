@@ -38,7 +38,7 @@ Every entry you write starts with today's date: `- <YYYY-MM-DD> ...`.
   Open questions in context, for the user.
   - **Done needs proof**: an entry moving to Done ends with `(verified: <how> [@ <commit>])`,
     naming checks this session actually ran (`go test ./...`, `ran the backtest on 2026-09`,
-    `user reviewed`), with the short commit when there is one. With nothing to run, write
+    `user reviewed`, `reviewed by codex`), with the short commit when there is one. With nothing to run, write
     `(verified: none, <reason>)`. Never write a check you did not run.
   - **Asks**: a decision only the user can make goes under `## Asks`:
     `- <date> Q<n> <question> (options: <a> | <b>) (default: <a> after <date>) (by: <session>@<host>)`.
@@ -49,6 +49,10 @@ Every entry you write starts with today's date: `- <YYYY-MM-DD> ...`.
     `- <date> Took the default for Q<n>: <answer>` under Decisions, and tell the user. Never
     make an ask of something that needs explicit approval (step 2, hires, fires, anything
     irreversible).
+  - **Labels**: a decision or finding written to context says whether it was measured (with
+    its evidence), inferred, or a guess.
+  - **Before an ask**: if running something would answer it (behavior, timing, output, a quick
+    prototype), run it instead. Asks are for product or preference calls only.
   - **Leave it resumable**: each Now entry this session owns says where it stands and the next
     step, so a fresh session can continue from the board alone.
 - **context**: new decisions with reasons, pitfalls, open questions, and processed messages

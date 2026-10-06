@@ -86,7 +86,7 @@ const RoutingBlock = RouteBegin + `
 This project's agent team lives in sunstack/; the protocol is sunstack/PROTOCOL.md.
 - Read and write the agent files in sunstack/ only after this session has taken on an identity with sunstack as, and then follow the protocol.
 - Any session may run the management and read-only commands (sunstack init, team, board, log, inbox, health, pillar, library, as, tidy).
-- Creating, renaming or deleting an agent (sunstack hire, rename, fire) and changing pillars, AGENT.md or the team objectives (sunstack amend) need the user's explicit approval first. Directives (sunstack direct) and answers to asks (sunstack answer) come only from the user.
+- Creating, renaming or deleting an agent (sunstack hire, rename, fire) and changing pillars, AGENT.md or the team objectives (sunstack amend) need the user's explicit approval first. Directives (sunstack direct), answers to asks (sunstack answer) and halting the team (sunstack halt) come only from the user.
 - Before ending or switching identity, run the Sunstack save skill, then sunstack release.
 - If you are unsure of your identity or token (for example after compaction), ask the user and run as again. Never guess.
 - Subagents take on no identity and never write sunstack/; when delegating, state the applicable pillars and role limits in the task.

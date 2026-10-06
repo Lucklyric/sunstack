@@ -20,7 +20,7 @@ curl -fsSL https://raw.githubusercontent.com/Lucklyric/sunstack/main/install.sh 
 sunstack install
 ```
 
-The first line puts the `sunstack` binary in `~/.local/bin`. The second adds the plugin to Claude Code and Codex (whichever are on your PATH, or pick one with `--claude` / `--codex`). For Claude Code it also offers permission rules: allow `Bash(sunstack *)`, so you are not asked before every call, and ask before `sunstack amend`, `hire`, `rename`, `fire`, `kill`, `direct` and `answer`. For Codex it writes `~/.codex/rules/sunstack.rules` with the same asks.
+The first line puts the `sunstack` binary in `~/.local/bin`. The second adds the plugin to Claude Code and Codex (whichever are on your PATH, or pick one with `--claude` / `--codex`). For Claude Code it also offers permission rules: allow `Bash(sunstack *)`, so you are not asked before every call, and ask before `sunstack amend`, `hire`, `rename`, `fire`, `kill`, `direct`, `answer` and `halt`. For Codex it writes `~/.codex/rules/sunstack.rules` with the same asks.
 
 Keep it current with `sunstack update`. Remove it with `sunstack uninstall`.
 
@@ -42,11 +42,13 @@ Skills run as `/sunstack:<name>` in Claude Code and `$sunstack:<name>` in Codex.
 
 - **Set up and check:** `init`, `health`, `update`, `migrate` → skill `checkup` (also migrates an older project and suggests which agent fits the session)
 - **Work as an agent:** `as` (`--join`, `--task`) → skill `as`; `snapshot`, `commit`, `tidy` → skill `save`; `release` → skill `release`
-- **Objectives and alignment:** `board`, `amend --team BOARD.md` → skill `board`; `direct` → skill `direct`; `answer` (answer an agent's ask) → skills `board` and `org`
+- **What to do next:** `next` (one ranked list: broken, waiting on you, blocked, drift, then your own next step) → skill `next`
+- **Objectives and alignment:** `board`, `amend --team BOARD.md` → skill `board`; `direct` → skill `direct`; `answer` (answer an agent's ask) → skills `board` and `org`; `halt` (pause the whole team) → skills `next` and `spawn`
 - **Self-improvement:** `amend` → skill `save` (you approve every change)
 - **Team members:** `hire`, `library` → skill `recruit`; `fire` → skill `fire`; `rename` → skill `checkup`
 - **Messages:** `send` → skill `message` (a `task` carries a brief: Goal, Scope, Done when, Verify, Report; to an agent, `<team>/<id>` in another team, or any Claude Code or Codex session by pane or session ID); `check`, `take`, `ack` → skill `check` (with `--session` for a session without an agent)
-- **Sessions:** `sessions`, `spawn` (`--brief` for a first task, refused at the team's `max_sessions`), `dismiss`, `kill` → skill `spawn`
+- **Sessions:** `sessions`, `spawn` (`--brief` for a first task, the agent's own `tool:`, refused at the team's `max_sessions` and while halted), `dismiss`, `kill` → skill `spawn`
+- **Delegation:** `tasks` (tasks sent and not yet answered), `send --follows` (a follow-up round that quotes the earlier one) → skills `org` and `message`
 - **Staffing:** `hr` → skill `hr` (suggests hires, splits and retirements from the project and the boards)
 - **Your org on this machine:** `org` (what needs you, work by team, people, hosts), `teams`, `peek`, `team`, `log`, `inbox`, `pillar` → skill `org`; `tui` (also a bare `sunstack`, press `o` for the org tab)
 - **Who am I:** `whoami` → skill `whoami`; `doing` (one line on what a session works on) → skills `as` and `save`
@@ -72,11 +74,14 @@ Codex also loads the plugin's prompt hook and asks you to review it once, the fi
 - **Asks.** Questions only you can answer go on the agent's board with a default and a date. Work goes on around them, `sunstack org` lists them all in one place, `sunstack answer` replies, and an unanswered ask takes its default.
 - **Rules after compaction.** The `SessionStart` hook gives a compacted session its pillars and unaligned directives back, not just its identity.
 - **Resumes.** `as` starts with what changed since the agent last saved (commits, other agents' needs, new messages), so a resumed session continues instead of redoing work.
+- **A ledger of tasks.** A task stays open until a `done` reply. `sunstack tasks` lists them, `board` flags one open for 3 days, and a task that failed twice becomes a question for you instead of a third try.
+- **A halt.** `sunstack halt "<reason>"` pauses the team: work in progress saves and stops, nothing new starts, until `sunstack halt --off`.
+- **Review on the other CLI.** `tool: codex` (or `claude`) in an agent's `AGENT.md` sets the CLI `spawn` starts it on, so a reviewer can run on a different model from the builders.
 - **A session cap.** `spawn` stops at `max_sessions` live sessions per team (`sunstack/TEAM`, default 6) unless you agree to more.
 
 ## What needs your approval
 
-Agents update their own boards and context on their own. Changing a pillar, an agent's `AGENT.md` or the team objectives, and creating, renaming or deleting an agent, always waits for you: `sunstack install` sets Claude Code and Codex to ask before `sunstack amend`, `hire`, `rename`, `fire`, `kill`, `direct` and `answer`. If your Codex config sets `approvals_reviewer`, Codex sends those prompts to its automatic reviewer instead, and the skills' own questions are what keep you in the loop.
+Agents update their own boards and context on their own. Changing a pillar, an agent's `AGENT.md` or the team objectives, and creating, renaming or deleting an agent, always waits for you: `sunstack install` sets Claude Code and Codex to ask before `sunstack amend`, `hire`, `rename`, `fire`, `kill`, `direct`, `answer` and `halt`. If your Codex config sets `approvals_reviewer`, Codex sends those prompts to its automatic reviewer instead, and the skills' own questions are what keep you in the loop.
 
 Every agent is `<title>.<name>`: the title is the role, the name is one agent in it, so a project can have `researcher.macro` and `researcher.equities`. Each has its own `AGENT.md` copy, pillars and context. A new agent's role comes from `~/.sunstack/library/` (your own, saved with `sunstack library save`), then the built-in `builder` and `reviewer`, then another agent of the same role in the project.
 

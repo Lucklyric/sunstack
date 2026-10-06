@@ -60,6 +60,10 @@ in tmux; otherwise the message waits and shows at that session's next prompt.
 sunstack send "<recipient>" "<text>" --type <type> --from "<id>" --token "<token>"
 ```
 
+A follow-up round of a task (it failed, or needs more) is a fresh task with
+`--follows "<earlier task id>"`: the new brief still needs its own labels, and Sunstack quotes
+the earlier brief and its replies under `Context:`. `sunstack tasks` shows which tasks are open.
+
 For a `task`, or any long text, pass the file instead of the text:
 `sunstack send "<recipient>" --type task --file "<brief file>" --from "<id>" --token "<token>"`.
 Leave out `--from` and `--token` when this session has no identity. Add

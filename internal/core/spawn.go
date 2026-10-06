@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -11,23 +12,24 @@ import (
 
 // SpawnOptions are the inputs of `sunstack spawn`.
 type SpawnOptions struct {
-	Arg     string // agent ID or title
-	Tool    string // claude or codex
-	Task    string // session label
-	Socket  string // tmux server of the caller, from $TMUX
-	Server  string // that server's PID
-	Note    string // what the new session should do first, in words
-	Window  bool   // open a new tmux window instead of a pane beside the caller
-	Caller  string // the caller's pane, from $TMUX_PANE
-	Brief   string // a task brief, put in the new session's inbox (checked by the caller)
-	OverCap bool   // start it even when the team is at max_sessions
+	Arg         string // agent ID or title
+	Tool        string // claude or codex; empty: the agent's tool:, else DefaultTool, else claude
+	DefaultTool string // the caller's own CLI
+	Task        string // session label
+	Socket      string // tmux server of the caller, from $TMUX
+	Server      string // that server's PID
+	Note        string // what the new session should do first, in words
+	Window      bool   // open a new tmux window instead of a pane beside the caller
+	Caller      string // the caller's pane, from $TMUX_PANE
+	Brief       string // a task brief, put in the new session's inbox (checked by the caller)
+	OverCap     bool   // start it even when the team is at max_sessions
 }
 
 // SpawnResult is a started session. Running is false when the CLI was not
 // seen running in the pane a few seconds after launch.
 type SpawnResult struct {
-	ID, Name, Pane, Token string
-	Running, Window       bool
+	ID, Name, Pane, Token, Tool string
+	Running, Window             bool
 }
 
 // Spawn opens a pane beside the caller's (or, with Window or outside a known
@@ -36,8 +38,11 @@ type SpawnResult struct {
 // Claude Code or Codex there with a first prompt that takes on the identity
 // with that claim's token and checks the inbox.
 func (p *Project) Spawn(o SpawnOptions) (*SpawnResult, error) {
-	if o.Tool != "claude" && o.Tool != "codex" {
+	if o.Tool != "" && o.Tool != "claude" && o.Tool != "codex" {
 		return nil, fail(ExitUsage, "usage", "--tool must be claude or codex")
+	}
+	if date, reason, ok := p.Halted(); ok {
+		return nil, fail(ExitFail, "halted", "the team is halted since %s: %s; nothing new starts until the user runs sunstack halt --off", date, reason)
 	}
 	if o.Task != "" && !ValidTask(o.Task) {
 		return nil, fail(ExitUsage, "usage", "invalid task %q: lowercase letters, digits and -, at most 10 characters", o.Task)
@@ -53,15 +58,29 @@ func (p *Project) Spawn(o SpawnOptions) (*SpawnResult, error) {
 	if o.Socket == "" {
 		return nil, fail(ExitFail, "no_tmux", "spawn opens a tmux window, so run it inside tmux; otherwise start %s yourself and take on the agent there", o.Tool)
 	}
-	if _, err := exec.LookPath(o.Tool); err != nil {
-		return nil, fail(ExitFail, "no_cli", "%s is not on PATH", o.Tool)
-	}
 	id, err := p.resolve(o.Arg)
 	if err != nil {
 		return nil, err
 	}
 	if err := p.checkIdentityFiles(id); err != nil {
 		return nil, err
+	}
+	if o.Tool == "" {
+		// The agent's own tool (§17.5), then the caller's CLI.
+		agentTool, _ := frontmatterValue(filepath.Join(p.AgentDir(id), "AGENT.md"), "tool")
+		switch {
+		case agentTool == "claude" || agentTool == "codex":
+			o.Tool = agentTool
+		case agentTool != "":
+			return nil, fail(ExitUsage, "usage", "%s/AGENT.md says tool: %s; it must be claude or codex", id, agentTool)
+		case o.DefaultTool == "claude" || o.DefaultTool == "codex":
+			o.Tool = o.DefaultTool
+		default:
+			o.Tool = "claude"
+		}
+	}
+	if _, err := exec.LookPath(o.Tool); err != nil {
+		return nil, fail(ExitFail, "no_cli", "%s is not on PATH", o.Tool)
 	}
 	name := (&Live{Task: o.Task}).Label(id)
 	if claims, _ := p.Claims(id); labelTaken(claims, id, name, nil) {
@@ -152,7 +171,7 @@ func (p *Project) Spawn(o SpawnOptions) (*SpawnResult, error) {
 		time.Sleep(250 * time.Millisecond)
 		running = paneRunsTool(o.Socket, pane, o.Tool)
 	}
-	return &SpawnResult{ID: id, Name: name, Pane: pane, Token: l.Token, Running: running, Window: window}, nil
+	return &SpawnResult{ID: id, Name: name, Pane: pane, Token: l.Token, Tool: o.Tool, Running: running, Window: window}, nil
 }
 
 func atoiOr(s string, def int) int {
@@ -331,4 +350,26 @@ func (p *Project) checkCap() error {
 		return nil
 	}
 	return fail(ExitClaim, "team_full", "the team has %d live session(s), at its max_sessions: %d (sunstack/TEAM): %s; finish one first (sunstack dismiss), or pass --over-cap after the user agrees", len(live), tf.MaxSessions, strings.Join(live, ", "))
+}
+
+// frontmatterValue reads one key of a file's leading --- block.
+func frontmatterValue(path, key string) (string, bool) {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return "", false
+	}
+	s := strings.ReplaceAll(string(b), "\r\n", "\n")
+	if !strings.HasPrefix(s, "---\n") {
+		return "", false
+	}
+	end := strings.Index(s[4:], "\n---")
+	if end < 0 {
+		return "", false
+	}
+	for _, l := range strings.Split(s[4:4+end], "\n") {
+		if k, v, ok := strings.Cut(l, ":"); ok && strings.TrimSpace(k) == key {
+			return strings.TrimSpace(v), true
+		}
+	}
+	return "", false
 }

@@ -138,7 +138,7 @@ func (p *Project) Health() []Check {
 	for _, id := range boards.Missing {
 		cs = append(cs, warn("migrate", id+" has no board.md", "sunstack tidy "+id))
 	}
-	for _, is := range boards.Issues(time.Now()) {
+	for _, is := range p.IssueTexts(time.Now()) {
 		cs = append(cs, next("board", is, "see sunstack board; the agent updates its board at its next save"))
 	}
 

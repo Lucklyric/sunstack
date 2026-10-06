@@ -241,7 +241,7 @@ func (p *Project) orgTeam(sessions []*HostSession, byAgent map[string][]*HostSes
 		t.ID = p.Root
 	}
 	boards := p.LoadBoards()
-	t.Issues = boards.Issues(today)
+	t.Issues = p.IssueTexts(today)
 	for _, it := range boards.Team {
 		if it.Section != "Objectives" || it.Done {
 			continue
@@ -339,7 +339,8 @@ func (o *Org) attention() []string {
 			waiting(s, t.Name)
 		}
 		for _, is := range t.Issues {
-			if strings.Contains(is, "user") || strings.Contains(is, "decided by default") || strings.Contains(is, " was due ") || strings.Contains(is, "not aligned") ||
+			if strings.Contains(is, "user") || strings.Contains(is, "decided by default") || strings.Contains(is, " was due ") ||
+				strings.Contains(is, "is halted") || strings.Contains(is, "failed twice") || strings.Contains(is, "has been open since") || strings.Contains(is, "not aligned") ||
 				strings.Contains(is, "does not exist") || strings.Contains(is, "is not an objective") {
 				out = append(out, t.Name+": "+is)
 			}

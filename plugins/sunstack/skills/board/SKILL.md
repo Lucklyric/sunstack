@@ -44,7 +44,8 @@ Summarize for the user, short:
 
 ## 3. Offer next steps
 
-Pick what fits and ask:
+For one ranked list across the whole team (setup, asks, blocked work, drift), use the next
+skill. Here, pick what fits the board and ask:
 
 - **No objectives yet**: ask the user for one to three outcomes, draft them as
   `- <today> O<n> <outcome> (due: <date>)`, show the draft, and on approve write them (step 4).
@@ -72,7 +73,8 @@ agent's board is written only by that agent, so this step asks each agent to fix
 1. From the `sunstack board` output, group what needs attention by agent: directives it has
    not aligned with, key results with no or an unknown objective, `needs:` pointing at a key
    result that does not exist, stale Now entries, overdue and undated entries, Done entries
-   without a `verified:` line, asks without a default, and asks past their default date. A broken need
+   without a `verified:` line, asks without a default, asks past their default date, tasks
+   open too long, and task chains that failed twice. A broken need
    (A needs B#KR2, B has none) goes to whichever of the two should change; if unclear, ask.
    Leave out what only the user can fix (objectives, the user's own key results) and list it
    separately for the user.

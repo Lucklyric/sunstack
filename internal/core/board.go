@@ -117,10 +117,11 @@ func parseBoard(owner string, doc []byte) (items []Item, undated []string) {
 
 // askIssues says what an ask needs (§16.4): an answer from the user, a
 // default, or the agent to take its default once the date has passed.
-func askIssues(it Item, today time.Time) []string {
+func askIssues(it Item, today time.Time) []Issue {
+	answer := fmt.Sprintf("sunstack answer %s %s \"<answer>\"", it.Owner, it.Key)
 	if it.Done {
 		if it.Answered == "default" {
-			return []string{fmt.Sprintf("%s was decided by default: %s", it.Ref(), it.Text)}
+			return []Issue{{"user", it.Owner, fmt.Sprintf("%s was decided by default: %s", it.Ref(), it.Text), "nothing, or overrule it: " + answer}}
 		}
 		return nil
 	}
@@ -129,12 +130,12 @@ func askIssues(it Item, today time.Time) []string {
 		line += " (options: " + it.Options + ")"
 	}
 	if it.Default == "" {
-		return []string{line, fmt.Sprintf("%s has no default; add (default: <answer> after <date>)", it.Ref())}
+		return []Issue{{"user", it.Owner, line, answer}, {"drift", it.Owner, fmt.Sprintf("%s has no default; add (default: <answer> after <date>)", it.Ref()), it.Owner + " fixes it at its next save"}}
 	}
 	line += " (default: " + it.Default + ")"
-	out := []string{line}
+	out := []Issue{{"user", it.Owner, line, answer}}
 	if _, date, ok := strings.Cut(it.Default, " after "); ok && strings.TrimSpace(date) < today.Format("2006-01-02") {
-		out = append(out, fmt.Sprintf("%s passed its default date %s; the agent takes the default at its next save", it.Ref(), strings.TrimSpace(date)))
+		out = append(out, Issue{"user", it.Owner, fmt.Sprintf("%s passed its default date %s; the agent takes the default at its next save", it.Ref(), strings.TrimSpace(date)), "answer it now, or let " + it.Owner + " take the default: " + answer})
 	}
 	return out
 }
@@ -236,10 +237,40 @@ func (b *Boards) Unaligned(id string) []Item {
 	return out
 }
 
-// Issues finds what needs attention: stale, overdue, undated or unaligned
-// entries, key results without a known objective, and broken dependencies.
+// Issue is one thing on the boards that needs attention, with who should act
+// and how. Kind ranks it for sunstack next: user (waits on the user),
+// blocked (waits on someone else or is late), drift (the owner fixes it at
+// its next save).
+type Issue struct {
+	Kind  string `json:"tier"`
+	Owner string `json:"owner"` // the agent whose board it is on, or "user"
+	Text  string `json:"text"`
+	Do    string `json:"do"`
+}
+
+// Issues is the text of Findings, for board, health and org.
 func (b *Boards) Issues(today time.Time) []string {
 	var out []string
+	for _, is := range b.Findings(today) {
+		out = append(out, is.Text)
+	}
+	return out
+}
+
+// Findings finds what needs attention: stale, overdue, undated or unaligned
+// entries, key results without a known objective, broken dependencies,
+// unverified Done entries and asks.
+func (b *Boards) Findings(today time.Time) []Issue {
+	var out []Issue
+	add := func(kind, owner, do, format string, a ...any) {
+		out = append(out, Issue{Kind: kind, Owner: owner, Text: fmt.Sprintf(format, a...), Do: do})
+	}
+	fixAtSave := func(owner string) string {
+		if owner == "user" {
+			return "board skill: change BOARD.md with the user"
+		}
+		return owner + " fixes it at its next save (board skill: align)"
+	}
 	objs := map[string]bool{}
 	byRef := map[string]Item{}
 	for _, it := range b.Team {
@@ -262,11 +293,12 @@ func (b *Boards) Issues(today time.Time) []string {
 		if it.Done || strings.HasPrefix(it.Key, "Q") {
 			return
 		}
+		fix := fixAtSave(it.Owner)
 		switch {
 		case it.Obj == "":
-			out = append(out, fmt.Sprintf("%s serves no objective; tag it [O<n>]", it.Ref()))
+			add("drift", it.Owner, fix, "%s serves no objective; tag it [O<n>]", it.Ref())
 		case !objs[it.Obj]:
-			out = append(out, fmt.Sprintf("%s serves %s, which is not an objective in BOARD.md", it.Ref(), it.Obj))
+			add("drift", it.Owner, fix, "%s serves %s, which is not an objective in BOARD.md", it.Ref(), it.Obj)
 		}
 		for _, n := range it.Needs {
 			if n == "user" {
@@ -276,29 +308,29 @@ func (b *Boards) Issues(today time.Time) []string {
 				// An ask on the agent's own board (§16.4).
 				switch ask, ok := byRef[it.Owner+"#"+q]; {
 				case !ok:
-					out = append(out, fmt.Sprintf("%s needs %s, which is not in its Asks", it.Ref(), n))
+					add("drift", it.Owner, fix, "%s needs %s, which is not in its Asks", it.Ref(), n)
 				case !ask.Done:
-					out = append(out, fmt.Sprintf("%s is waiting on the user (%s)", it.Ref(), q))
+					add("user", it.Owner, fmt.Sprintf("sunstack answer %s %s \"<answer>\"", it.Owner, q), "%s is waiting on the user (%s)", it.Ref(), q)
 				}
 				continue
 			}
 			dep, ok := byRef[n]
 			if !ok && (strings.HasPrefix(n, "user ") || strings.HasPrefix(n, "user:")) {
-				out = append(out, fmt.Sprintf("%s is waiting on the user (%s)", it.Ref(), n))
+				add("user", it.Owner, "tell "+it.Owner+" (message skill), or act on it yourself", "%s is waiting on the user (%s)", it.Ref(), n)
 				continue
 			}
 			switch {
 			case !ok:
-				out = append(out, fmt.Sprintf("%s needs %s, which does not exist", it.Ref(), n))
+				add("drift", it.Owner, fix, "%s needs %s, which does not exist", it.Ref(), n)
 			case !dep.Done:
-				out = append(out, fmt.Sprintf("%s is waiting on %s (%s)", it.Ref(), n, strings.ToLower(dep.Section)))
+				add("blocked", it.Owner, "sunstack tasks, or ask "+dep.Owner+" with the message skill", "%s is waiting on %s (%s)", it.Ref(), n, strings.ToLower(dep.Section))
 			}
 		}
 		if _, err := time.Parse("2006-01-02", it.Due); err == nil && it.Due < today.Format("2006-01-02") {
-			out = append(out, fmt.Sprintf("%s was due %s", it.Ref(), it.Due))
+			add("blocked", it.Owner, "board skill: re-plan it with "+it.Owner, "%s was due %s", it.Ref(), it.Due)
 		}
 		if d, err := time.Parse("2006-01-02", it.Date); err == nil && it.Section == "Now" && today.Sub(d) > staleDays*24*time.Hour {
-			out = append(out, fmt.Sprintf("%s has not been updated since %s", it.Ref(), it.Date))
+			add("drift", it.Owner, fix, "%s has not been updated since %s", it.Ref(), it.Date)
 		}
 	}
 	for _, it := range b.Team {
@@ -313,17 +345,17 @@ func (b *Boards) Issues(today time.Time) []string {
 		for _, it := range b.Agents[id] {
 			// Proof of done (§16.2): a Done entry says how it was checked.
 			if it.Section == "Done" && it.Verified == "" && !strings.HasPrefix(it.Key, "Q") {
-				out = append(out, fmt.Sprintf("%s is done without a verified: line", it.Ref()))
+				add("drift", id, fixAtSave(id), "%s is done without a verified: line", it.Ref())
 			}
 			if strings.HasPrefix(it.Key, "Q") {
 				out = append(out, askIssues(it, today)...)
 			}
 		}
 		for _, d := range b.Unaligned(id) {
-			out = append(out, fmt.Sprintf("%s has not aligned with %s", id, d.Key))
+			add("drift", id, fixAtSave(id), "%s has not aligned with %s", id, d.Key)
 		}
 		if b.Lines[id] > boardLines {
-			out = append(out, fmt.Sprintf("%s/board.md has %d lines; tidy it", id, b.Lines[id]))
+			add("drift", id, "sunstack tidy "+id, "%s/board.md has %d lines; tidy it", id, b.Lines[id])
 		}
 	}
 	files := make([]string, 0, len(b.Undated))
@@ -332,7 +364,11 @@ func (b *Boards) Issues(today time.Time) []string {
 	}
 	sort.Strings(files)
 	for _, f := range files {
-		out = append(out, fmt.Sprintf("%s has %d undated entr(ies); start each with - <date> <key>", f, len(b.Undated[f])))
+		owner := strings.TrimSuffix(f, "/board.md")
+		if f == "BOARD.md" {
+			owner = "user"
+		}
+		add("drift", owner, fixAtSave(owner), "%s has %d undated entr(ies); start each with - <date> <key>", f, len(b.Undated[f]))
 	}
 	return out
 }
@@ -455,7 +491,7 @@ func (p *Project) BoardText(id string) (string, error) {
 	if len(b.Missing) > 0 {
 		fmt.Fprintf(&s, "\nNo board yet: %s (sunstack tidy <id> creates one)\n", strings.Join(b.Missing, ", "))
 	}
-	if is := b.Issues(today); len(is) > 0 {
+	if is := p.IssueTexts(today); len(is) > 0 {
 		s.WriteString("\nNeeds attention\n")
 		for _, i := range is {
 			s.WriteString("  " + i + "\n")

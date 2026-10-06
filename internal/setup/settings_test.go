@@ -104,7 +104,7 @@ func TestCodexRulesOnlyTouchOwnFile(t *testing.T) {
 // Commands that speak for the user or need the user's approval ask first in
 // both CLIs; answer (§16.4) settles an agent's ask in the user's name.
 func TestUserOnlyCommandsAsk(t *testing.T) {
-	for _, c := range []string{"amend", "hire", "rename", "fire", "kill", "direct", "answer"} {
+	for _, c := range []string{"amend", "hire", "rename", "fire", "kill", "direct", "answer", "halt"} {
 		if c != "amend" && !slices.Contains(AskRules, "Bash(sunstack "+c+" *)") {
 			t.Errorf("Claude Code does not ask before sunstack %s", c)
 		}
