@@ -601,3 +601,46 @@ func sameTmuxServer(c *Live, pid string, serverOf func(string) string) bool {
 	}
 	return serverOf(c.TmuxSocket) == pid
 }
+
+// OrgSection is one entry of the two-pane org view: a title for the list on
+// the left and the text shown on the right when it is selected.
+type OrgSection struct{ Title, Text string }
+
+// Sections splits the snapshot for the two-pane view: what needs the user,
+// each team (work and people), sessions outside teams, and every session.
+func (o *Org) Sections() []OrgSection {
+	var out []OrgSection
+	var b strings.Builder
+	o.writeAttention(&b)
+	for _, n := range o.Notes {
+		fmt.Fprintf(&b, "\nnote: %s\n", n)
+	}
+	out = append(out, OrgSection{fmt.Sprintf("Needs you (%d)", len(o.Attention)), b.String()})
+	for _, t := range o.Teams {
+		one := &Org{Host: o.Host, Teams: []*OrgTeam{t}}
+		var tb strings.Builder
+		one.writeWork(&tb)
+		one.writePeople(&tb)
+		sessions := len(t.Free)
+		for _, a := range t.Agents {
+			sessions += len(a.Sessions)
+		}
+		out = append(out, OrgSection{fmt.Sprintf("%s (%d)", t.Name, sessions), tb.String()})
+	}
+	if len(o.Free) > 0 {
+		n := 0
+		var fb strings.Builder
+		for _, g := range o.Free {
+			fmt.Fprintf(&fb, "%s\n", g.Group)
+			for _, s := range g.Sessions {
+				fmt.Fprintf(&fb, "  %s\n", freeLine(s))
+				n++
+			}
+		}
+		out = append(out, OrgSection{fmt.Sprintf("Outside teams (%d)", n), fb.String()})
+	}
+	var hb strings.Builder
+	o.writeHosts(&hb)
+	out = append(out, OrgSection{"All sessions on " + o.Host.Name, hb.String()})
+	return out
+}

@@ -27,6 +27,8 @@ const (
 	viewLog
 	viewInbox
 	viewOrg
+	viewNext
+	viewPicker
 )
 
 type tick time.Time
@@ -36,8 +38,6 @@ type tick time.Time
 type orgMsg struct{ o *core.Org }
 
 const orgRefresh = 10 * time.Second
-
-var orgViews = []struct{ key, name string }{{"attention", "needs you"}, {"team", "work"}, {"agent", "people"}, {"host", "hosts"}}
 
 type model struct {
 	p        *core.Project
@@ -54,8 +54,18 @@ type model struct {
 	org       *core.Org
 	orgAt     time.Time
 	orgBusy   bool
-	orgView   int // index into orgViews
 	orgScroll int
+
+	cwd        string // the folder sunstack was started in
+	teams      []pickTeam
+	pickSel    int
+	canInit    bool   // cwd is a git project with no team: offer to set one up
+	confirm    string // a question waiting for y
+	help       bool
+	nextScroll int
+	nextSel    int
+	nextItems  []core.Issue
+	orgSel     int
 }
 
 var (
@@ -72,23 +82,35 @@ var (
 // is set. With no project (outside any team) it shows the host view only.
 func Run(p *core.Project, org bool) error {
 	m := newModel(p, org)
+	m.cwd, _ = os.Getwd()
 	m.reload()
 	_, err := tea.NewProgram(m, tea.WithAltScreen()).Run()
 	return err
 }
 
+// newModel opens on the team, or with org on the host view. Without a team
+// it opens on the team picker, or with org on the host view.
 func newModel(p *core.Project, org bool) *model {
 	m := &model{p: p}
-	if org || p == nil {
+	switch {
+	case org:
 		m.view, m.orgBusy = viewOrg, true
+	case p == nil:
+		m.view = viewPicker
 	}
 	return m
 }
 
 func (m *model) reload() {
 	m.updated = time.Now()
+	if m.view == viewPicker {
+		m.loadTeams()
+	}
 	if m.p == nil {
 		return
+	}
+	if m.view == viewNext {
+		m.nextItems = m.p.Next("", time.Now())
 	}
 	m.agents = m.p.Status()
 	m.events = m.p.Events("")
@@ -127,58 +149,133 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case orgMsg:
 		m.org, m.orgAt, m.orgBusy = msg.o, time.Now(), false
 	case tea.KeyMsg:
-		m.note = ""
-		if m.p == nil {
-			// Host only: no team views to switch to.
-			switch msg.String() {
-			case "o", "esc", "l", "i", "g", "c":
-				return m, nil
-			}
-		}
-		switch msg.String() {
-		case "q", "ctrl+c":
-			return m, tea.Quit
-		case "esc":
-			m.view = viewTeam
-		case "up", "k":
-			if m.view == viewOrg {
-				m.orgScroll = max(0, m.orgScroll-1)
-			} else if m.sel > 0 {
-				m.sel--
-			}
-		case "down", "j":
-			if m.view == viewOrg {
-				m.orgScroll++
-			} else if m.sel < len(m.agents)-1 {
-				m.sel++
-			}
-		case "o":
-			m.view = toggle(m.view, viewOrg)
-			if m.view == viewOrg && m.org == nil && !m.orgBusy {
-				m.orgBusy = true
-				return m, orgCmd()
-			}
-		case "1", "2", "3", "4":
-			if m.view == viewOrg {
-				m.orgView, m.orgScroll = int(msg.String()[0]-'1'), 0
-			}
-		case "l":
-			m.view = toggle(m.view, viewLog)
-		case "i":
-			m.view = toggle(m.view, viewInbox)
-		case "r":
-			m.reload()
-			if m.view == viewOrg && !m.orgBusy {
-				m.orgBusy = true
-				return m, orgCmd()
-			}
-		case "g":
-			m.note = m.goToPane()
-		case "c":
-			m.note = m.copyResume()
-		}
+		return m, m.key(msg.String())
 	}
 	return m, nil
+}
+
+// key handles one key press.
+func (m *model) key(k string) tea.Cmd {
+	m.note = ""
+	if m.help {
+		m.help = false // any key closes the help
+		return nil
+	}
+	if k == "q" || k == "ctrl+c" {
+		return tea.Quit
+	}
+	if m.confirm != "" {
+		m.confirm = ""
+		if k == "y" {
+			m.setUp()
+		}
+		return nil
+	}
+	if k == "?" {
+		m.help = true
+		return nil
+	}
+	if m.view == viewPicker {
+		return m.pickerKey(k)
+	}
+	if k == "t" {
+		m.openPicker()
+		return nil
+	}
+	if m.p == nil {
+		// Host only: no team views to switch to.
+		switch k {
+		case "esc":
+			m.openPicker()
+			return nil
+		case "o", "l", "i", "g", "c", "n", "tab", "shift+tab":
+			return nil
+		}
+	}
+	switch k {
+	case "esc":
+		m.view = viewTeam
+	case "tab", "shift+tab":
+		step := 1
+		if k == "shift+tab" {
+			step = len(tabs) - 1
+		}
+		return m.show(tabs[(tabIndex(m.view)+step)%len(tabs)])
+	case "up", "k":
+		switch m.view {
+		case viewOrg:
+			m.orgSel, m.orgScroll = max(0, m.orgSel-1), 0
+		case viewNext:
+			m.nextSel = max(0, m.nextSel-1)
+		default:
+			if m.sel > 0 {
+				m.sel--
+			}
+		}
+	case "down", "j":
+		switch m.view {
+		case viewOrg:
+			m.orgSel++
+			m.orgScroll = 0
+		case viewNext:
+			m.nextSel++
+		default:
+			if m.sel < len(m.agents)-1 {
+				m.sel++
+			}
+		}
+	case "o":
+		return m.show(toggle(m.view, viewOrg))
+	case "n":
+		return m.show(toggle(m.view, viewNext))
+	case "pgdown":
+		m.orgScroll += 10
+	case "pgup":
+		m.orgScroll = max(0, m.orgScroll-10)
+	case "l":
+		m.view = toggle(m.view, viewLog)
+	case "i":
+		m.view = toggle(m.view, viewInbox)
+	case "r":
+		m.reload()
+		if m.view == viewOrg && !m.orgBusy {
+			m.orgBusy = true
+			return orgCmd()
+		}
+	case "g":
+		m.note = m.goToPane()
+	case "c":
+		m.note = m.copyResume()
+	}
+	return nil
+}
+
+// tabs are the views a team shows in its tab bar.
+var tabs = []view{viewTeam, viewNext, viewOrg}
+
+func tabIndex(v view) int {
+	for i, t := range tabs {
+		if t == v {
+			return i
+		}
+	}
+	return 0 // the log and inbox belong to the team tab
+}
+
+// show switches to a view, starting what it needs.
+func (m *model) show(v view) tea.Cmd {
+	m.view = v
+	switch v {
+	case viewNext:
+		m.nextScroll = 0
+		m.reload()
+	case viewOrg:
+		if m.org == nil && !m.orgBusy {
+			m.orgBusy = true
+			return orgCmd()
+		}
+	}
+	return nil
 }
 
 func toggle(cur, v view) view {
@@ -248,34 +345,46 @@ func (m *model) View() string {
 	where := ""
 	if m.p != nil {
 		where = m.p.Root
-	} else if m.org != nil {
-		where = "host " + m.org.Host.Name
 	} else {
-		where = "host"
+		where = "host " + core.ThisHost().Name
 	}
 	head := cTitle.Render("sunstack") + cDim.Render(fmt.Sprintf("  %s  ·  %s", where, m.updated.Format("15:04:05")))
 	var body string
-	switch m.view {
-	case viewLog:
+	switch {
+	case m.help:
+		body = m.helpView()
+	case m.view == viewPicker:
+		body = m.pickerView()
+	case m.view == viewNext:
+		body = m.nextView()
+	case m.view == viewLog:
 		body = m.logView()
-	case viewInbox:
+	case m.view == viewInbox:
 		body = m.inboxView()
-	case viewOrg:
+	case m.view == viewOrg:
 		body = m.orgPane()
 	default:
 		body = m.teamView()
 	}
 	help := cDim.Render("↑↓ select · o org · l log · i inbox · g go to pane · c copy resume · r refresh · esc back · q quit")
-	if m.view == viewOrg {
-		help = cDim.Render("1 needs you · 2 work · 3 people · 4 hosts · ↑↓ scroll · r refresh · o/esc back · q quit")
-		if m.p == nil {
-			help = cDim.Render("1 needs you · 2 work · 3 people · 4 hosts · ↑↓ scroll · r refresh · q quit")
-		}
+	switch {
+	case m.view == viewPicker:
+		help = cDim.Render("↑↓ select · enter open · o host view · s find teams · n set up · ? help · q quit")
+	case m.view == viewNext:
+		help = cDim.Render("↑↓ select · r refresh · tab switch · t teams · esc back · ? help · q quit")
+	case m.view == viewOrg && m.p == nil:
+		help = cDim.Render("↑↓ select · pgup/pgdn scroll · r refresh · esc teams · ? help · q quit")
+	case m.view == viewOrg:
+		help = cDim.Render("↑↓ select · pgup/pgdn scroll · r refresh · tab switch · t teams · esc back · ? help · q quit")
 	}
 	if m.note != "" {
 		help = cWarn.Render(m.note) + "  " + help
 	}
-	return lipgloss.JoinVertical(lipgloss.Left, fit(head, m.w), body, fit(help, m.w))
+	parts := []string{fit(head, m.w)}
+	if m.showTabs() {
+		parts = append(parts, m.tabBar())
+	}
+	return lipgloss.JoinVertical(lipgloss.Left, append(parts, body, fit(help, m.w))...)
 }
 
 func (m *model) teamView() string {
@@ -301,7 +410,7 @@ func (m *model) teamView() string {
 	if len(warn) > 0 {
 		bottom = append(bottom, cBox.Width(m.w-4).Render(strings.Join(fitAll(warn, m.w-6), "\n")))
 	}
-	used := 2 // title and help lines
+	used := m.chrome() // title, tab bar and help lines
 	for _, b := range bottom {
 		used += lipgloss.Height(b)
 	}
@@ -404,7 +513,7 @@ func (m *model) logView() string {
 		id, label = a.ID, a.ID
 	}
 	lines := m.p.Events(id)
-	h := max(5, m.h-4)
+	h := m.inner()
 	if len(lines) > h {
 		lines = lines[len(lines)-h:]
 	}
@@ -420,7 +529,7 @@ func (m *model) inboxView() string {
 	for _, e := range m.p.Inbox(a.ID) {
 		lines = append(lines, fmt.Sprintf("%s  %-8s from %-16s %s", e.At, e.Type, e.From, e.File))
 	}
-	return cBox.Width(m.w - 4).Height(max(5, m.h-4)).Render(cHeader.Render("Inbox · "+a.ID) + "\n" + strings.Join(fitAll(orNone(lines), m.w-6), "\n"))
+	return cBox.Width(m.w - 4).Height(m.inner()).Render(cHeader.Render("Inbox · "+a.ID) + "\n" + strings.Join(fitAll(orNone(lines), m.w-6), "\n"))
 }
 
 func sectionLines(doc []byte, name string) []string {
@@ -461,30 +570,6 @@ func wrap(s string, w int) string {
 }
 
 func orgCmd() tea.Cmd { return func() tea.Msg { return orgMsg{core.BuildOrg()} } }
-
-// orgPane shows every team and session on this host, in one of four views.
-func (m *model) orgPane() string {
-	h := max(5, m.h-4)
-	var tabs []string
-	for i, v := range orgViews {
-		label := fmt.Sprintf("%d %s", i+1, v.name)
-		if i == m.orgView {
-			label = cSel.Render(label)
-		}
-		tabs = append(tabs, label)
-	}
-	head := cHeader.Render("Org") + "  " + strings.Join(tabs, "  ")
-	if m.org == nil {
-		return cBox.Width(m.w - 4).Height(h).Render(head + "\n" + cDim.Render("scanning sessions…"))
-	}
-	head += cDim.Render("  · scanned " + m.orgAt.Format("15:04:05"))
-	lines := strings.Split(strings.TrimRight(m.org.Text(orgViews[m.orgView].key), "\n"), "\n")
-	if m.orgScroll > len(lines)-1 {
-		m.orgScroll = max(0, len(lines)-1)
-	}
-	lines = lines[m.orgScroll:]
-	return cBox.Width(m.w - 4).Height(h).Render(fit(head, m.w-6) + "\n" + strings.Join(clip(fitAll(lines, m.w-6), h-1), "\n"))
-}
 
 // fit cuts a line to w display columns, so a box never wraps it: wide
 // characters count twice, and color codes not at all.

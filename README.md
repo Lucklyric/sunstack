@@ -50,7 +50,7 @@ Skills run as `/sunstack:<name>` in Claude Code and `$sunstack:<name>` in Codex.
 - **Sessions:** `sessions`, `spawn` (`--brief` for a first task, the agent's own `tool:`, refused at the team's `max_sessions` and while halted), `dismiss`, `kill` → skill `spawn`
 - **Delegation:** `tasks` (tasks sent and not yet answered), `send --follows` (a follow-up round that quotes the earlier one) → skills `org` and `message`
 - **Staffing:** `hr` → skill `hr` (suggests hires, splits and retirements from the project and the boards)
-- **Your org on this machine:** `org` (what needs you, work by team, people, hosts), `teams`, `peek`, `team`, `log`, `inbox`, `pillar` → skill `org`; `tui` (`--org` for the host view, which is also what it opens outside a team; a bare `sunstack` in a team folder opens it too)
+- **Your org on this machine:** `org` (what needs you, work by team, people, hosts), `teams`, `peek`, `team`, `log`, `inbox`, `pillar` → skill `org`; `tui` (also a bare `sunstack`): in a team folder it opens on the team, outside one on a picker of this host's teams; tabs Team, Next and Org, each a list on the left with the selected item's details on the right; `t` switches team, `?` lists the keys, `--org` opens on the host view
 - **Who am I:** `whoami` → skill `whoami`; `doing` (one line on what a session works on) → skills `as` and `save`
 
 ## How agents reach each other

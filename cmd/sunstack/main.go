@@ -103,8 +103,8 @@ Org (every team and Claude Code or Codex session on this host):
   sunstack inbox <id>                             pending messages, read only
   sunstack pillar <id> | --team                   effective pillars with their source
   sunstack health                                 read-only checks of the project and the install
-  sunstack tui [--org]                            dashboard: this team, or with --org (and outside any team)
-                                                  the host view of every team and session (bare sunstack in a team folder opens it too)
+  sunstack tui [--org]                            dashboard: this team, or outside a team a picker of this host's teams;
+                                                  --org opens the host view of every team and session (also: bare sunstack)
 
 Setup:
   sunstack install [--claude] [--codex] [--yes]   install the plugin (both CLIs found on PATH by default)
@@ -226,8 +226,10 @@ func detectTool() (tool, session string) {
 
 func run(argv []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if len(argv) == 0 {
-		// A bare `sunstack` in a terminal inside a project opens the dashboard.
-		if p, err := core.FindProject(""); err == nil && setup.IsTerminal(os.Stdout) {
+		// A bare `sunstack` in a terminal opens the dashboard: on this team,
+		// or outside any team on the team picker.
+		if setup.IsTerminal(os.Stdout) {
+			p, _ := core.FindProject("")
 			if err := tui.Run(p, false); err != nil {
 				fmt.Fprintf(stderr, "sunstack: error: %v\n", err)
 				return core.ExitFail
@@ -1418,8 +1420,8 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 			if a.flags["root"] != "" {
 				return err
 			}
-			// Outside any team: the host view of every team and session.
-			return tui.Run(nil, true)
+			// Outside any team: the team picker, or the host view with --org.
+			return tui.Run(nil, a.has("org"))
 		}
 		return tui.Run(p, a.has("org"))
 

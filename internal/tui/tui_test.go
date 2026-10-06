@@ -79,9 +79,10 @@ func TestFitCountsWideCharacters(t *testing.T) {
 	}
 }
 
-// Outside a team the dashboard is the host view only: every key that would
-// need a team stays on it, and nothing reads a project.
+// With --org outside a team the dashboard is the host view: team keys stay
+// on it, and esc or t opens the team picker.
 func TestHostOnly(t *testing.T) {
+	t.Setenv("SUNSTACK_HOME", t.TempDir())
 	m := newModel(nil, true)
 	if m.Init() == nil {
 		t.Fatal("the host view starts a scan at once")
@@ -89,23 +90,20 @@ func TestHostOnly(t *testing.T) {
 	m.w, m.h = 100, 30
 	m.org = &core.Org{Host: core.HostInfo{Name: "h"}}
 	m.reload()
-	for _, k := range []string{"o", "esc", "l", "i", "g", "c", "up", "down", "2", "r"} {
-		m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(k)})
-		if k == "esc" {
-			m.Update(tea.KeyMsg{Type: tea.KeyEsc})
-		}
+	for _, k := range []string{"o", "l", "i", "g", "c", "up", "down", "2", "r", "n"} {
+		m.Update(key(k))
 		if m.view != viewOrg {
 			t.Fatalf("key %q left the host view", k)
 		}
 		v := m.View()
-		for _, l := range strings.Split(v, "\n") {
-			if lipgloss.Width(l) > m.w {
-				t.Errorf("key %q: line %d wide", k, lipgloss.Width(l))
-			}
-		}
+		fits(t, v, m.w, k)
 		if strings.Contains(v, "l log") || !strings.Contains(v, "host h") {
 			t.Errorf("key %q: host view header or help:\n%s", k, v)
 		}
+	}
+	m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	if m.view != viewPicker {
+		t.Error("esc in the host view opens the team picker")
 	}
 }
 
@@ -131,5 +129,197 @@ func TestStartOnOrg(t *testing.T) {
 	}
 	if newModel(p, false).view != viewTeam {
 		t.Error("without --org the team view comes first")
+	}
+}
+
+func key(k string) tea.KeyMsg {
+	switch k {
+	case "up":
+		return tea.KeyMsg{Type: tea.KeyUp}
+	case "down":
+		return tea.KeyMsg{Type: tea.KeyDown}
+	case "enter":
+		return tea.KeyMsg{Type: tea.KeyEnter}
+	case "tab":
+		return tea.KeyMsg{Type: tea.KeyTab}
+	case "esc":
+		return tea.KeyMsg{Type: tea.KeyEsc}
+	}
+	return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(k)}
+}
+
+func fits(t *testing.T, v string, w int, label string) {
+	t.Helper()
+	for _, l := range strings.Split(v, "\n") {
+		if lipgloss.Width(l) > w {
+			t.Errorf("%s: line %d wide: %q", label, lipgloss.Width(l), l)
+		}
+	}
+}
+
+// newTeam makes a team folder with one agent and registers it.
+func newTeam(t *testing.T, root, agent string) *core.Project {
+	t.Helper()
+	for rel, text := range map[string]string{
+		"sunstack/PROTOCOL.md":            "# Sunstack protocol\n",
+		"sunstack/" + agent + "/AGENT.md": "---\ntitle: " + strings.SplitN(agent, ".", 2)[0] + "\nfrom: custom\n---\n## Role\nWorks.\n",
+	} {
+		path := filepath.Join(root, rel)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(text), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	p, err := core.FindProject(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := p.Register(); err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
+// Outside a team, the dashboard starts on a picker of this host's teams.
+func TestStartPicker(t *testing.T) {
+	t.Setenv("SUNSTACK_HOME", t.TempDir())
+	base := t.TempDir()
+	newTeam(t, filepath.Join(base, "alpha"), "builder.a")
+	beta := newTeam(t, filepath.Join(base, "beta"), "builder.b")
+	m := newModel(nil, false)
+	m.cwd = t.TempDir()
+	m.w, m.h = 100, 30
+	m.reload()
+	if m.view != viewPicker {
+		t.Fatalf("outside a team the picker comes first, got view %d", m.view)
+	}
+	v := m.View()
+	fits(t, v, m.w, "picker")
+	requireAll(t, v, "Teams on this host", "alpha", "beta", "Host view", "Find teams under this folder")
+	// The right pane shows the selected team.
+	requireAll(t, v, "agents: builder.a", "sessions: 0")
+	if strings.Contains(v, "Set up a team") {
+		t.Error("set up is offered only in a git project")
+	}
+	m.Update(key("down"))
+	m.Update(key("enter"))
+	if m.view != viewTeam || m.p == nil || m.p.Root != beta.Root {
+		t.Fatalf("enter opens the selected team, got %v", m.p)
+	}
+	requireAll(t, m.View(), "builder.b")
+	m.Update(key("t"))
+	if m.view != viewPicker {
+		t.Error("t opens the team picker from a team")
+	}
+	m.Update(key("o"))
+	if m.view != viewOrg {
+		t.Error("o in the picker opens the host view")
+	}
+}
+
+// s finds teams under the current folder; n sets one up in a git project
+// after a yes.
+func TestPickerScanAndSetUp(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not installed")
+	}
+	t.Setenv("SUNSTACK_HOME", t.TempDir())
+	cwd := t.TempDir()
+	newTeam(t, filepath.Join(cwd, "nested", "gamma"), "builder.g")
+	// Forget it, so only the scan can find it.
+	t.Setenv("SUNSTACK_HOME", t.TempDir())
+	m := newModel(nil, false)
+	m.cwd = cwd
+	m.w, m.h = 100, 30
+	m.reload()
+	if strings.Contains(m.View(), "gamma") {
+		t.Fatal("gamma is not indexed yet")
+	}
+	m.Update(key("s"))
+	requireAll(t, m.View(), "gamma")
+
+	if out, err := exec.Command("git", "-C", cwd, "init", "-q").CombinedOutput(); err != nil {
+		t.Fatalf("git init: %s", out)
+	}
+	m.reload()
+	requireAll(t, m.View(), "Set up a team in this folder")
+	m.Update(key("n"))
+	requireAll(t, m.View(), "Create sunstack/ in "+filepath.Base(cwd))
+	m.Update(key("x"))
+	if _, err := os.Stat(filepath.Join(cwd, "sunstack", "PROTOCOL.md")); err == nil {
+		t.Fatal("anything but y cancels")
+	}
+	m.Update(key("n"))
+	m.Update(key("y"))
+	if _, err := os.Stat(filepath.Join(cwd, "sunstack", "PROTOCOL.md")); err != nil {
+		t.Fatal("y sets up the team")
+	}
+	if m.view != viewTeam || m.p == nil {
+		t.Error("the new team opens")
+	}
+}
+
+// A team shows its tabs; n opens the ranked next list, tab cycles, ? helps.
+func TestTabsNextAndHelp(t *testing.T) {
+	t.Setenv("SUNSTACK_HOME", t.TempDir())
+	p := newTeam(t, t.TempDir(), "builder.a")
+	m := newModel(p, false)
+	m.w, m.h = 100, 30
+	m.reload()
+	requireAll(t, m.View(), "Team", "Next", "Org")
+	m.Update(key("n"))
+	if m.view != viewNext {
+		t.Fatal("n opens the next tab")
+	}
+	v := m.View()
+	fits(t, v, m.w, "next")
+	// A team with no board: the left lists the item, the right says what to run.
+	requireAll(t, v, "1. [", "do: ", "owner: ")
+	for _, want := range []view{viewOrg, viewTeam, viewNext} {
+		m.Update(key("tab"))
+		if m.view != want {
+			t.Fatalf("tab: got view %d, want %d", m.view, want)
+		}
+	}
+	m.Update(key("?"))
+	requireAll(t, m.View(), "t  teams", "n  next", "o  host view", "q  quit")
+	m.Update(key("x"))
+	if m.view != viewNext {
+		t.Error("any key closes help and returns")
+	}
+}
+
+func requireAll(t *testing.T, s string, wants ...string) {
+	t.Helper()
+	for _, w := range wants {
+		if !strings.Contains(s, w) {
+			t.Errorf("missing %q in:\n%s", w, s)
+		}
+	}
+}
+
+// The org tab lists sections on the left and shows the selected one on the
+// right.
+func TestOrgTwoPanes(t *testing.T) {
+	t.Setenv("SUNSTACK_HOME", t.TempDir())
+	p := newTeam(t, t.TempDir(), "builder.a")
+	m := newModel(p, true)
+	m.w, m.h = 110, 30
+	m.org = &core.Org{Host: core.HostInfo{Name: "h"}, Attention: []string{"alpha: a session waits"},
+		Teams: []*core.OrgTeam{{Name: "alpha", Objectives: []core.OrgObjective{{Key: "O1", Text: "Ship it"}}}}}
+	m.orgBusy = false
+	v := m.View()
+	fits(t, v, m.w, "org")
+	requireAll(t, v, "Needs you (1)", "alpha (0)", "All sessions on h", "alpha: a session waits")
+	m.Update(key("down"))
+	v = m.View()
+	requireAll(t, v, "O1 Ship it")
+	if strings.Contains(v, "a session waits") {
+		t.Errorf("the right pane shows only the selected section:\n%s", v)
+	}
+	if n := strings.Count(v, "\n") + 1; n > m.h {
+		t.Errorf("%d lines on a %d-line screen", n, m.h)
 	}
 }
