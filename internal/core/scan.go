@@ -518,6 +518,17 @@ func tmuxPanes() map[string]paneInfo {
 		if err != nil {
 			continue
 		}
+		if sock == "" {
+			// Name the default server by its path, so later commands reach it
+			// even from inside another server.
+			q := exec.Command("tmux", "list-sessions", "-F", "#{socket_path}")
+			q.Env = withoutTMUX(os.Environ())
+			if out, err := q.Output(); err == nil {
+				if path := strings.SplitN(strings.TrimSpace(string(out)), "\n", 2)[0]; path != "" {
+					sock = path
+				}
+			}
+		}
 		for _, l := range strings.Split(string(b), "\n") {
 			f := strings.SplitN(l, "\t", 3)
 			if len(f) == 3 {
@@ -552,3 +563,6 @@ func withoutTMUX(env []string) []string {
 	}
 	return out
 }
+
+// Socket is the tmux server the session's pane was found on.
+func (s *HostSession) Socket() string { return s.socket }

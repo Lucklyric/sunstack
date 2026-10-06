@@ -110,6 +110,7 @@ func (m *model) pickerKey(k string) tea.Cmd {
 	case "n":
 		if m.canInit {
 			m.confirm = "Create sunstack/ in " + filepath.Base(m.cwd) + " (" + m.cwd + ")? y to create, any other key to cancel"
+			m.confirmDo = m.setUp
 		}
 	}
 	return nil
@@ -283,24 +284,8 @@ func tierName(k string) string {
 	return k
 }
 
-// orgPane shows every team and session on this host: sections on the left,
-// the selected one on the right.
-func (m *model) orgPane() string {
-	if m.org == nil {
-		return m.panes("Org", []string{cDim.Render("scanning sessions…")}, -1, nil, 0)
-	}
-	secs := m.org.Sections()
-	if m.orgSel >= len(secs) {
-		m.orgSel = len(secs) - 1
-	}
-	var left []string
-	for _, s := range secs {
-		left = append(left, s.Title)
-	}
-	right := []string{cDim.Render("scanned " + m.orgAt.Format("15:04:05") + " · pgup/pgdn scroll")}
-	right = append(right, strings.Split(strings.TrimRight(secs[m.orgSel].Text, "\n"), "\n")...)
-	return m.panes("Org · host "+m.org.Host.Name, left, m.orgSel, right, m.orgScroll)
-}
+// orgPane is the Org tab: the session tree (tree.go).
+func (m *model) orgPane() string { return m.treeView() }
 
 func (m *model) helpView() string {
 	lines := []string{cHeader.Render("Keys"), "",
@@ -310,6 +295,9 @@ func (m *model) helpView() string {
 		"o  host view: every team and session",
 		"↑↓  select in the left list",
 		"pgup/pgdn  scroll the right pane",
+		"Org tab: ←→ fold · enter go to pane · m message",
+		"  / filter by name · f show all, needs you, busy, outside tmux",
+		"  R reopen a session in tmux · K close an agent's session (both ask)",
 		"l  log · i  inbox (team tab)",
 		"g  go to the selected agent's pane",
 		"c  copy its resume command",

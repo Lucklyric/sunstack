@@ -67,6 +67,18 @@ type model struct {
 	nextItems  []core.Issue
 	orgSel     int
 	saved      savedState // what tui.json holds, so it is written only on a change
+
+	folded      map[string]bool // tree nodes the user folded
+	filter      string
+	filterMode  int    // index into filterModes
+	inputPrompt string // a line being typed: a filter or a message
+	inputText   string
+	inputDone   func(string)
+	confirmDo   func()
+	sendTo      func(*core.HostSession, string) string
+	kill        func(*core.HostSession) string
+	reopen      func(*core.HostSession) string
+	peek        func(*core.HostSession) string
 }
 
 var (
@@ -92,7 +104,7 @@ func Run(p *core.Project, org bool) error {
 // newModel opens on the team, or with org on the host view. Without a team
 // it opens on the team picker, or with org on the host view.
 func newModel(p *core.Project, org bool) *model {
-	m := &model{p: p}
+	m := &model{p: p, folded: map[string]bool{}, sendTo: realSend, kill: realKill, reopen: realReopen, peek: realPeek}
 	switch {
 	case org:
 		m.view, m.orgBusy = viewOrg, true
@@ -160,6 +172,30 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // key handles one key press.
 func (m *model) key(k string) tea.Cmd {
 	m.note = ""
+	if m.inputPrompt != "" {
+		// Typing a line: every key goes to it.
+		switch k {
+		case "enter":
+			done, text := m.inputDone, m.inputText
+			m.inputPrompt, m.inputText, m.inputDone = "", "", nil
+			if done != nil {
+				done(text)
+			}
+		case "esc":
+			m.inputPrompt, m.inputText, m.inputDone = "", "", nil
+		case "backspace":
+			if r := []rune(m.inputText); len(r) > 0 {
+				m.inputText = string(r[:len(r)-1])
+			}
+		case "space":
+			m.inputText += " "
+		default:
+			if len([]rune(k)) == 1 {
+				m.inputText += k
+			}
+		}
+		return nil
+	}
 	if m.help {
 		m.help = false // any key closes the help
 		return nil
@@ -168,9 +204,10 @@ func (m *model) key(k string) tea.Cmd {
 		return tea.Quit
 	}
 	if m.confirm != "" {
-		m.confirm = ""
-		if k == "y" {
-			m.setUp()
+		do := m.confirmDo
+		m.confirm, m.confirmDo = "", nil
+		if k == "y" && do != nil {
+			do()
 		}
 		return nil
 	}
@@ -180,6 +217,9 @@ func (m *model) key(k string) tea.Cmd {
 	}
 	if m.view == viewPicker {
 		return m.pickerKey(k)
+	}
+	if m.view == viewOrg && m.treeKey(k) {
+		return nil
 	}
 	if k == "t" {
 		m.openPicker()
@@ -356,10 +396,15 @@ func (m *model) View() string {
 	where := ""
 	if m.p != nil {
 		where = m.p.Root
+	} else if m.org != nil {
+		where = "host " + m.org.Host.Name
 	} else {
 		where = "host " + core.ThisHost().Name
 	}
 	head := cTitle.Render("sunstack") + cDim.Render(fmt.Sprintf("  %s  ·  %s", where, m.updated.Format("15:04:05")))
+	if m.view == viewOrg && m.org != nil {
+		head += cDim.Render("  ·  ") + m.orgCounts()
+	}
 	var body string
 	switch {
 	case m.help:
@@ -383,10 +428,8 @@ func (m *model) View() string {
 		help = cDim.Render("↑↓ select · enter open · o host view · s find teams · n set up · ? help · q quit")
 	case m.view == viewNext:
 		help = cDim.Render("↑↓ select · r refresh · tab switch · t teams · esc back · ? help · q quit")
-	case m.view == viewOrg && m.p == nil:
-		help = cDim.Render("↑↓ select · pgup/pgdn scroll · r refresh · esc teams · ? help · q quit")
 	case m.view == viewOrg:
-		help = cDim.Render("↑↓ select · pgup/pgdn scroll · r refresh · tab switch · t teams · esc back · ? help · q quit")
+		help = cDim.Render("↑↓ move · ←→ fold · enter go to pane · m message · / filter · f show · R reopen · K close · ? keys · q quit")
 	}
 	if m.note != "" {
 		help = cWarn.Render(m.note) + "  " + help

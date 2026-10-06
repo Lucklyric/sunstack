@@ -1,0 +1,159 @@
+package tui
+
+import (
+	"strings"
+	"testing"
+
+	"github.com/Lucklyric/sunstack/internal/core"
+)
+
+// treeOrg is a host with one team (an agent with a busy session, a free
+// session) and two sessions outside teams.
+func treeOrg() *core.Org {
+	return &core.Org{
+		Host:      core.HostInfo{Name: "h"},
+		Attention: []string{"alpha: todo is waiting for you"},
+		Teams: []*core.OrgTeam{{
+			Name: "alpha", Root: "/r/alpha",
+			Objectives: []core.OrgObjective{{Key: "O1", Text: "Ship it"}},
+			Agents: []*core.OrgAgent{
+				{ID: "pm.lead", Duty: "Plans the work", Now: []string{"KR1 Plan"}, Sessions: []*core.HostSession{
+					{Tool: "claude", Status: "busy", Agent: "pm.lead", Label: "pm.lead_cloud@h", Doing: "demo round", Where: "w:0.0", Pane: "%9", Reach: "nudge", TeamRoot: "/r/alpha"},
+				}},
+				{ID: "marketing.social", Duty: "Posts"},
+			},
+			Free: []*core.HostSession{{Tool: "codex", Status: "idle", Name: "scratch", Reach: "nudge", Pane: "%10", Where: "w:0.1"}},
+		}},
+		Free: []*core.FreeGroup{{Group: "git@github.com:me/vault.git", Sessions: []*core.HostSession{
+			{Tool: "claude", Status: "waiting", Name: "todo", SessionID: "00000000-0000-4000-8000-000000000001", Reach: "next prompt",
+				Activity: core.Activity{Title: "Daily todos", LastPrompt: "reply the email", LastReply: "Draft saved."}},
+			{Tool: "claude", Status: "idle", Name: "tnnls", SessionID: "00000000-0000-4000-8000-000000000002", Reach: "next prompt"},
+		}}},
+	}
+}
+
+func treeModel(t *testing.T) *model {
+	t.Helper()
+	t.Setenv("SUNSTACK_HOME", t.TempDir())
+	m := newModel(nil, true)
+	m.w, m.h = 120, 32
+	m.org, m.orgBusy = treeOrg(), false
+	m.peek = func(*core.HostSession) string { return "" }
+	return m
+}
+
+// selectRow moves the selection to the first row containing s.
+func selectRow(t *testing.T, m *model, s string) {
+	t.Helper()
+	for i, n := range m.treeNodes() {
+		if strings.Contains(n.label, s) {
+			m.orgSel = i
+			return
+		}
+	}
+	t.Fatalf("no row %q in %v", s, m.treeNodes())
+}
+
+func TestTreeShowsHostTeamAgentSession(t *testing.T) {
+	m := treeModel(t)
+	v := m.View()
+	fits(t, v, m.w, "tree")
+	requireAll(t, v, "4 sessions", "1 team", "Needs you (1)", "▾ alpha", "pm.lead", "pm.lead_cloud", "● busy", "◐ waiting", "outside teams")
+	if n := strings.Count(v, "\n") + 1; n > m.h {
+		t.Errorf("%d lines on a %d-line screen", n, m.h)
+	}
+	// A session's details on the right.
+	selectRow(t, m, "pm.lead_cloud")
+	requireAll(t, m.View(), "doing", "demo round", "w:0.0 %9", "reach")
+	selectRow(t, m, "todo")
+	requireAll(t, m.View(), "Daily todos", "reply the email", "Draft saved.", "outside tmux")
+	// An agent's details.
+	selectRow(t, m, "marketing.social")
+	requireAll(t, m.View(), "Posts", "no live session")
+	// A team's details.
+	selectRow(t, m, "alpha")
+	requireAll(t, m.View(), "O1 Ship it")
+}
+
+func TestTreeFoldsAndFilters(t *testing.T) {
+	m := treeModel(t)
+	selectRow(t, m, "alpha")
+	m.Update(key("left"))
+	if strings.Contains(m.View(), "pm.lead_cloud") {
+		t.Error("left folds the team")
+	}
+	requireAll(t, m.View(), "▸ alpha")
+	m.Update(key("right"))
+	requireAll(t, m.View(), "pm.lead_cloud")
+
+	// / filters by name as you type; esc clears it.
+	m.Update(key("/"))
+	for _, r := range "tnn" {
+		m.Update(key(string(r)))
+	}
+	m.Update(key("enter"))
+	v := m.View()
+	requireAll(t, v, "tnnls", "filter: tnn")
+	if strings.Contains(v, "pm.lead_cloud") || strings.Contains(v, "todo") {
+		t.Errorf("filter shows only matches:\n%s", v)
+	}
+	m.Update(key("esc"))
+	requireAll(t, m.View(), "pm.lead_cloud", "todo")
+
+	// f cycles: needs you shows the waiting session only.
+	m.Update(key("f"))
+	v = m.View()
+	requireAll(t, v, "todo", "show: needs you")
+	if strings.Contains(v, "pm.lead_cloud") || strings.Contains(v, "tnnls") {
+		t.Errorf("needs-you filter:\n%s", v)
+	}
+	for i := 0; i < 3; i++ {
+		m.Update(key("f"))
+	}
+	if strings.Contains(m.View(), "show:") {
+		t.Error("f comes back to all")
+	}
+}
+
+func TestTreeActions(t *testing.T) {
+	m := treeModel(t)
+	var sent, killed, reopened string
+	m.sendTo = func(s *core.HostSession, text string) string { sent = s.Name + s.Label + ": " + text; return "sent" }
+	m.kill = func(s *core.HostSession) string { killed = s.Label; return "closed" }
+	m.reopen = func(s *core.HostSession) string { reopened = s.SessionID; return "reopened" }
+
+	selectRow(t, m, "todo")
+	m.Update(key("m"))
+	requireAll(t, m.View(), "message to todo")
+	for _, r := range "hi" {
+		m.Update(key(string(r)))
+	}
+	m.Update(key("enter"))
+	if sent != "todo: hi" {
+		t.Errorf("m sends to the session: %q", sent)
+	}
+
+	// R and K ask first; only y acts.
+	m.Update(key("R"))
+	requireAll(t, m.View(), "Reopen todo in a tmux pane")
+	m.Update(key("n"))
+	if reopened != "" {
+		t.Error("anything but y cancels")
+	}
+	m.Update(key("R"))
+	m.Update(key("y"))
+	if reopened != "00000000-0000-4000-8000-000000000001" {
+		t.Errorf("R reopens: %q", reopened)
+	}
+	selectRow(t, m, "pm.lead_cloud")
+	m.Update(key("K"))
+	requireAll(t, m.View(), "Close pm.lead_cloud")
+	m.Update(key("y"))
+	if killed != "pm.lead_cloud@h" {
+		t.Errorf("K kills: %q", killed)
+	}
+	// K on a session that holds no agent is refused, without asking.
+	selectRow(t, m, "scratch")
+	m.Update(key("K"))
+	requireAll(t, m.View(), "only an agent's session")
+}

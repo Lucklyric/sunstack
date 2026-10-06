@@ -147,6 +147,10 @@ func key(k string) tea.KeyMsg {
 		return tea.KeyMsg{Type: tea.KeyEsc}
 	case "pgdown":
 		return tea.KeyMsg{Type: tea.KeyPgDown}
+	case "left":
+		return tea.KeyMsg{Type: tea.KeyLeft}
+	case "right":
+		return tea.KeyMsg{Type: tea.KeyRight}
 	}
 	return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(k)}
 }
@@ -300,30 +304,6 @@ func requireAll(t *testing.T, s string, wants ...string) {
 		if !strings.Contains(s, w) {
 			t.Errorf("missing %q in:\n%s", w, s)
 		}
-	}
-}
-
-// The org tab lists sections on the left and shows the selected one on the
-// right.
-func TestOrgTwoPanes(t *testing.T) {
-	t.Setenv("SUNSTACK_HOME", t.TempDir())
-	p := newTeam(t, t.TempDir(), "builder.a")
-	m := newModel(p, true)
-	m.w, m.h = 110, 30
-	m.org = &core.Org{Host: core.HostInfo{Name: "h"}, Attention: []string{"alpha: a session waits"},
-		Teams: []*core.OrgTeam{{Name: "alpha", Objectives: []core.OrgObjective{{Key: "O1", Text: "Ship it"}}}}}
-	m.orgBusy = false
-	v := m.View()
-	fits(t, v, m.w, "org")
-	requireAll(t, v, "Needs you (1)", "alpha (0)", "All sessions on h", "alpha: a session waits")
-	m.Update(key("down"))
-	v = m.View()
-	requireAll(t, v, "O1 Ship it")
-	if strings.Contains(v, "a session waits") {
-		t.Errorf("the right pane shows only the selected section:\n%s", v)
-	}
-	if n := strings.Count(v, "\n") + 1; n > m.h {
-		t.Errorf("%d lines on a %d-line screen", n, m.h)
 	}
 }
 
