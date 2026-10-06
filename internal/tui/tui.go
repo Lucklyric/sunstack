@@ -68,15 +68,28 @@ var (
 	cHeader = lipgloss.NewStyle().Bold(true)
 )
 
-// Run starts the dashboard for project p.
-func Run(p *core.Project) error {
-	m := &model{p: p}
+// Run starts the dashboard for project p, on the host (org) view when org
+// is set. With no project (outside any team) it shows the host view only.
+func Run(p *core.Project, org bool) error {
+	m := newModel(p, org)
 	m.reload()
 	_, err := tea.NewProgram(m, tea.WithAltScreen()).Run()
 	return err
 }
 
+func newModel(p *core.Project, org bool) *model {
+	m := &model{p: p}
+	if org || p == nil {
+		m.view, m.orgBusy = viewOrg, true
+	}
+	return m
+}
+
 func (m *model) reload() {
+	m.updated = time.Now()
+	if m.p == nil {
+		return
+	}
 	m.agents = m.p.Status()
 	m.events = m.p.Events("")
 	m.warnings = nil
@@ -93,7 +106,12 @@ func (m *model) reload() {
 
 func tickCmd() tea.Cmd { return tea.Tick(refresh, func(t time.Time) tea.Msg { return tick(t) }) }
 
-func (m *model) Init() tea.Cmd { return tickCmd() }
+func (m *model) Init() tea.Cmd {
+	if m.view == viewOrg {
+		return tea.Batch(tickCmd(), orgCmd())
+	}
+	return tickCmd()
+}
 
 func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
@@ -110,6 +128,13 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.org, m.orgAt, m.orgBusy = msg.o, time.Now(), false
 	case tea.KeyMsg:
 		m.note = ""
+		if m.p == nil {
+			// Host only: no team views to switch to.
+			switch msg.String() {
+			case "o", "esc", "l", "i", "g", "c":
+				return m, nil
+			}
+		}
 		switch msg.String() {
 		case "q", "ctrl+c":
 			return m, tea.Quit
@@ -220,7 +245,15 @@ func (m *model) View() string {
 	if m.w == 0 {
 		return "loading…"
 	}
-	head := cTitle.Render("sunstack") + cDim.Render(fmt.Sprintf("  %s  ·  %s", m.p.Root, m.updated.Format("15:04:05")))
+	where := ""
+	if m.p != nil {
+		where = m.p.Root
+	} else if m.org != nil {
+		where = "host " + m.org.Host.Name
+	} else {
+		where = "host"
+	}
+	head := cTitle.Render("sunstack") + cDim.Render(fmt.Sprintf("  %s  ·  %s", where, m.updated.Format("15:04:05")))
 	var body string
 	switch m.view {
 	case viewLog:
@@ -235,6 +268,9 @@ func (m *model) View() string {
 	help := cDim.Render("↑↓ select · o org · l log · i inbox · g go to pane · c copy resume · r refresh · esc back · q quit")
 	if m.view == viewOrg {
 		help = cDim.Render("1 needs you · 2 work · 3 people · 4 hosts · ↑↓ scroll · r refresh · o/esc back · q quit")
+		if m.p == nil {
+			help = cDim.Render("1 needs you · 2 work · 3 people · 4 hosts · ↑↓ scroll · r refresh · q quit")
+		}
 	}
 	if m.note != "" {
 		help = cWarn.Render(m.note) + "  " + help

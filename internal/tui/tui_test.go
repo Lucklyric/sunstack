@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/Lucklyric/sunstack/internal/core"
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
 
@@ -75,5 +76,60 @@ func TestFitCountsWideCharacters(t *testing.T) {
 	}
 	if fit("short", 20) != "short" {
 		t.Error("a short line is kept")
+	}
+}
+
+// Outside a team the dashboard is the host view only: every key that would
+// need a team stays on it, and nothing reads a project.
+func TestHostOnly(t *testing.T) {
+	m := newModel(nil, true)
+	if m.Init() == nil {
+		t.Fatal("the host view starts a scan at once")
+	}
+	m.w, m.h = 100, 30
+	m.org = &core.Org{Host: core.HostInfo{Name: "h"}}
+	m.reload()
+	for _, k := range []string{"o", "esc", "l", "i", "g", "c", "up", "down", "2", "r"} {
+		m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(k)})
+		if k == "esc" {
+			m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+		}
+		if m.view != viewOrg {
+			t.Fatalf("key %q left the host view", k)
+		}
+		v := m.View()
+		for _, l := range strings.Split(v, "\n") {
+			if lipgloss.Width(l) > m.w {
+				t.Errorf("key %q: line %d wide", k, lipgloss.Width(l))
+			}
+		}
+		if strings.Contains(v, "l log") || !strings.Contains(v, "host h") {
+			t.Errorf("key %q: host view header or help:\n%s", k, v)
+		}
+	}
+}
+
+// Inside a team, --org opens on the host view, and o or esc goes back.
+func TestStartOnOrg(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("SUNSTACK_HOME", filepath.Join(root, ".home"))
+	if err := os.MkdirAll(filepath.Join(root, "sunstack"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	os.WriteFile(filepath.Join(root, "sunstack", "PROTOCOL.md"), []byte("# Sunstack protocol\n"), 0o644)
+	p, err := core.FindProject(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := newModel(p, true)
+	if m.view != viewOrg || m.Init() == nil {
+		t.Fatal("--org starts on the host view with a scan")
+	}
+	m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	if m.view != viewTeam {
+		t.Error("esc goes back to the team in a team folder")
+	}
+	if newModel(p, false).view != viewTeam {
+		t.Error("without --org the team view comes first")
 	}
 }

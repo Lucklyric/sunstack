@@ -81,5 +81,6 @@ first, hand over to the next skill.
   - `sunstack inbox <id>`: messages waiting for an agent (read only)
   - `sunstack log [--id <id>]`: the event log
   - `sunstack pillar <id>` or `sunstack pillar --team`: the pillars in effect, with their source
-- **A live dashboard**: tell the user to run `sunstack tui` in a terminal, from inside a team's
-  project, and press `o`.
+- **A live dashboard**: tell the user to run `sunstack tui --org` in a terminal. Outside any
+  team, `sunstack tui` opens on the host view by itself; inside a team it opens on the team,
+  and `o` switches to the host view.
