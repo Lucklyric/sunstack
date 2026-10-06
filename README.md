@@ -94,6 +94,14 @@ go build -o dist/sunstack ./cmd/sunstack
 
 The tests build the binary and run it in separate processes, so the claim and commit races are real. Tagging `v*` publishes binaries for macOS, Linux and Windows through goreleaser.
 
+Release only with the script, after bumping the version in both plugin manifests and committing:
+
+```sh
+scripts/release.sh v0.8.14 --update-local
+```
+
+It checks the tree and the manifests, runs the tests, pushes `main`, and waits for CI. It tags only when `scripts/ci-green.sh` reports that all three OS jobs passed, then waits for the release build, and updates this machine (`--update-local`) only after that succeeds. `scripts/ci-green.sh <commit>` alone says whether a commit is safe to tag.
+
 ## License
 
 Apache-2.0
