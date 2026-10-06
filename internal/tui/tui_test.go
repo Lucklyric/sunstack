@@ -64,7 +64,7 @@ func TestRowsFitTheScreen(t *testing.T) {
 		}
 		m.view = viewTeam
 		// Without tmux (Windows CI) a pane cannot be checked, so it is not called gone.
-		if _, err := exec.LookPath("tmux"); err == nil && w >= 100 && !strings.Contains(m.View(), "pm.lead              1 session, pane gone") {
+		if _, err := exec.LookPath("tmux"); err == nil && w >= 100 && !strings.Contains(m.View(), "pane gone") {
 			t.Errorf("width %d: the closed pane is not shown:\n%s", w, m.View())
 		}
 	}

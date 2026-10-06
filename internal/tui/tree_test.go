@@ -1,6 +1,8 @@
 package tui
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -47,7 +49,7 @@ func selectRow(t *testing.T, m *model, s string) {
 	t.Helper()
 	for i, n := range m.treeNodes() {
 		if strings.Contains(n.label, s) {
-			m.orgSel = i
+			*m.treeSel() = i
 			return
 		}
 	}
@@ -156,4 +158,90 @@ func TestTreeActions(t *testing.T) {
 	selectRow(t, m, "scratch")
 	m.Update(key("K"))
 	requireAll(t, m.View(), "only an agent's session")
+}
+
+// teamTreeModel is a team (two agents, one claimed from a pane that is gone)
+// on a host that also has another team and sessions outside teams.
+func teamTreeModel(t *testing.T) (*model, *core.Project) {
+	t.Helper()
+	t.Setenv("SUNSTACK_HOME", t.TempDir())
+	root := t.TempDir()
+	p := newTeam(t, root, "builder.a")
+	newTeam(t, root, "reviewer.r")
+	write := func(rel, text string) {
+		t.Helper()
+		path := filepath.Join(root, "sunstack", rel)
+		os.MkdirAll(filepath.Dir(path), 0o755)
+		if err := os.WriteFile(path, []byte(text), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("_local/live/builder.a/aaaaaaaaaaaaaaaa.json", `{"tool":"claude","host":"h","token":"aaaaaaaaaaaaaaaa","claimed":"2026-10-01T00:00:00Z","last_contact":"2026-10-01T00:00:00Z","task":"x","tmux_pane":"%7","tmux_socket":"`+filepath.Join(root, "gone.sock")+`","tmux_server":"1"}`)
+	write("builder.a/pillars.md", "- 2026-10-01 test every change\n")
+	m := newModel(p, false)
+	m.w, m.h = 120, 34
+	m.peek = func(*core.HostSession) string { return "" }
+	m.reload()
+	return m, p
+}
+
+// The Team tab is the session tree of this team only.
+func TestTeamTabIsTeamTree(t *testing.T) {
+	m, p := teamTreeModel(t)
+	// Before the scan: agents, and sessions from their claims.
+	v := m.View()
+	fits(t, v, m.w, "team before scan")
+	requireAll(t, v, "builder.a", "builder.a_x", "pane gone", "reviewer.r", "no session", "Events")
+	if n := strings.Count(v, "\n") + 1; n > m.h {
+		t.Errorf("%d lines on a %d-line screen", n, m.h)
+	}
+
+	// After the scan: live state, and nothing from other teams.
+	m.org = &core.Org{Host: core.HostInfo{Name: "h"}, Attention: []string{"t1: builder.a#KR1 is waiting on the user", "other: something"},
+		Teams: []*core.OrgTeam{
+			{Name: "t1", Root: p.Root, Agents: []*core.OrgAgent{
+				{ID: "builder.a", Sessions: []*core.HostSession{{Tool: "claude", Status: "busy", Agent: "builder.a", Label: "builder.a_x@h", Doing: "writing tests", Pane: "%7", Where: "w:1.0", Reach: "nudge"}}},
+				{ID: "reviewer.r"},
+			}, Free: []*core.HostSession{{Tool: "codex", Status: "idle", Name: "scratch"}}},
+			{Name: "other", Root: "/elsewhere", Agents: []*core.OrgAgent{{ID: "pm.lead", Sessions: []*core.HostSession{{Tool: "claude", Status: "busy", Label: "pm.lead_z@h"}}}}},
+		},
+		Free: []*core.FreeGroup{{Group: "repo", Sessions: []*core.HostSession{{Tool: "claude", Status: "idle", Name: "todo"}}}}}
+	m.orgBusy = false
+	v = m.View()
+	fits(t, v, m.w, "team after scan")
+	requireAll(t, v, "Needs you (1)", "builder.a_x", "● busy", "free sessions (1)", "scratch")
+	for _, other := range []string{"pm.lead", "todo", "other: something"} {
+		if strings.Contains(v, other) {
+			t.Errorf("the team tab shows %q from outside the team:\n%s", other, v)
+		}
+	}
+
+	// An agent shows its pillars and board; a session its details.
+	selectRow(t, m, "builder.a")
+	requireAll(t, m.View(), "Pillars", "test every change")
+	if a := m.current(); a == nil || a.ID != "builder.a" {
+		t.Errorf("the selected agent is builder.a, got %v", a)
+	}
+	selectRow(t, m, "builder.a_x")
+	requireAll(t, m.View(), "writing tests", "w:1.0 %7")
+	if a := m.current(); a == nil || a.ID != "builder.a" {
+		t.Errorf("a session's agent is the current agent for l and i, got %v", a)
+	}
+	selectRow(t, m, "reviewer.r")
+	m.Update(key("l"))
+	if m.view != viewLog {
+		t.Error("l opens the selected agent's log")
+	}
+	m.Update(key("l"))
+
+	// Folding and filtering work here too.
+	selectRow(t, m, "builder.a")
+	m.Update(key("left"))
+	requireAll(t, m.View(), "▸ builder.a")
+	m.Update(key("right"))
+	requireAll(t, m.View(), "▾ builder.a")
+	m.Update(key("f"))
+	if v := m.View(); strings.Contains(v, "builder.a_x") || !strings.Contains(v, "show: needs you") {
+		t.Errorf("needs-you filter in the team tab:\n%s", v)
+	}
 }

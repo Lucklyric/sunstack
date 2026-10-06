@@ -44,8 +44,6 @@ type model struct {
 	agents   []core.AgentStatus
 	events   []string
 	warnings []core.Check
-	sel      int
-	offset   int // first visible row of the team list
 	view     view
 	w, h     int
 	note     string
@@ -67,6 +65,7 @@ type model struct {
 	nextItems  []core.Issue
 	orgSel     int
 	saved      savedState // what tui.json holds, so it is written only on a change
+	teamSel    int        // the selected row of the Team tab's tree
 
 	folded      map[string]bool // tree nodes the user folded
 	filter      string
@@ -133,16 +132,17 @@ func (m *model) reload() {
 			m.warnings = append(m.warnings, c)
 		}
 	}
-	if m.sel >= len(m.agents) {
-		m.sel = max(0, len(m.agents)-1)
-	}
 	m.updated = time.Now()
 }
 
 func tickCmd() tea.Cmd { return tea.Tick(refresh, func(t time.Time) tea.Msg { return tick(t) }) }
 
+// scans says whether the view in front shows live sessions.
+func (m *model) scans() bool { return m.view == viewOrg || (m.view == viewTeam && m.p != nil) }
+
 func (m *model) Init() tea.Cmd {
-	if m.view == viewOrg {
+	if m.scans() {
+		m.orgBusy = true
 		return tea.Batch(tickCmd(), orgCmd())
 	}
 	return tickCmd()
@@ -154,7 +154,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.w, m.h = msg.Width, msg.Height
 	case tick:
 		m.reload()
-		if m.view == viewOrg && !m.orgBusy && time.Since(m.orgAt) > orgRefresh {
+		if m.scans() && !m.orgBusy && time.Since(m.orgAt) > orgRefresh {
 			m.orgBusy = true
 			return m, tea.Batch(tickCmd(), orgCmd())
 		}
@@ -218,7 +218,7 @@ func (m *model) key(k string) tea.Cmd {
 	if m.view == viewPicker {
 		return m.pickerKey(k)
 	}
-	if m.view == viewOrg && m.treeKey(k) {
+	if (m.view == viewOrg || (m.view == viewTeam && m.p != nil)) && m.treeKey(k) {
 		return nil
 	}
 	if k == "t" {
@@ -245,28 +245,14 @@ func (m *model) key(k string) tea.Cmd {
 		}
 		return m.show(tabs[(tabIndex(m.view)+step)%len(tabs)])
 	case "up", "k":
-		switch m.view {
-		case viewOrg:
-			m.orgSel, m.orgScroll = max(0, m.orgSel-1), 0
-		case viewNext:
+		// The trees take their own keys first; this is the Next list.
+		if m.view == viewNext {
 			m.nextSel, m.nextScroll = max(0, m.nextSel-1), 0
-		default:
-			if m.sel > 0 {
-				m.sel--
-			}
 		}
 	case "down", "j":
-		switch m.view {
-		case viewOrg:
-			m.orgSel++
-			m.orgScroll = 0
-		case viewNext:
+		if m.view == viewNext {
 			m.nextSel++
 			m.nextScroll = 0
-		default:
-			if m.sel < len(m.agents)-1 {
-				m.sel++
-			}
 		}
 	case "o":
 		return m.show(toggle(m.view, viewOrg))
@@ -289,7 +275,7 @@ func (m *model) key(k string) tea.Cmd {
 		m.view = toggle(m.view, viewInbox)
 	case "r":
 		m.reload()
-		if m.view == viewOrg && !m.orgBusy {
+		if m.scans() && !m.orgBusy {
 			m.orgBusy = true
 			return orgCmd()
 		}
@@ -320,11 +306,10 @@ func (m *model) show(v view) tea.Cmd {
 	case viewNext:
 		m.nextScroll = 0
 		m.reload()
-	case viewOrg:
-		if m.org == nil && !m.orgBusy {
-			m.orgBusy = true
-			return orgCmd()
-		}
+	}
+	if m.scans() && m.org == nil && !m.orgBusy {
+		m.orgBusy = true
+		return orgCmd()
 	}
 	return nil
 }
@@ -336,11 +321,27 @@ func toggle(cur, v view) view {
 	return v
 }
 
+// current is the agent selected on the Team tab: an agent row, or the agent
+// of a session row.
 func (m *model) current() *core.AgentStatus {
-	if len(m.agents) == 0 {
+	if len(m.agents) == 0 || m.p == nil {
 		return nil
 	}
-	return &m.agents[m.sel]
+	id := ""
+	if nodes := m.teamNodes(); m.teamSel < len(nodes) {
+		switch n := nodes[m.teamSel]; {
+		case n.st != nil:
+			id = n.st.ID
+		case n.sess != nil:
+			id = n.sess.Agent
+		}
+	}
+	for i := range m.agents {
+		if m.agents[i].ID == id {
+			return &m.agents[i]
+		}
+	}
+	return &m.agents[0]
 }
 
 // latest is the most recent session working as a, or -1.
@@ -445,9 +446,6 @@ func (m *model) teamView() string {
 	if len(m.agents) == 0 {
 		return cBox.Width(m.w - 2).Render("No agents yet. Run sunstack hire <title> [name], or ask an agent to recruit one.")
 	}
-	leftW := min(46, m.w/2)
-	rightW := m.w - leftW - 4
-
 	// Bottom boxes first, so the two top boxes get exactly the rest.
 	events := m.events
 	if len(events) > 5 {
@@ -469,58 +467,13 @@ func (m *model) teamView() string {
 		used += lipgloss.Height(b)
 	}
 	bodyH := max(4, m.h-used-2) // minus the top boxes' borders
-
-	var rows []string
-	selRow := 0
-	title := ""
-	for i, a := range m.agents {
-		if a.Title != title {
-			title = a.Title
-			rows = append(rows, cHeader.Render(title))
-		}
-		dot, state := cDim.Render("○"), cDim.Render("free")
-		if a.ClaimErr != nil {
-			dot, state = cWarn.Render("?"), cWarn.Render("claim file damaged")
-		} else if n := len(a.Claims); n > 0 {
-			dot = cOn.Render("●")
-			state = "1 session"
-			if n > 1 {
-				state = fmt.Sprintf("%d sessions", n)
-			}
-			for _, w := range a.Where {
-				if w == "pane closed" {
-					state += ", " + cWarn.Render("pane gone")
-					break
-				}
-			}
-		}
-		line := fit(fmt.Sprintf("%s %-20s %s", dot, a.ID, state), leftW-2)
-		if i == m.sel {
-			line = cSel.Render(line)
-			selRow = len(rows)
-		}
-		rows = append(rows, line)
-		rows = append(rows, fit(cDim.Render(fmt.Sprintf("    inbox %d · proposals %d · threads %d", a.Inbox, len(a.Proposals), len(a.Threads))), leftW-2))
-	}
-	// Scroll so the selected agent (its line and the summary under it) stays visible.
-	if selRow < m.offset {
-		m.offset = selRow
-	} else if selRow+2 > m.offset+bodyH {
-		m.offset = selRow + 2 - bodyH
-	}
-	m.offset = max(0, min(m.offset, max(0, len(rows)-bodyH)))
-	left := cBox.Width(leftW).Height(bodyH).Render(strings.Join(clip(rows[m.offset:], bodyH), "\n"))
-	details := fitAll(strings.Split(strings.Join(m.details(rightW), "\n"), "\n"), rightW-2)
-	right := cBox.Width(rightW).Height(bodyH).Render(strings.Join(clip(details, bodyH), "\n"))
-	top := lipgloss.JoinHorizontal(lipgloss.Top, left, right)
+	top := m.treeBox(bodyH)
 	return lipgloss.JoinVertical(lipgloss.Left, append([]string{top}, bottom...)...)
 }
 
-func (m *model) details(width int) []string {
-	a := m.current()
-	if a == nil {
-		return nil
-	}
+// agentDetails is the right pane for an agent on the Team tab: its sessions,
+// pillars, proposals and board.
+func (m *model) agentDetails(a *core.AgentStatus, width int) []string {
 	out := []string{cHeader.Render(a.ID), wrap(a.Duty, width-2), ""}
 	for i, c := range a.Claims {
 		out = append(out, fmt.Sprintf("session %s: %s on %s, last contact %s", c.Label(a.ID), c.Tool, c.Host, c.LastContact))

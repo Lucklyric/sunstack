@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -27,6 +28,7 @@ type treeNode struct {
 	agent *core.OrgAgent
 	group *core.FreeGroup
 	sess  *core.HostSession
+	st    *core.AgentStatus // the agent's files, on the Team tab
 }
 
 var filterModes = []string{"all", "needs you", "busy", "outside tmux"}
@@ -47,7 +49,7 @@ func glyph(s *core.HostSession) string {
 		return cWait.Render("◐")
 	case s.Status == "blocked":
 		return cBlocked.Render("⧗")
-	case s.Status == "not seen":
+	case s.Status == "not seen" || s.Status == "pane gone":
 		return cGone.Render("✕")
 	case s.Reach == "background":
 		return cDim.Render("◌")
@@ -90,8 +92,24 @@ func (m *model) keep(s *core.HostSession, team, agent string) bool {
 
 func (m *model) filtering() bool { return m.filter != "" || m.filterMode != 0 }
 
+// teamScope says whether the tree shows only this team (the Team tab).
+func (m *model) teamScope() bool {
+	return m.p != nil && (m.view == viewTeam || m.view == viewLog || m.view == viewInbox)
+}
+
+// sel is the selection of the tree in front.
+func (m *model) treeSel() *int {
+	if m.teamScope() {
+		return &m.teamSel
+	}
+	return &m.orgSel
+}
+
 // treeNodes lists the visible rows, top to bottom.
 func (m *model) treeNodes() []treeNode {
+	if m.teamScope() {
+		return m.teamNodes()
+	}
 	o := m.org
 	if o == nil {
 		return nil
@@ -167,6 +185,83 @@ func (m *model) treeNodes() []treeNode {
 	return out
 }
 
+// orgTeam is this team in the last scan, if any.
+func (m *model) orgTeam() *core.OrgTeam {
+	if m.org == nil || m.p == nil {
+		return nil
+	}
+	for _, t := range m.org.Teams {
+		if t.Root == m.p.Root {
+			return t
+		}
+	}
+	return nil
+}
+
+// teamNodes is the tree of this team: its needs, each agent with its
+// sessions, and its free sessions. Until a scan has run, sessions come from
+// the claim files.
+func (m *model) teamNodes() []treeNode {
+	var out []treeNode
+	team := m.orgTeam()
+	name, root := filepath.Base(m.p.Root), m.p.Root
+	if team != nil {
+		name = team.Name
+		if n := m.teamAttention(team); n > 0 && !m.filtering() {
+			out = append(out, treeNode{kind: "needs", key: "needs:" + root, label: fmt.Sprintf("Needs you (%d)", n), team: team})
+		}
+	}
+	for i := range m.agents {
+		a := &m.agents[i]
+		var sessions []*core.HostSession
+		if team != nil {
+			for _, oa := range team.Agents {
+				if oa.ID == a.ID {
+					sessions = oa.Sessions
+				}
+			}
+		} else {
+			for j, c := range a.Claims {
+				st := "scanning…"
+				if a.Where[j] == "pane closed" {
+					st = "pane gone"
+				}
+				sessions = append(sessions, &core.HostSession{Tool: c.Tool, Status: st, Agent: a.ID, Label: c.Label(a.ID), Pane: c.TmuxPane, Where: a.Where[j], TeamRoot: root, SessionID: c.Session})
+			}
+		}
+		ak := "agent:" + root + "/" + a.ID
+		var ss []treeNode
+		for _, s := range sessions {
+			if m.keep(s, name, a.ID) {
+				ss = append(ss, treeNode{kind: "session", key: ak + "/" + sessionName(s), depth: 1, label: sessionName(s), sess: s})
+			}
+		}
+		if m.filtering() && len(ss) == 0 {
+			continue
+		}
+		out = append(out, treeNode{kind: "agent", key: ak, label: a.ID, fold: len(ss) > 0, st: a})
+		if !m.folded[ak] {
+			out = append(out, ss...)
+		}
+	}
+	if team != nil {
+		var free []treeNode
+		for _, s := range team.Free {
+			if m.keep(s, name, "") {
+				free = append(free, treeNode{kind: "session", key: root + "/free/" + sessionName(s), depth: 1, label: sessionName(s), sess: s})
+			}
+		}
+		if len(free) > 0 {
+			fk := "free:" + root
+			out = append(out, treeNode{kind: "free", key: fk, label: fmt.Sprintf("free sessions (%d)", len(free)), fold: true, team: team})
+			if !m.folded[fk] {
+				out = append(out, free...)
+			}
+		}
+	}
+	return out
+}
+
 // row draws one tree line: indentation, fold mark, label and state.
 func (m *model) row(n treeNode, w int) string {
 	indent := strings.Repeat("  ", n.depth)
@@ -183,7 +278,14 @@ func (m *model) row(n treeNode, w int) string {
 	case "session":
 		tail = glyph(n.sess) + " " + n.sess.Status
 	case "agent":
-		if len(n.agent.Sessions) == 0 {
+		switch {
+		case n.st != nil && n.st.ClaimErr != nil:
+			tail = cWarn.Render("claim file damaged")
+		case n.st != nil && len(n.st.Proposals) > 0:
+			tail = cWarn.Render(fmt.Sprintf("%d to approve", len(n.st.Proposals)))
+		case n.st != nil && n.st.Inbox > 0:
+			tail = cWarn.Render(fmt.Sprintf("%d message(s)", n.st.Inbox))
+		case !n.fold:
 			tail = cDim.Render("no session")
 		}
 	case "team":
@@ -216,12 +318,21 @@ func (m *model) treeView() string {
 	if m.org == nil {
 		return m.panes("Sessions", []string{cDim.Render("scanning sessions…")}, -1, nil, 0)
 	}
+	return m.treeBox(m.inner())
+}
+
+// treeBox draws the tree of the tab in front at height h.
+func (m *model) treeBox(h int) string {
 	nodes := m.treeNodes()
-	if m.orgSel >= len(nodes) {
-		m.orgSel = max(0, len(nodes)-1)
+	sel := m.treeSel()
+	if *sel >= len(nodes) {
+		*sel = max(0, len(nodes)-1)
 	}
 	leftW := min(46, m.w/2)
 	title := "Sessions"
+	if m.teamScope() {
+		title = "Team"
+	}
 	if m.filter != "" {
 		title += " · filter: " + m.filter
 	}
@@ -237,7 +348,7 @@ func (m *model) treeView() string {
 	}
 	var right []string
 	if len(nodes) > 0 {
-		right = m.details2(nodes[m.orgSel], m.w-leftW-6)
+		right = m.details2(nodes[*sel], m.w-leftW-6)
 	}
 	if m.inputPrompt != "" {
 		right = append(right, "", cWarn.Render(m.inputPrompt+": ")+m.inputText+"█", cDim.Render("enter sends · esc cancels"))
@@ -245,7 +356,7 @@ func (m *model) treeView() string {
 	if m.confirm != "" {
 		right = append(right, "", cWarn.Render(m.confirm))
 	}
-	return m.panes(title, left, m.orgSel, right, m.orgScroll)
+	return m.panesH(title, left, *sel, right, m.orgScroll, h)
 }
 
 func ago(ts string) string {
@@ -288,11 +399,19 @@ func (m *model) details2(n treeNode, w int) []string {
 	switch n.kind {
 	case "needs":
 		out = append(out, cHeader.Render("Needs you"), "")
-		if len(m.org.Attention) == 0 {
-			out = append(out, cDim.Render("nothing"))
-		}
+		shown := 0
 		for _, a := range m.org.Attention {
+			if n.team != nil {
+				if !strings.HasPrefix(a, n.team.Name+":") {
+					continue
+				}
+				a = strings.TrimPrefix(a, n.team.Name+": ")
+			}
 			out = append(out, wrap("• "+a, w))
+			shown++
+		}
+		if shown == 0 {
+			out = append(out, cDim.Render("nothing"))
 		}
 		for _, note := range m.org.Notes {
 			out = append(out, "", cWarn.Render(wrap("note: "+note, w)))
@@ -318,6 +437,9 @@ func (m *model) details2(n treeNode, w int) []string {
 			}
 		}
 	case "agent":
+		if n.st != nil {
+			return m.agentDetails(n.st, w+2)
+		}
 		a := n.agent
 		out = append(out, cHeader.Render(a.ID), wrap(a.Duty, w), "")
 		for _, x := range a.Now {
@@ -382,19 +504,26 @@ func (m *model) details2(n treeNode, w int) []string {
 // treeKey handles keys on the Org tab; false when the key is not its own.
 func (m *model) treeKey(k string) bool {
 	nodes := m.treeNodes()
+	sel := m.treeSel()
 	var n *treeNode
-	if m.orgSel < len(nodes) {
-		n = &nodes[m.orgSel]
+	if *sel < len(nodes) {
+		n = &nodes[*sel]
 	}
 	switch k {
+	case "up", "k":
+		*sel = max(0, *sel-1)
+		m.orgScroll = 0
+	case "down", "j":
+		*sel = min(max(0, len(nodes)-1), *sel+1)
+		m.orgScroll = 0
 	case "left":
 		if n != nil && n.fold && !m.folded[n.key] {
 			m.folded[n.key] = true
 		} else if n != nil {
 			// Up to the parent.
-			for i := m.orgSel - 1; i >= 0; i-- {
+			for i := *sel - 1; i >= 0; i-- {
 				if nodes[i].depth < n.depth {
-					m.orgSel = i
+					*sel = i
 					break
 				}
 			}
@@ -413,14 +542,14 @@ func (m *model) treeKey(k string) bool {
 		}
 	case "/":
 		m.inputPrompt, m.inputText = "filter", m.filter
-		m.inputDone = func(text string) { m.filter, m.orgSel = text, 0 }
+		m.inputDone = func(text string) { m.filter, *sel = text, 0 }
 	case "f":
-		m.filterMode, m.orgSel = (m.filterMode+1)%len(filterModes), 0
+		m.filterMode, *sel = (m.filterMode+1)%len(filterModes), 0
 	case "esc":
 		if !m.filtering() {
 			return false
 		}
-		m.filter, m.filterMode, m.orgSel = "", 0, 0
+		m.filter, m.filterMode, *sel = "", 0, 0
 	case "m":
 		if n == nil || n.kind != "session" {
 			m.note = "select a session to message"

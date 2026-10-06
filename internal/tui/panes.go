@@ -91,10 +91,11 @@ func (m *model) pickerKey(k string) tea.Cmd {
 				m.note = err.Error()
 				return nil
 			}
-			m.p, m.sel, m.offset, m.org = p, 0, 0, nil
+			m.p, m.teamSel, m.org = p, 0, nil
 			m.view = viewTeam
 			m.reload()
-			return nil
+			m.orgBusy = true
+			return orgCmd()
 		}
 		return m.pickerKey(m.actions()[m.pickSel-len(m.teams)].key)
 	case "o":
@@ -128,7 +129,7 @@ func (m *model) setUp() {
 		return
 	}
 	_ = p.Register()
-	m.p, m.sel, m.offset = p, 0, 0
+	m.p, m.teamSel = p, 0
 	m.view = viewTeam
 	m.note = "team created; hire a first agent with sunstack hire, or the recruit skill"
 	m.reload()
@@ -170,9 +171,13 @@ func (m *model) tabBar() string {
 // panes draws a selectable list on the left and the selected item's details
 // on the right, both kept inside the screen.
 func (m *model) panes(title string, left []string, sel int, right []string, scroll int) string {
+	return m.panesH(title, left, sel, right, scroll, m.inner())
+}
+
+// panesH is panes at content height h.
+func (m *model) panesH(title string, left []string, sel int, right []string, scroll int, h int) string {
 	leftW := min(46, m.w/2)
 	rightW := m.w - leftW - 4
-	h := m.inner()
 	rows := []string{cHeader.Render(title)}
 	for i, l := range left {
 		l = fit(l, leftW-2)
@@ -295,7 +300,7 @@ func (m *model) helpView() string {
 		"o  host view: every team and session",
 		"↑↓  select in the left list",
 		"pgup/pgdn  scroll the right pane",
-		"Org tab: ←→ fold · enter go to pane · m message",
+		"Team and Org tabs: ←→ fold · enter go to pane · m message",
 		"  / filter by name · f show all, needs you, busy, outside tmux",
 		"  R reopen a session in tmux · K close an agent's session (both ask)",
 		"l  log · i  inbox (team tab)",

@@ -83,8 +83,8 @@ first, hand over to the next skill.
   - `sunstack pillar <id>` or `sunstack pillar --team`: the pillars in effect, with their source
 - **A live dashboard**: tell the user to run `sunstack` (or `sunstack tui`) in a terminal. In a
   team folder it opens on that team; elsewhere on a picker of this host's teams. Tabs Team,
-  Next and Org (tab or n and o), `t` to switch team, `?` for the keys. The Org tab is a tree of
-  teams, agents and sessions: select a session for its details and the end of its pane, then
+  Next and Org (tab or n and o), `t` to switch team, `?` for the keys. The Team tab is the
+  same tree for the current team, and the Org tab one of every team, agent and session: select a session for its details and the end of its pane, then
   `enter` to go to it, `m` to message it, `R` to reopen it in tmux, `K` to close an agent's
   session (both ask first), `/` to filter, `f` to show only what needs the user. `sunstack tui --org`
   opens on the host view. It reopens on the last tab and team used.
