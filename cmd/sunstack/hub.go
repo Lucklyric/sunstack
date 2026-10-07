@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"os"
 	"strings"
 
 	"github.com/Lucklyric/sunstack/internal/core"
@@ -14,16 +13,14 @@ import (
 )
 
 const hubUsage = `sunstack hub init <org name>                    make this host the hub of a new org (user only)
-sunstack hub allow <name> --id ID --key "<pub>" [--send]
-                                                add a host and its dedicated key (user only, on the hub)
-sunstack hub revoke <name>                      remove a host and end its connections (user only, on the hub)
+sunstack hub invite [--read-only]               a one-time join code for another host (user only, on the hub)
+sunstack hub revoke <name>                      remove a host and end its connection (user only, on the hub)
 sunstack hub hosts [--json]                     the roster, on the hub
-sunstack hub connect [--install|--uninstall]    keep one connection to the hub open
-sunstack hub serve --host ID                    what a host's key runs on the hub (from authorized_keys)`
+sunstack hub connect [--install|--uninstall]    keep one connection to the hub open; on the hub, also listen`
 
 func hubCommand(rest []string, stdin io.Reader, stdout, stderr io.Writer) error {
 	if len(rest) == 0 {
-		return &core.Error{Code: core.ExitUsage, Reason: "usage", Msg: "sunstack hub init|allow|revoke|hosts|connect|serve\n" + hubUsage}
+		return &core.Error{Code: core.ExitUsage, Reason: "usage", Msg: "sunstack hub init|invite|revoke|hosts|connect\n" + hubUsage}
 	}
 	sub, rest := rest[0], rest[1:]
 	switch sub {
@@ -42,25 +39,22 @@ func hubCommand(rest []string, stdin io.Reader, stdout, stderr io.Writer) error 
 		if err != nil {
 			return err
 		}
-		fmt.Fprintf(stdout, "sunstack: this host is the hub of org %s (id %s)\nnext: sunstack hub connect --install, then on each other host: sunstack org join <this host> --send\n", c.OrgName, c.OrgID)
+		fmt.Fprintf(stdout, "sunstack: this host is the hub of org %s (id %s)\nnext: sunstack hub connect --install, then sunstack hub invite for each other host\n", c.OrgName, c.OrgID)
 		return nil
 
-	case "allow":
-		a, err := parse(rest, "id key", "send")
+	case "invite":
+		a, err := parse(rest, "", "read-only")
 		if err == nil {
-			err = a.atMost(1, "hub allow")
+			err = a.atMost(0, "hub invite")
 		}
 		if err != nil {
 			return err
 		}
-		if len(a.pos) < 1 || a.flags["id"] == "" || a.flags["key"] == "" {
-			return missing("host name, --id and --key")
-		}
-		note, err := hub.Allow(a.pos[0], a.flags["id"], a.flags["key"], a.has("send"))
+		code, err := hub.Invite(a.has("read-only"))
 		if err != nil {
 			return err
 		}
-		fmt.Fprintf(stdout, "sunstack: %s %s\n", a.pos[0], note)
+		fmt.Fprintf(stdout, "join code: %s  (valid 10 minutes, once)\non the other host: sunstack org join <this host's Tailscale name> --code %s\n", code, code)
 		return nil
 
 	case "revoke":
@@ -77,7 +71,7 @@ func hubCommand(rest []string, stdin io.Reader, stdout, stderr io.Writer) error 
 		if err := hub.Revoke(a.pos[0]); err != nil {
 			return err
 		}
-		fmt.Fprintf(stdout, "sunstack: %s revoked; its key, snapshot and mail are gone\n", a.pos[0])
+		fmt.Fprintf(stdout, "sunstack: %s revoked; its token, snapshot and mail are gone\n", a.pos[0])
 		return nil
 
 	case "hosts":
@@ -107,6 +101,7 @@ func hubCommand(rest []string, stdin io.Reader, stdout, stderr io.Writer) error 
 			if h.CanSend {
 				send = "can send"
 			}
+			send += ", key " + h.Keys.Fingerprint()
 			contact := h.Contact
 			if contact == "" {
 				contact = "never"
@@ -131,24 +126,14 @@ func hubCommand(rest []string, stdin io.Reader, stdout, stderr io.Writer) error 
 		}
 		return hub.Connect(stderr)
 
-	case "serve":
-		a, err := parse(rest, "host", "")
-		if err == nil {
-			err = a.atMost(0, "hub serve")
-		}
-		if err != nil {
-			return err
-		}
-		// The verb comes from the key's SSH session, as one exact word;
-		// it is never given to a shell.
-		return hub.Serve(a.flags["host"], strings.TrimSpace(os.Getenv("SSH_ORIGINAL_COMMAND")), stdin, stdout)
 	}
 	return &core.Error{Code: core.ExitUsage, Reason: "usage", Msg: "unknown hub command " + sub + "\n" + hubUsage}
 }
 
-// orgMembership is org join and org leave.
+// orgMembership is org join, leave, keys and trust.
 func orgMembership(rest []string, stdin io.Reader, stdout io.Writer) error {
-	if rest[0] == "leave" {
+	switch rest[0] {
+	case "leave":
 		a, err := parse(rest[1:], "", "")
 		if err == nil {
 			err = a.atMost(0, "org leave")
@@ -161,22 +146,53 @@ func orgMembership(rest []string, stdin io.Reader, stdout io.Writer) error {
 		}
 		fmt.Fprintln(stdout, "sunstack: this host left its org; on the hub, sunstack hub revoke <name> removes it there")
 		return nil
+	case "keys":
+		a, err := parse(rest[1:], "", "")
+		if err == nil {
+			err = a.atMost(0, "org keys")
+		}
+		if err != nil {
+			return err
+		}
+		t, err := hub.KeysText()
+		if err != nil {
+			return err
+		}
+		fmt.Fprint(stdout, t)
+		return nil
+	case "trust":
+		a, err := parse(rest[1:], "", "")
+		if err == nil {
+			err = a.atMost(1, "org trust")
+		}
+		if err != nil {
+			return err
+		}
+		if len(a.pos) < 1 {
+			return missing("host name")
+		}
+		fp, err := hub.Trust(a.pos[0])
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(stdout, "sunstack: %s's new key is trusted (%s)\n", a.pos[0], fp)
+		return nil
 	}
-	a, err := parse(rest[1:], "", "send")
+	a, err := parse(rest[1:], "code", "")
 	if err == nil {
 		err = a.atMost(1, "org join")
 	}
 	if err != nil {
 		return err
 	}
-	if len(a.pos) < 1 {
-		return missing("the hub's ssh target")
+	if len(a.pos) < 1 || a.flags["code"] == "" {
+		return missing("the hub's Tailscale name and --code (sunstack hub invite on the hub)")
 	}
-	c, err := hub.Join(a.pos[0], a.has("send"), stdin, stdout)
+	c, err := hub.Join(a.pos[0], a.flags["code"])
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(stdout, "sunstack: joined org %s through %s\nnext: sunstack hub connect --install\n", c.OrgName, c.Hub)
+	fmt.Fprintf(stdout, "sunstack: joined org %s through %s\nnext: sunstack hub connect --install\n", c.OrgName, c.HubURL)
 	return nil
 }
 
@@ -216,7 +232,7 @@ func sendRemote(p *core.Project, o core.SendOptions, stdout io.Writer) error {
 			}
 		}
 	}
-	fmt.Fprintf(stdout, "sunstack: sent %s to %s:%s (%s)\n", s.Mail.ID, s.ToName, s.Mail.To, where)
+	fmt.Fprintf(stdout, "sunstack: sent %s to %s:%s (%s)\n", s.Mail.ID, s.ToName, s.Letter.To, where)
 	return nil
 }
 
@@ -224,13 +240,13 @@ func sendRemote(p *core.Project, o core.SendOptions, stdout io.Writer) error {
 func sentText(all bool) string {
 	var b strings.Builder
 	for _, s := range hub.SentMail() {
-		if !all && s.Status == "delivered" && s.Mail.Type != "task" {
+		if !all && s.Status == "delivered" && s.Letter.Type != "task" {
 			continue
 		}
 		if b.Len() == 0 {
 			b.WriteString("\nSent to other hosts\n")
 		}
-		line := fmt.Sprintf("  %s  %s -> %s:%s  %s", s.Mail.ID, s.Mail.Type, s.ToName, s.Mail.To, s.Status)
+		line := fmt.Sprintf("  %s  %s -> %s:%s  %s", s.Mail.ID, s.Letter.Type, s.ToName, s.Letter.To, s.Status)
 		if s.Reason != "" {
 			line += " (" + s.Reason + ")"
 		}

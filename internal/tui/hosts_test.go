@@ -24,7 +24,7 @@ func orgView() *hub.OrgView {
 	return &hub.OrgView{OrgName: "personal", HubName: "hubbox", Outbox: 1, Hosts: []*hub.HostView{
 		{ID: "aaaaaaaaaaaaaaaa", Name: "hubbox", Hub: true, State: "live", ContactAge: 2 * time.Second, CanSend: true},
 		{ID: "bbbbbbbbbbbbbbbb", Name: "laptop", You: true, State: "live", CanSend: true},
-		{ID: "cccccccccccccccc", Name: "server", State: "stale", ContactAge: 45 * time.Second, Waiting: 2, Org: server, HasSnap: true, SnapAge: time.Minute},
+		{ID: "cccccccccccccccc", Name: "server", State: "stale", ContactAge: 45 * time.Second, Waiting: 2, Org: server, HasSnap: true, SnapAge: time.Minute, Fingerprint: "ABCD-EFGH-JKLM-NPQR", KeyChanged: true},
 		{ID: "dddddddddddddddd", Name: "newbox", State: "not synced yet"},
 	}}
 }
@@ -56,7 +56,7 @@ func TestHostsGraph(t *testing.T) {
 	// The selected host's details on the right.
 	m.key("right")
 	m.key("right")
-	requireAll(t, ansi.Strip(m.View()), "server", "contact", "45s ago", "snapshot", "1m old", "2 message(s) on the hub", "shop  1 agent · 1 busy", "Q1 waits for you")
+	requireAll(t, ansi.Strip(m.View()), "server", "contact", "45s ago", "snapshot", "1m old", "2 message(s) on the hub", "shop  1 agent · 1 busy", "Q1 waits for you", "ABCD-EFGH-JKLM-NPQR", "Its key changed")
 
 	// Narrow: one line per host under the hub.
 	n := hostsModel(t, 70)

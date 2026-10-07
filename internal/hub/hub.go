@@ -1,14 +1,15 @@
-// Package hub connects the hosts of one org through a hub (design §18).
+// Package hub connects the hosts of one org through a hub (design §18, §19).
 //
 // One always-on host of the org is the hub. It keeps plain files: the roster
 // of hosts, each host's latest snapshot, mail waiting for each host, and the
-// final receipt of each message. It owns no work. Every host dials out to it
-// over SSH with a dedicated key that the hub limits to `sunstack hub serve`.
+// final receipt of each message. It owns no work. Every host calls it over
+// HTTP on the tailnet with its own token; mail bodies are sealed to the
+// receiving host, so the hub cannot read them.
 package hub
 
 import (
 	"crypto/sha256"
-	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -42,12 +43,19 @@ const (
 // LocalHub is the hub target of the hub itself.
 const LocalHub = "local"
 
+// Port is the hub's default port on the tailnet.
+const Port = "7731"
+
 // Config is ~/.sunstack/org.json: the org this host belongs to.
 type Config struct {
 	Schema  int    `json:"schema"`
 	OrgID   string `json:"org_id"`
 	OrgName string `json:"org_name"`
-	Hub     string `json:"hub"` // SSH target, or "local" on the hub itself
+	Hub     string `json:"hub"`              // the hub's address as given to join, or "local" on the hub itself
+	HubURL  string `json:"hub_url"`          // http://<address>:7731; on the hub, its own listener
+	HubID   string `json:"hub_id"`           // the hub's host ID
+	Token   string `json:"token"`            // this host's token
+	Listen  string `json:"listen,omitempty"` // on the hub: the address to listen on (default: its tailnet address)
 }
 
 // IsHub reports whether this host is the org's hub.
@@ -66,7 +74,7 @@ func LoadConfig() (*Config, error) {
 		return nil, err
 	}
 	var c Config
-	if err := json.Unmarshal(b, &c); err != nil || c.OrgID == "" || c.Hub == "" {
+	if err := json.Unmarshal(b, &c); err != nil || c.OrgID == "" || c.Hub == "" || c.Token == "" {
 		return nil, fmt.Errorf("%s is not a valid org file", configPath())
 	}
 	return &c, nil
@@ -94,17 +102,35 @@ func (s store) mailDir(id string) string    { return filepath.Join(s.dir, "mail"
 func (s store) receiptDir(id string) string { return filepath.Join(s.dir, "receipts", id) }
 func (s store) seenFile(id string) string   { return filepath.Join(s.dir, "seen", id) }
 func (s store) lockDir() string             { return filepath.Join(s.dir, ".lock") }
+func (s store) inviteDir() string           { return filepath.Join(s.dir, "invites") }
+func (s store) addrFile() string            { return filepath.Join(s.dir, "listen.addr") }
 
 // Host is one host in the roster.
 type Host struct {
-	ID          string `json:"id"`
-	Name        string `json:"name"`
-	CanSend     bool   `json:"can_send"`
-	Fingerprint string `json:"fingerprint"`
-	Added       string `json:"added"`
-	Contact     string `json:"contact,omitempty"` // last time the hub heard from it (hub clock)
-	Waiting     int    `json:"waiting"`           // mail waiting for it on the hub
-	Hub         bool   `json:"hub,omitempty"`
+	ID      string     `json:"id"`
+	Name    string     `json:"name"`
+	CanSend bool       `json:"can_send"`
+	Keys    PublicKeys `json:"keys"`
+	Added   string     `json:"added"`
+	Contact string     `json:"contact,omitempty"` // last time the hub heard from it (hub clock)
+	Waiting int        `json:"waiting"`           // mail waiting for it on the hub
+	Hub     bool       `json:"hub,omitempty"`
+	// Kept on the hub only, never sent: the token's hash and the tailnet
+	// address the host joined from.
+	TokenHash string `json:"token_hash,omitempty"`
+	IP        string `json:"ip,omitempty"`
+}
+
+// public is the host as other hosts see it.
+func (h *Host) public() *Host {
+	c := *h
+	c.TokenHash, c.IP = "", ""
+	return &c
+}
+
+func tokenHash(t string) string {
+	sum := sha256.Sum256([]byte(t))
+	return hex.EncodeToString(sum[:])
 }
 
 // Roster is hosts.json on the hub.
@@ -163,12 +189,15 @@ func (s store) withRoster(f func(*Roster) error) error {
 }
 
 // liveRoster adds contact times and waiting counts to the stored roster.
+// Tokens and addresses are left out: it is what hosts receive.
 func (s store) liveRoster() (*Roster, error) {
 	r, err := s.roster()
 	if err != nil {
 		return nil, err
 	}
-	for _, h := range r.Hosts {
+	for i, h := range r.Hosts {
+		h = h.public()
+		r.Hosts[i] = h
 		if b, err := os.ReadFile(s.seenFile(h.ID)); err == nil {
 			h.Contact = strings.TrimSpace(string(b))
 		}
@@ -188,19 +217,15 @@ type Snap struct {
 	Snapshot   json.RawMessage `json:"snapshot"`
 }
 
-// Mail is a message between hosts. Its ID is the message's ID on every host.
+// Mail is a message between hosts: what the hub sees and stores. Its ID is
+// the message's ID on every host; the letter inside is sealed (§19.4).
 type Mail struct {
-	ID          string `json:"id"`
-	FromHost    string `json:"from_host"` // host ID, set by the hub from the caller's key
-	FromName    string `json:"from_name"` // host name, for the reader
-	ToHost      string `json:"to_host"`   // host ID
-	From        string `json:"from"`      // the sender on its host: user, or <team>/<agent>
-	To          string `json:"to"`        // the address on the receiving host
-	Type        string `json:"type"`
-	ReplyTo     string `json:"reply_to,omitempty"`
-	FromSession string `json:"from_session,omitempty"`
-	At          string `json:"at"`
-	Body        string `json:"body"`
+	ID       string `json:"id"`
+	FromHost string `json:"from_host"` // host ID, checked by the hub against the caller's token
+	ToHost   string `json:"to_host"`   // host ID
+	Eph      string `json:"eph"`       // the sender's one-time X25519 key
+	Sealed   string `json:"sealed"`    // the letter, AES-256-GCM
+	Sig      string `json:"sig"`       // Ed25519 over id, hosts, eph and sealed
 }
 
 // Receipt is the final outcome of a message.
@@ -222,12 +247,11 @@ var (
 	addrRe   = regexp.MustCompile(`^[A-Za-z0-9._ -]{1,80}/[a-z0-9][a-z0-9._-]{0,80}$`)
 )
 
-// checkMail validates a message's fields; from and to hosts are checked by
-// the caller against the roster.
-func checkMail(m *Mail) error {
+// checkLetter validates an opened letter, on the receiving host: the hub
+// cannot see these fields.
+func checkLetter(l *Letter) error {
+	m := l
 	switch {
-	case !core.IsMessageID(m.ID):
-		return errors.New("invalid message id")
 	case !contains(RemoteTypes, m.Type):
 		return fmt.Errorf("type %q cannot be sent between hosts", m.Type)
 	case !senderRe.MatchString(m.From):
@@ -256,20 +280,6 @@ func SplitAddress(s string) (host, addr string, ok bool) {
 		return "", "", false
 	}
 	return h, a, true
-}
-
-// Fingerprint is OpenSSH's SHA256 fingerprint of an authorized_keys line.
-func Fingerprint(pub string) (string, error) {
-	f := strings.Fields(pub)
-	if len(f) < 2 || f[0] != "ssh-ed25519" {
-		return "", errors.New("need one ssh-ed25519 public key")
-	}
-	raw, err := base64.StdEncoding.DecodeString(f[1])
-	if err != nil || len(raw) < 19 {
-		return "", errors.New("the public key is not valid base64")
-	}
-	sum := sha256.Sum256(raw)
-	return "SHA256:" + strings.TrimRight(base64.StdEncoding.EncodeToString(sum[:]), "="), nil
 }
 
 func contains(list []string, s string) bool {

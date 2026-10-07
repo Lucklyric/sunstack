@@ -13,15 +13,17 @@ import (
 
 // HostView is one host of the org as this host sees it (§18.6, §18.7).
 type HostView struct {
-	ID, Name   string
-	Hub, You   bool
-	CanSend    bool
-	Waiting    int           // mail waiting for it on the hub
-	State      string        // live, stale, offline, not synced yet; the own host is live
-	ContactAge time.Duration // since the hub last heard from it
-	SnapAge    time.Duration // since its state last changed
-	HasSnap    bool
-	Org        *core.Org // its last snapshot; nil for this host and a host never synced
+	ID, Name    string
+	Hub, You    bool
+	CanSend     bool
+	Waiting     int           // mail waiting for it on the hub
+	State       string        // live, stale, offline, not synced yet; the own host is live
+	ContactAge  time.Duration // since the hub last heard from it
+	SnapAge     time.Duration // since its state last changed
+	HasSnap     bool
+	Org         *core.Org // its last snapshot; nil for this host and a host never synced
+	Fingerprint string    // of the key this host trusts for it (§19.4)
+	KeyChanged  bool      // the roster shows another key; its mail is refused until org trust
 }
 
 // OrgView is the org from the local files only: drawing it never needs the
@@ -57,6 +59,7 @@ func LoadView(now time.Time) *OrgView {
 		}
 	}
 	v := &OrgView{OrgName: c.OrgName, Outbox: len(jsonFiles(outboxDir()))}
+	pins := loadPins()
 	if r == nil {
 		v.Hosts = []*HostView{{ID: me, Name: core.ThisHost().Name, You: true, Hub: c.IsHub(), State: "live"}}
 		return v
@@ -70,6 +73,11 @@ func LoadView(now time.Time) *OrgView {
 		hv := &HostView{ID: h.ID, Name: h.Name, Hub: h.Hub, You: h.ID == me, CanSend: h.CanSend, Waiting: h.Waiting, State: "not synced yet"}
 		if h.Hub {
 			v.HubName = h.Name
+		}
+		if p := pins[h.ID]; p != nil {
+			hv.Fingerprint, hv.KeyChanged = p.Keys.Fingerprint(), p.Changed != nil
+		} else if h.Keys.valid() {
+			hv.Fingerprint = h.Keys.Fingerprint()
 		}
 		if t, ok := parseStamp(h.Contact); ok {
 			hv.ContactAge = clampAge(hubTime.Sub(t) + since)
@@ -203,6 +211,9 @@ func (v *OrgView) Text(view string) string {
 		if h.Org == nil {
 			b.WriteString("  no snapshot yet\n")
 			continue
+		}
+		if h.KeyChanged {
+			fmt.Fprintf(&b, "  its key changed: mail from it is refused until you compare fingerprints (sunstack org keys) and run sunstack org trust %s\n", h.Name)
 		}
 		if h.State != "live" {
 			fmt.Fprintf(&b, "  last known state, %s old\n", Age(h.SnapAge))

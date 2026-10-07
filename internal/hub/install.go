@@ -52,7 +52,7 @@ func Install(out io.Writer) error {
 	if err := os.MkdirAll(filepath.Dir(logf), 0o700); err != nil {
 		return err
 	}
-	// The service starts with a bare PATH; keep this one so ssh, tmux and
+	// The service starts with a bare PATH; keep this one so tmux and
 	// the CLIs are found.
 	env := map[string]string{"PATH": os.Getenv("PATH")}
 	if h := os.Getenv("SUNSTACK_HOME"); h != "" {

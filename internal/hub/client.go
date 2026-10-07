@@ -7,8 +7,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -16,75 +17,65 @@ import (
 	"github.com/Lucklyric/sunstack/internal/core"
 )
 
-// sshProgram is the ssh client, or $SUNSTACK_SSH (tests use a stand-in).
-func sshProgram() string {
-	if p := os.Getenv("SUNSTACK_SSH"); p != "" {
-		return p
+func httpClient(timeout time.Duration) *http.Client { return &http.Client{Timeout: timeout} }
+
+// client calls the hub over HTTP with this host's token. On the hub, it
+// calls its own listener, so the hub's own traffic takes the same checks.
+type client struct{ c *Config }
+
+func (cl *client) url() (string, error) {
+	if !cl.c.IsHub() {
+		return cl.c.HubURL, nil
 	}
-	return "ssh"
+	b, err := os.ReadFile(store{hubDir(cl.c.OrgID)}.addrFile())
+	if err != nil {
+		return "", errors.New("the hub's listener is not running (sunstack hub connect)")
+	}
+	return "http://" + strings.TrimSpace(string(b)), nil
 }
 
-// client reaches the hub: over SSH with the dedicated key, or, on the hub
-// itself, by running hub serve as a child, so the hub's own traffic goes
-// through the same checks as every other host's (§18.5).
-type client struct {
-	target string
-	// first is the join's first contact: an unknown hub key is accepted and
-	// recorded, as ssh does when asked once by hand. Later calls check it.
-	first bool
-}
-
-func (c *client) command(verb string) (*exec.Cmd, error) {
-	if c.target == LocalHub {
-		exe, err := os.Executable()
-		if err != nil {
-			return nil, err
-		}
-		cmd := exec.Command(exe, "hub", "serve", "--host", core.ThisHost().ID)
-		cmd.Env = append(os.Environ(), "SSH_ORIGINAL_COMMAND="+verb)
-		return cmd, nil
-	}
-	args := []string{"-i", KeyPath(), "-o", "IdentitiesOnly=yes", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-T"}
-	if c.first {
-		args = append(args, "-o", "StrictHostKeyChecking=accept-new")
-	}
-	if verb == "watch" {
-		args = append(args, "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=3")
-	}
-	return exec.Command(sshProgram(), append(args, c.target, verb)...), nil
-}
-
-// call runs a one-shot verb and decodes its reply.
-func (c *client) call(verb string, stdin []byte) (*frame, error) {
-	cmd, err := c.command(verb)
+func (cl *client) request(method, path string, body []byte, timeout time.Duration) (*http.Response, error) {
+	base, err := cl.url()
 	if err != nil {
 		return nil, err
 	}
-	var out, errb bytes.Buffer
-	cmd.Stdin, cmd.Stdout, cmd.Stderr = bytes.NewReader(stdin), &out, &errb
-	if err := cmd.Run(); err != nil {
-		msg := strings.TrimSpace(errb.String())
-		if msg == "" {
-			msg = err.Error()
+	req, err := http.NewRequest(method, base+path, bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+cl.c.Token)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := httpClient(timeout).Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("hub unreachable: %v", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		defer resp.Body.Close()
+		msg := readError(resp)
+		if resp.StatusCode == http.StatusUnauthorized {
+			return nil, &revoked{msg}
 		}
 		return nil, errors.New(msg)
 	}
-	var f frame
-	if err := json.Unmarshal(bytes.TrimSpace(out.Bytes()), &f); err != nil {
-		return nil, fmt.Errorf("unexpected reply from the hub: %.200s", out.String())
-	}
-	return &f, nil
+	return resp, nil
 }
 
-func (c *client) hello() (*Hello, error) {
-	f, err := c.call("hello", nil)
+type revoked struct{ msg string }
+
+func (r *revoked) Error() string { return r.msg }
+
+// call makes one request and decodes its answer.
+func (cl *client) call(method, path string, body []byte) (*frame, error) {
+	resp, err := cl.request(method, path, body, 20*time.Second)
 	if err != nil {
 		return nil, err
 	}
-	if f.Hello == nil {
-		return nil, errors.New("the hub did not answer hello")
+	defer resp.Body.Close()
+	var f frame
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 16<<20)).Decode(&f); err != nil {
+		return nil, fmt.Errorf("unexpected answer from the hub: %v", err)
 	}
-	return f.Hello, nil
+	return &f, nil
 }
 
 func joined() (*Config, *client, error) {
@@ -93,9 +84,9 @@ func joined() (*Config, *client, error) {
 		return nil, nil, failErr("org", "%v", err)
 	}
 	if c == nil {
-		return nil, nil, failErr("no_org", "this host is in no org (sunstack org join <hub>)")
+		return nil, nil, failErr("no_org", "this host is in no org (sunstack org join <hub> --code <code>)")
 	}
-	return c, &client{target: c.Hub}, nil
+	return c, &client{c: c}, nil
 }
 
 // Snapshot is this host's org snapshot as it crosses hosts: every session's
@@ -141,7 +132,7 @@ func PushOnce() error {
 	if err != nil {
 		return err
 	}
-	_, err = cl.call("push", b)
+	_, err = cl.call("POST", "/v1/push", b)
 	return err
 }
 
@@ -152,20 +143,28 @@ func PullOnce() (*Roster, error) {
 	if err != nil {
 		return nil, err
 	}
-	f, err := cl.call("pull", nil)
+	f, err := cl.call("GET", "/v1/pull", nil)
 	if err != nil {
 		return nil, err
 	}
 	if f.Roster == nil {
 		return nil, errors.New("the hub sent no roster")
 	}
-	if err := saveRoster(f.Roster, f.HubTime); err != nil {
+	if err := takeRoster(f.Roster, f.HubTime); err != nil {
 		return nil, err
 	}
 	for _, sn := range f.Snaps {
 		_ = saveSnap(sn, f.HubTime)
 	}
 	return f.Roster, nil
+}
+
+// takeRoster pins new keys and stores the roster.
+func takeRoster(r *Roster, hubTime string) error {
+	if err := pinRoster(r); err != nil {
+		return err
+	}
+	return saveRoster(r, hubTime)
 }
 
 // Cached is what this host knows of the org, from ~/.sunstack/remote/.
@@ -192,24 +191,36 @@ func saveSnap(sn *Snap, hubTime string) error {
 	return writeJSON(filepath.Join(remoteDir(), sn.Host+".json"), &cachedSnap{Snap: *sn, HubTime: hubTime, LocalTime: stamp(time.Now())}, 0o600)
 }
 
-// Sent is a message this host sent to another host, with its place.
+func cachedHosts() *Roster {
+	var cr cachedRoster
+	if readJSON(filepath.Join(remoteDir(), "roster.json"), &cr) == nil {
+		return cr.Roster
+	}
+	return nil
+}
+
+// Sent is a message this host sent to another host, with its place. The
+// outbox keeps the letter in the clear on this host; only the sealed mail
+// leaves it.
 type Sent struct {
 	Mail   Mail   `json:"mail"`
+	Letter Letter `json:"letter"`
 	ToName string `json:"to_name"`
 	Status string `json:"status"` // queued, at hub, delivered, refused
 	Reason string `json:"reason,omitempty"`
 	At     string `json:"at"`
 }
 
-// Queue puts a message for another host in the outbox (§18.8). to is
-// "<host>:<address>"; from is "user" or "<team>/<agent>".
+// Queue seals a message for another host and puts it in the outbox
+// (§18.8, §19.4). to is "<host>:<address>"; from is "user" or
+// "<team>/<agent>".
 func Queue(to, from, typ, body, replyTo string) (*Sent, error) {
 	c, err := LoadConfig()
 	if err != nil {
 		return nil, failErr("org", "%v", err)
 	}
 	if c == nil {
-		return nil, failErr("no_org", "this host is in no org, so it cannot send to another host (sunstack org join <hub>)")
+		return nil, failErr("no_org", "this host is in no org, so it cannot send to another host (sunstack org join <hub> --code <code>)")
 	}
 	hostName, addr, ok := SplitAddress(to)
 	if !ok {
@@ -218,54 +229,53 @@ func Queue(to, from, typ, body, replyTo string) (*Sent, error) {
 	if !ValidAddress(addr) {
 		return nil, usageErr("on another host, address <team>/<agent>[_task] or a session ID, not %q: a bare agent is ambiguous there and pane IDs are reused", addr)
 	}
-	h := knownHost(hostName)
+	r := cachedHosts()
+	var h *Host
+	if r != nil {
+		h = r.byName(hostName)
+	}
 	if h == nil {
 		return nil, failErr("not_found", "no host %s in the org (sunstack org --refresh, then sunstack org --by host)", hostName)
 	}
-	if h.ID == core.ThisHost().ID {
+	me := core.ThisHost()
+	if h.ID == me.ID {
 		return nil, usageErr("%s is this host; send to %s", hostName, addr)
+	}
+	pin := loadPins()[h.ID]
+	switch {
+	case pin == nil:
+		return nil, failErr("no_key", "no key pinned for %s yet (sunstack org --refresh)", h.Name)
+	case pin.Changed != nil:
+		return nil, failErr("key_changed", "%s's key changed; compare fingerprints (sunstack org keys) and run sunstack org trust %s", h.Name, h.Name)
 	}
 	if typ == "" {
 		typ = "fyi"
 	}
-	if !contains(RemoteTypes, typ) {
-		return nil, usageErr("type %s cannot be sent to another host (task, question, handoff, fyi or done)", typ)
+	l := &Letter{From: from, To: addr, Type: typ, ReplyTo: replyTo, At: stamp(time.Now()), Body: body}
+	if err := checkLetter(l); err != nil {
+		return nil, usageErr("%v", err)
 	}
 	if typ == "task" {
 		if err := core.CheckBrief(body); err != nil {
 			return nil, err
 		}
 	}
-	m := Mail{ID: core.NewMessageID(from), ToHost: h.ID, From: from, To: addr, Type: typ, ReplyTo: replyTo, At: stamp(time.Now()), Body: body}
-	if err := checkMail(&m); err != nil {
-		return nil, usageErr("%v", err)
+	keys, err := LoadKeys()
+	if err != nil {
+		return nil, err
+	}
+	m := Mail{ID: core.NewMessageID(from), FromHost: me.ID, ToHost: h.ID}
+	if err := seal(keys, pin.Keys, &m, l); err != nil {
+		return nil, err
 	}
 	if b, _ := json.Marshal(m); len(b) > MaxFrame {
 		return nil, usageErr("the message is larger than 256 KB")
 	}
-	if err := writeJSON(filepath.Join(outboxDir(), m.ID+".json"), &m, 0o600); err != nil {
+	s := &Sent{Mail: m, Letter: *l, ToName: h.Name, Status: "queued", At: l.At}
+	if err := writeJSON(filepath.Join(outboxDir(), m.ID+".json"), s, 0o600); err != nil {
 		return nil, err
 	}
-	return &Sent{Mail: m, ToName: h.Name, Status: "queued", At: m.At}, nil
-}
-
-// knownHost finds a host by name in the cached roster (or, on the hub, its
-// own roster).
-func knownHost(name string) *Host {
-	var r *Roster
-	if c, _ := LoadConfig(); c != nil && c.IsHub() {
-		r, _ = store{hubDir(c.OrgID)}.roster()
-	}
-	if r == nil {
-		var cr cachedRoster
-		if readJSON(filepath.Join(remoteDir(), "roster.json"), &cr) == nil {
-			r = cr.Roster
-		}
-	}
-	if r == nil {
-		return nil
-	}
-	return r.byName(name)
+	return s, nil
 }
 
 // FlushOnce sends the outbox in one call per message. It is what send does
@@ -276,40 +286,44 @@ func FlushOnce() error {
 		return err
 	}
 	for _, p := range jsonFiles(outboxDir()) {
-		var m Mail
-		if readJSON(p, &m) != nil {
+		var s Sent
+		if readJSON(p, &s) != nil {
 			continue
 		}
-		b, _ := json.Marshal(m)
-		f, err := cl.call("mail", b)
+		b, _ := json.Marshal(s.Mail)
+		f, err := cl.call("POST", "/v1/mail", b)
 		if err != nil {
-			return fmt.Errorf("hub unreachable: %v", err)
+			return err
 		}
-		settle(&m, f.Op, f.Reason)
+		settle(s.Mail.ID, f.Op, f.Reason)
 	}
 	return nil
 }
 
 // settle moves a message from the outbox to sent with the hub's answer.
-func settle(m *Mail, op, reason string) {
+func settle(id, op, reason string) {
+	if !isFileName(id) {
+		return
+	}
 	status := "at hub"
 	if op == "refused" {
 		status = "refused"
 	} else if op != "stored" {
 		return
 	}
-	src := filepath.Join(outboxDir(), m.ID+".json")
-	var s Sent
-	dst := filepath.Join(sentDir(), m.ID+".json")
-	if readJSON(dst, &s) == nil && (s.Status == "delivered" || s.Status == "refused") {
+	src := filepath.Join(outboxDir(), id+".json")
+	dst := filepath.Join(sentDir(), id+".json")
+	var done Sent
+	if readJSON(dst, &done) == nil && (done.Status == "delivered" || done.Status == "refused") {
 		os.Remove(src)
 		return
 	}
-	name := m.ToHost
-	if h := knownHostByID(m.ToHost); h != nil {
-		name = h.Name
+	var s Sent
+	if readJSON(src, &s) != nil {
+		return
 	}
-	if writeJSON(dst, &Sent{Mail: *m, ToName: name, Status: status, Reason: reason, At: stamp(time.Now())}, 0o600) == nil {
+	s.Status, s.Reason, s.At = status, reason, stamp(time.Now())
+	if writeJSON(dst, &s, 0o600) == nil {
 		os.Remove(src)
 	}
 }
@@ -323,14 +337,11 @@ func record(rc *Receipt) {
 	var s Sent
 	if readJSON(dst, &s) != nil {
 		// The receipt came before the hub's answer was recorded.
-		if readJSON(filepath.Join(outboxDir(), rc.ID+".json"), &s.Mail) != nil {
+		src := filepath.Join(outboxDir(), rc.ID+".json")
+		if readJSON(src, &s) != nil {
 			return
 		}
-		os.Remove(filepath.Join(outboxDir(), rc.ID+".json"))
-		s.ToName = rc.ToHost
-		if h := knownHostByID(rc.ToHost); h != nil {
-			s.ToName = h.Name
-		}
+		os.Remove(src)
 	}
 	if s.Status == rc.Status && s.Reason == rc.Reason {
 		return
@@ -339,53 +350,60 @@ func record(rc *Receipt) {
 	_ = writeJSON(dst, &s, 0o600)
 }
 
-func knownHostByID(id string) *Host {
-	var cr cachedRoster
-	if readJSON(filepath.Join(remoteDir(), "roster.json"), &cr) == nil && cr.Roster != nil {
-		return cr.Roster.byID(id)
-	}
-	return nil
-}
-
 // SentMail lists messages this host sent to other hosts, queued first.
 func SentMail() []*Sent {
 	var out []*Sent
-	for _, p := range jsonFiles(outboxDir()) {
-		var m Mail
-		if readJSON(p, &m) == nil {
-			name := m.ToHost
-			if h := knownHostByID(m.ToHost); h != nil {
-				name = h.Name
+	for _, dir := range []string{outboxDir(), sentDir()} {
+		for _, p := range jsonFiles(dir) {
+			var s Sent
+			if readJSON(p, &s) == nil {
+				out = append(out, &s)
 			}
-			out = append(out, &Sent{Mail: m, ToName: name, Status: "queued", At: m.At})
-		}
-	}
-	for _, p := range jsonFiles(sentDir()) {
-		var s Sent
-		if readJSON(p, &s) == nil {
-			out = append(out, &s)
 		}
 	}
 	return out
 }
 
-// Deliver puts mail from another host into the local inbox it names,
-// keeping its ID, so a second copy is impossible (§18.5). final is false
-// for a failure worth retrying later (a busy lock, the file system).
+// Deliver opens mail from another host and puts it in the local inbox it
+// names, keeping its ID, so a second copy is impossible (§18.5, §19.4).
+// final is false for a failure worth retrying later.
 func Deliver(m *Mail) (status, reason string, final bool) {
-	if err := checkMail(m); err != nil {
+	if !core.IsMessageID(m.ID) {
+		return "refused", "invalid message id", true
+	}
+	pin := loadPins()[m.FromHost]
+	if pin == nil {
+		// A host that joined after this one's last roster: pin it first.
+		if _, err := PullOnce(); err == nil {
+			pin = loadPins()[m.FromHost]
+		}
+	}
+	switch {
+	case pin == nil:
+		return "", "no key for the sending host yet", false
+	case pin.Changed != nil:
+		return "refused", "the sending host's key changed; on the receiving host, compare fingerprints and run sunstack org trust " + pin.Name, true
+	}
+	keys, err := LoadKeys()
+	if err != nil {
+		return "", err.Error(), false
+	}
+	l, err := open(keys, pin.Keys, m)
+	if err != nil {
+		return "refused", err.Error(), true
+	}
+	if err := checkLetter(l); err != nil {
 		return "refused", err.Error(), true
 	}
 	sum := sha256.Sum256([]byte(m.ID))
 	opts := core.SendOptions{
-		Body: m.Body, Type: m.Type, ReplyTo: m.ReplyTo,
-		FromLabel: m.FromName + ":" + m.From, FromHost: m.FromName,
+		Body: l.Body, Type: l.Type, ReplyTo: l.ReplyTo,
+		FromLabel: pin.Name + ":" + l.From, FromHost: pin.Name,
 		ID: m.ID, Op: "x" + hex.EncodeToString(sum[:16]),
 	}
-	var err error
-	if core.IsSessionID(m.To) {
+	if core.IsSessionID(l.To) {
 		var s *core.HostSession
-		if s, err = core.FindSession(m.To, ""); err == nil {
+		if s, err = core.FindSession(l.To, ""); err == nil {
 			if s.Agent != "" {
 				var dst *core.Project
 				if dst, err = core.FindProject(s.TeamRoot); err == nil {
@@ -397,7 +415,7 @@ func Deliver(m *Mail) (status, reason string, final bool) {
 			}
 		}
 	} else {
-		team, agent, _ := strings.Cut(m.To, "/")
+		team, agent, _ := strings.Cut(l.To, "/")
 		var dst *core.Project
 		if dst, err = core.ResolveTeam(team); err == nil {
 			opts.To = agent

@@ -2,14 +2,12 @@ package hub
 
 import (
 	"bufio"
-	"bytes"
 	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"strconv"
 	"sync"
 	"time"
@@ -40,9 +38,10 @@ func ConnectorRunning() bool {
 }
 
 // Connect keeps one connection to the hub open, reconnecting with backoff,
-// until the hub says this host was revoked (§18.5).
+// until the hub says this host was revoked (§18.5). On the hub it also runs
+// the listener the other hosts call (§19.2).
 func Connect(logw io.Writer) error {
-	_, cl, err := joined()
+	c, cl, err := joined()
 	if err != nil {
 		return err
 	}
@@ -51,6 +50,23 @@ func Connect(logw io.Writer) error {
 		return &core.Error{Code: core.ExitClaim, Reason: "busy", Msg: "a connector already runs on this host"}
 	}
 	defer unlock()
+	if c.IsHub() {
+		sv, err := NewServer()
+		if err != nil {
+			return err
+		}
+		l, err := Listen(c)
+		if err != nil {
+			return failErr("listen", "the hub cannot listen: %v", err)
+		}
+		fmt.Fprintf(logw, "%s hub listening on %s\n", stamp(time.Now()), l.Addr())
+		go func() {
+			if err := sv.Serve(l); err != nil {
+				fmt.Fprintf(logw, "%s hub listener stopped: %v\n", stamp(time.Now()), err)
+				os.Exit(1) // the service manager restarts it
+			}
+		}()
+	}
 	backoff := time.Second
 	for {
 		start := time.Now()
@@ -69,50 +85,49 @@ func Connect(logw io.Writer) error {
 	}
 }
 
-// session runs one watch connection until it drops.
+// session runs one watch stream until it drops: frames come down the
+// stream, and this host's snapshots, pings, mail and acks go up as requests.
 func session(cl *client, logw io.Writer) error {
-	cmd, err := cl.command("watch")
+	resp, err := cl.request("GET", "/v1/watch", nil, 0)
 	if err != nil {
-		return err
-	}
-	stdin, err := cmd.StdinPipe()
-	if err != nil {
-		return err
-	}
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return err
-	}
-	var errb bytes.Buffer
-	cmd.Stderr = &errb
-	if err := cmd.Start(); err != nil {
-		return err
-	}
-	waited := false
-	defer func() {
-		if !waited {
-			stdin.Close()
-			_ = cmd.Process.Kill()
-			_ = cmd.Wait()
+		var rv *revoked
+		if errors.As(err, &rv) {
+			return ErrRevoked
 		}
-	}()
-
-	var mu sync.Mutex
+		return err
+	}
+	defer resp.Body.Close()
+	post := func(path string, v any) (*frame, error) {
+		b, _ := json.Marshal(v)
+		return cl.call("POST", path, b)
+	}
+	var mu sync.Mutex // one upload at a time
 	send := func(f frame) error {
-		b, err := json.Marshal(f)
-		if err != nil {
-			return err
-		}
 		mu.Lock()
 		defer mu.Unlock()
-		_, err = stdin.Write(append(b, '\n'))
-		return err
+		switch f.Op {
+		case "ack":
+			_, err := post("/v1/ack", f)
+			return err
+		case "mail":
+			a, err := post("/v1/mail", f.Mail)
+			if err == nil {
+				settle(f.Mail.ID, a.Op, a.Reason)
+			}
+			return err
+		}
+		return nil
 	}
 	ended := make(chan error, 1)
+	// The hub sends the roster at least every 5 seconds; a stream that
+	// stays silent for 30 is dead, even if the network never said so.
+	dog := time.AfterFunc(30*time.Second, func() { resp.Body.Close() })
+	defer dog.Stop()
 	go func() {
-		br := bufio.NewReaderSize(stdout, 64<<10)
+		br := bufio.NewReaderSize(resp.Body, 64<<10)
 		for {
 			line, err := readLine(br)
+			dog.Reset(30 * time.Second)
 			if err != nil {
 				ended <- err
 				return
@@ -138,26 +153,34 @@ func session(cl *client, logw io.Writer) error {
 		b, err := Snapshot()
 		if err != nil {
 			fmt.Fprintf(logw, "snapshot: %v\n", err)
-			return send(frame{Op: "ping"})
 		}
 		// The time of the scan is not a change.
-		sum := sha256.Sum256(withoutAt(b))
-		if sum == lastSum && time.Since(lastSent) < 5*time.Minute {
-			return send(frame{Op: "ping"})
+		if err == nil {
+			if sum := sha256.Sum256(withoutAt(b)); sum != lastSum || time.Since(lastSent) > 5*time.Minute {
+				mu.Lock()
+				_, err = cl.call("POST", "/v1/push", b)
+				mu.Unlock()
+				if err == nil {
+					lastSum, lastSent = sum, time.Now()
+				}
+				return err
+			}
 		}
-		lastSum, lastSent = sum, time.Now()
-		return send(frame{Op: "snap", Snapshot: b})
+		mu.Lock()
+		defer mu.Unlock()
+		_, err = cl.call("POST", "/v1/ping", nil)
+		return err
 	}
 	flush := func() error {
 		for _, p := range jsonFiles(outboxDir()) {
 			if inflight[p] {
 				continue
 			}
-			var m Mail
-			if readJSON(p, &m) != nil {
+			var s Sent
+			if readJSON(p, &s) != nil {
 				continue
 			}
-			if err := send(frame{Op: "mail", Mail: &m}); err != nil {
+			if err := send(frame{Op: "mail", Mail: &s.Mail}); err != nil {
 				return err
 			}
 			inflight[p] = true
@@ -171,13 +194,6 @@ func session(cl *client, logw io.Writer) error {
 		var err error
 		select {
 		case err = <-ended:
-			// Read the hub's error only after the process is done writing it.
-			stdin.Close()
-			_ = cmd.Wait()
-			waited = true
-			if msg := bytes.TrimSpace(errb.Bytes()); len(msg) > 0 && !errors.Is(err, ErrRevoked) {
-				err = errors.New(string(msg))
-			}
 			return err
 		case <-snapTick.C:
 			err = pushSnap()
@@ -185,6 +201,10 @@ func session(cl *client, logw io.Writer) error {
 			err = flush()
 		}
 		if err != nil {
+			var rv *revoked
+			if errors.As(err, &rv) {
+				return ErrRevoked
+			}
 			return err
 		}
 	}
@@ -196,7 +216,7 @@ func handle(f *frame, send func(frame) error) bool {
 	switch f.Op {
 	case "roster":
 		if f.Roster != nil {
-			_ = saveRoster(f.Roster, f.HubTime)
+			_ = takeRoster(f.Roster, f.HubTime)
 		}
 	case "snap":
 		if f.Snap != nil {
@@ -209,14 +229,6 @@ func handle(f *frame, send func(frame) error) bool {
 		status, reason, final := Deliver(f.Mail)
 		if final {
 			_ = send(frame{Op: "ack", ID: f.Mail.ID, Status: status, Reason: reason})
-		}
-	case "stored", "refused":
-		if f.ID == "" || !isFileName(f.ID) {
-			return false
-		}
-		var m Mail
-		if readJSON(filepath.Join(outboxDir(), f.ID+".json"), &m) == nil {
-			settle(&m, f.Op, f.Reason)
 		}
 	case "receipt":
 		if f.Receipt != nil {

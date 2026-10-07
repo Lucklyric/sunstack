@@ -37,9 +37,6 @@ func installTestTools(dir string) {
 	if err != nil {
 		panic(err)
 	}
-	if out, err := exec.Command("go", "build", "-o", filepath.Join(testTools, "ssh"+ext), "./testdata/ssh").CombinedOutput(); err != nil {
-		panic(string(out))
-	}
 	for _, name := range []string{"codex", "tmux", "ps", "lsof"} {
 		if err := os.WriteFile(filepath.Join(testTools, name+ext), b, 0o755); err != nil {
 			panic(err)

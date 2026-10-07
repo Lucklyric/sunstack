@@ -314,9 +314,9 @@ prefix_rule(
     justification = "Sunstack hub init makes this host the hub of an org; only the user may do that.",
 )
 prefix_rule(
-    pattern = ["sunstack", "hub", "allow"],
+    pattern = ["sunstack", "hub", "invite"],
     decision = "prompt",
-    justification = "Sunstack hub allow lets another host into the org; only the user may do that.",
+    justification = "Sunstack hub invite makes a code that lets another host into the org; only the user may do that.",
 )
 prefix_rule(
     pattern = ["sunstack", "hub", "revoke"],
@@ -332,6 +332,11 @@ prefix_rule(
     pattern = ["sunstack", "org", "leave"],
     decision = "prompt",
     justification = "Sunstack org leave takes this host out of its org; only the user may do that.",
+)
+prefix_rule(
+    pattern = ["sunstack", "org", "trust"],
+    decision = "prompt",
+    justification = "Sunstack org trust accepts another host's changed key; only the user may do that, after comparing fingerprints.",
 )
 `
 

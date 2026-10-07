@@ -2,12 +2,15 @@ package hub
 
 import (
 	"bufio"
+	"bytes"
+	"crypto/rand"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"net"
+	"net/http"
 	"os"
-	"os/exec"
-	"path/filepath"
 	"runtime"
 	"strings"
 	"time"
@@ -35,10 +38,10 @@ func hubConfig() (*Config, store, error) {
 	return c, store{hubDir(c.OrgID)}, nil
 }
 
-// Init makes this host the hub of a new org (§18.3).
+// Init makes this host the hub of a new org (§18.3, §19.3).
 func Init(name string) (*Config, error) {
 	if runtime.GOOS == "windows" {
-		return nil, failErr("unsupported", "a hub on Windows is not supported in v0.9")
+		return nil, failErr("unsupported", "a hub on Windows is not supported yet")
 	}
 	if !nameRe.MatchString(name) {
 		return nil, usageErr("org name: letters, digits, . _ - only")
@@ -48,111 +51,71 @@ func Init(name string) (*Config, error) {
 	} else if c != nil {
 		return nil, failErr("org", "this host is already in org %s (sunstack org leave first)", c.OrgName)
 	}
+	keys, err := LoadKeys()
+	if err != nil {
+		return nil, err
+	}
 	me := core.ThisHost()
-	c := &Config{OrgID: core.NewToken(), OrgName: name, Hub: LocalHub}
+	token := core.NewToken() + core.NewToken()
+	c := &Config{OrgID: core.NewToken(), OrgName: name, Hub: LocalHub, HubID: me.ID, Token: token}
 	s := store{hubDir(c.OrgID)}
 	if err := os.MkdirAll(s.dir, 0o700); err != nil {
 		return nil, err
 	}
-	r := &Roster{Schema: Schema, OrgID: c.OrgID, OrgName: name, Hosts: []*Host{{ID: me.ID, Name: me.Name, CanSend: true, Added: stamp(time.Now()), Hub: true}}}
+	r := &Roster{Schema: Schema, OrgID: c.OrgID, OrgName: name, Hosts: []*Host{{
+		ID: me.ID, Name: me.Name, CanSend: true, Keys: keys.Public(), Added: stamp(time.Now()), Hub: true, TokenHash: tokenHash(token),
+	}}}
 	if err := writeJSON(s.hostsFile(), r, 0o600); err != nil {
 		return nil, err
 	}
 	return c, saveConfig(c)
 }
 
-// AuthorizedKeys is the hub user's authorized_keys file.
-func AuthorizedKeys() string {
-	h, _ := os.UserHomeDir()
-	return filepath.Join(h, ".ssh", "authorized_keys")
+// Invite makes a one-time join code: 10 minutes, dead after 3 wrong tries
+// (§19.3).
+func Invite(readOnly bool) (string, error) {
+	_, s, err := hubConfig()
+	if err != nil {
+		return "", err
+	}
+	const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789" // no 0/O, 1/I
+	b := make([]byte, 8)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	for i := range b {
+		b[i] = alphabet[int(b[i])%len(alphabet)]
+	}
+	code := string(b[:4]) + "-" + string(b[4:])
+	inv := &invite{Expires: stamp(time.Now().Add(10 * time.Minute)), CanSend: !readOnly}
+	if err := writeJSON(s.inviteFile(code), inv, 0o600); err != nil {
+		return "", err
+	}
+	return code, nil
 }
 
-func keyTag(org, id string) string { return "sunstack-hub:" + org + ":" + id }
-
-// keyLine is the authorized_keys line for a host: its key may only run
-// hub serve for that host's ID, with no terminal, forwarding or ~/.ssh/rc.
-func keyLine(exe, org, id, pub string) string {
-	f := strings.Fields(pub)
-	return fmt.Sprintf(`restrict,command="'%s' hub serve --host %s" %s %s %s`, exe, id, f[0], f[1], keyTag(org, id))
+type invite struct {
+	Expires string `json:"expires"`
+	CanSend bool   `json:"can_send"`
+	Wrong   int    `json:"wrong"`
 }
 
-// Allow adds a host to the org and its key to authorized_keys (§18.3).
-func Allow(name, id, pub string, canSend bool) (string, error) {
-	c, s, err := hubConfig()
-	if err != nil {
-		return "", err
+func normCode(c string) string {
+	c = strings.ToUpper(strings.ReplaceAll(strings.TrimSpace(c), "-", ""))
+	if len(c) != 8 {
+		return ""
 	}
-	if !nameRe.MatchString(name) {
-		return "", usageErr("host name: letters, digits, . _ - only")
-	}
-	if !idRe.MatchString(id) {
-		return "", usageErr("--id must be the host ID from its ~/.sunstack/host.json")
-	}
-	pub = strings.TrimSpace(pub)
-	if strings.ContainsAny(pub, "\n\r") {
-		return "", usageErr("--key takes exactly one public key")
-	}
-	fp, err := Fingerprint(pub)
-	if err != nil {
-		return "", usageErr("--key: %v", err)
-	}
-	exe, err := os.Executable()
-	if err != nil {
-		return "", err
-	}
-	if exe, err = filepath.EvalSymlinks(exe); err != nil {
-		return "", err
-	}
-	if strings.ContainsAny(exe, `'"\`) {
-		return "", failErr("path", "the sunstack path %s has a quote or backslash; install it elsewhere", exe)
-	}
-	note := ""
-	err = s.withRoster(func(r *Roster) error {
-		for _, h := range r.Hosts {
-			if h.ID != id && strings.EqualFold(h.Name, name) {
-				return failErr("exists", "the name %s is already used by another host", name)
-			}
-			if h.ID != id && h.Fingerprint == fp {
-				return failErr("exists", "that key already belongs to host %s", h.Name)
-			}
-		}
-		if h := r.byID(id); h != nil {
-			if h.Fingerprint != fp {
-				return failErr("exists", "host %s is allowed with another key; sunstack hub revoke %s first", h.Name, h.Name)
-			}
-			if h.Name == name && h.CanSend == canSend {
-				note = "already allowed; nothing changed"
-				return nil
-			}
-			h.Name, h.CanSend = name, canSend
-			note = "updated"
-			return nil
-		}
-		r.Hosts = append(r.Hosts, &Host{ID: id, Name: name, CanSend: canSend, Fingerprint: fp, Added: stamp(time.Now())})
-		note = "allowed"
-		return nil
-	})
-	if err != nil {
-		return "", err
-	}
-	if err := editKeys(func(lines []string) []string {
-		tag := keyTag(c.OrgID, id)
-		for _, l := range lines {
-			if strings.HasSuffix(strings.TrimSpace(l), tag) {
-				return lines
-			}
-		}
-		return append(lines, keyLine(exe, c.OrgID, id, pub))
-	}); err != nil {
-		return "", err
-	}
-	return note, nil
+	return c[:4] + "-" + c[4:]
 }
 
-// Revoke removes a host, its key line, snapshot and mail. Its open
-// connections end at their next check (§18.5).
+func (s store) inviteFile(code string) string {
+	return s.inviteDir() + "/" + tokenHash(normCode(code)) + ".json"
+}
+
+// Revoke removes a host: its token, snapshot and mail. Its open stream ends
+// at the next check (§19.3).
 func Revoke(name string) error {
-	c, s, err := hubConfig()
+	_, s, err := hubConfig()
 	if err != nil {
 		return err
 	}
@@ -178,53 +141,11 @@ func Revoke(name string) error {
 	if err != nil {
 		return err
 	}
-	tag := keyTag(c.OrgID, gone.ID)
-	if err := editKeys(func(lines []string) []string {
-		var kept []string
-		for _, l := range lines {
-			if !strings.HasSuffix(strings.TrimSpace(l), tag) {
-				kept = append(kept, l)
-			}
-		}
-		return kept
-	}); err != nil {
-		return err
-	}
 	os.Remove(s.snapFile(gone.ID))
 	os.Remove(s.seenFile(gone.ID))
 	os.RemoveAll(s.mailDir(gone.ID))
 	os.RemoveAll(s.receiptDir(gone.ID))
 	return nil
-}
-
-// editKeys changes authorized_keys under a lock. Lines Sunstack did not
-// write are kept as they are.
-func editKeys(f func([]string) []string) error {
-	path := AuthorizedKeys()
-	unlock, err := core.LockDir(filepath.Join(core.Home(), "locks", "_authorized_keys_"), "authorized_keys")
-	if err != nil {
-		return err
-	}
-	defer unlock()
-	var lines []string
-	if b, err := os.ReadFile(path); err == nil {
-		for _, l := range strings.Split(strings.TrimRight(string(b), "\n"), "\n") {
-			if l != "" {
-				lines = append(lines, l)
-			}
-		}
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return err
-	}
-	out := f(lines)
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return err
-	}
-	text := strings.Join(out, "\n")
-	if text != "" {
-		text += "\n"
-	}
-	return writeFile(path, []byte(text), 0o600)
 }
 
 // Hosts lists the roster with contact times and waiting mail.
@@ -236,90 +157,80 @@ func Hosts() (*Roster, error) {
 	return s.liveRoster()
 }
 
-// KeyPath is this host's dedicated hub key.
-func KeyPath() string {
-	h, _ := os.UserHomeDir()
-	return filepath.Join(h, ".ssh", "sunstack_hub")
+// joinRequest and joinAnswer are POST /v1/join.
+type joinRequest struct {
+	Code string     `json:"code"`
+	ID   string     `json:"id"`
+	Name string     `json:"name"`
+	Keys PublicKeys `json:"keys"`
 }
 
-// ensureKey creates the dedicated key, without a passphrase, if missing.
-func ensureKey() (string, error) {
-	path := KeyPath()
-	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
-		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-			return "", err
-		}
-		prog := os.Getenv("SUNSTACK_SSH_KEYGEN")
-		if prog == "" {
-			prog = "ssh-keygen"
-		}
-		out, err := exec.Command(prog, "-q", "-t", "ed25519", "-N", "", "-C", "sunstack-hub", "-f", path).CombinedOutput()
-		if err != nil {
-			return "", failErr("ssh_keygen", "could not create %s: %v %s", path, err, strings.TrimSpace(string(out)))
-		}
-	}
-	b, err := os.ReadFile(path + ".pub")
-	if err != nil {
-		return "", err
-	}
-	pub := strings.TrimSpace(string(b))
-	if _, err := Fingerprint(pub); err != nil {
-		return "", failErr("key", "%s.pub: %v", path, err)
-	}
-	return pub, nil
+type joinAnswer struct {
+	OrgID   string  `json:"org_id"`
+	OrgName string  `json:"org_name"`
+	HubID   string  `json:"hub_id"`
+	Token   string  `json:"token"`
+	Roster  *Roster `json:"roster"`
+	HubTime string  `json:"hub_time"`
 }
 
-// Join adds this host to the org whose hub is target (§18.3). It first
-// tries the user's own SSH access to run hub allow on the hub; when that
-// fails it prints the line to run there, and a second Join finishes.
-func Join(target string, canSend bool, in io.Reader, out io.Writer) (*Config, error) {
-	if strings.HasPrefix(target, "-") || strings.ContainsAny(target, " \t\n'\"") {
-		return nil, usageErr("invalid ssh target %q", target)
+// HubURL turns what the user typed into the hub's URL: a Tailscale name or
+// address, with :7731 unless a port is given.
+func HubURL(target string) (string, error) {
+	t := strings.TrimSuffix(strings.TrimPrefix(strings.TrimPrefix(target, "http://"), "https://"), "/")
+	if t == "" || strings.ContainsAny(t, " /?#@") {
+		return "", usageErr("give the hub as a Tailscale name or address, like assistant or 100.74.1.2")
 	}
+	if _, _, err := net.SplitHostPort(t); err != nil {
+		t = net.JoinHostPort(t, Port)
+	}
+	return "http://" + t, nil
+}
+
+// Join adds this host to the org of the hub at target with a code from
+// `sunstack hub invite` (§19.3).
+func Join(target, code string) (*Config, error) {
 	if c, err := LoadConfig(); err != nil {
 		return nil, failErr("org", "%v", err)
 	} else if c != nil {
-		if c.Hub == target {
-			fmt.Fprintf(out, "already in org %s through %s\n", c.OrgName, target)
-			return c, nil
-		}
 		return nil, failErr("org", "this host is already in org %s (sunstack org leave first)", c.OrgName)
 	}
-	pub, err := ensureKey()
+	if normCode(code) == "" {
+		return nil, usageErr("--code takes the 8-character code from sunstack hub invite on the hub")
+	}
+	url, err := HubURL(target)
+	if err != nil {
+		return nil, err
+	}
+	keys, err := LoadKeys()
 	if err != nil {
 		return nil, err
 	}
 	me := core.ThisHost()
-	cl := &client{target: target, first: true}
-	hello, err := cl.hello()
+	body, _ := json.Marshal(joinRequest{Code: normCode(code), ID: me.ID, Name: me.Name, Keys: keys.Public()})
+	resp, err := httpClient(10*time.Second).Post(url+"/v1/join", "application/json", bytes.NewReader(body))
 	if err != nil {
-		f := strings.Fields(pub)
-		send := ""
-		if canSend {
-			send = " --send"
-		}
-		allow := fmt.Sprintf("sunstack hub allow %s --id %s --key '%s %s'%s", me.Name, me.ID, f[0], f[1], send)
-		fmt.Fprintf(out, "Adding this host on %s with your own SSH login (it may ask once)...\n", target)
-		cmd := exec.Command(sshProgram(), "-o", "ConnectTimeout=10", target, allow)
-		cmd.Stdin, cmd.Stdout, cmd.Stderr = in, out, out
-		if rerr := cmd.Run(); rerr == nil {
-			hello, err = cl.hello()
-		}
-		if err != nil {
-			fmt.Fprintf(out, "\nRun this on the hub, then run sunstack org join %s again:\n\n  %s\n\n", target, allow)
-			return nil, failErr("pending", "the hub has not allowed this host yet")
-		}
+		return nil, failErr("unreachable", "the hub at %s did not answer: %v (is it on your tailnet, with sunstack hub connect running?)", url, err)
 	}
-	c := &Config{OrgID: hello.OrgID, OrgName: hello.OrgName, Hub: target}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, failErr("refused", "the hub refused: %s", readError(resp))
+	}
+	var a joinAnswer
+	if err := json.NewDecoder(io.LimitReader(resp.Body, MaxFrame)).Decode(&a); err != nil || a.Token == "" || a.Roster == nil {
+		return nil, failErr("refused", "the hub sent no token")
+	}
+	if err := pinRoster(a.Roster); err != nil {
+		return nil, err
+	}
+	if err := saveRoster(a.Roster, a.HubTime); err != nil {
+		return nil, err
+	}
+	c := &Config{OrgID: a.OrgID, OrgName: a.OrgName, Hub: target, HubURL: url, HubID: a.HubID, Token: a.Token}
 	if err := saveConfig(c); err != nil {
 		return nil, err
 	}
-	if err := PushOnce(); err != nil {
-		fmt.Fprintf(out, "first snapshot not pushed: %v\n", err)
-	}
-	if _, err := PullOnce(); err != nil {
-		fmt.Fprintf(out, "roster not pulled: %v\n", err)
-	}
+	_ = PushOnce()
 	return c, nil
 }
 
@@ -340,7 +251,21 @@ func Leave() error {
 	return os.Remove(configPath())
 }
 
-// readLine reads one line, for the watch protocol.
+func readError(resp *http.Response) string {
+	b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	var e struct {
+		Error string `json:"error"`
+	}
+	if json.Unmarshal(b, &e) == nil && e.Error != "" {
+		return e.Error
+	}
+	if s := strings.TrimSpace(string(b)); s != "" {
+		return s
+	}
+	return resp.Status
+}
+
+// readLine reads one line of a stream.
 func readLine(r *bufio.Reader) ([]byte, error) {
 	var buf []byte
 	for {

@@ -268,6 +268,12 @@ func hostDetails(h *hub.HostView, w int, local *core.Org) []string {
 		send = "can send"
 	}
 	out = append(out, field("messages", send))
+	if h.Fingerprint != "" {
+		out = append(out, field("key", h.Fingerprint))
+	}
+	if h.KeyChanged {
+		out = append(out, cWarn.Render(wrap("Its key changed: mail from it is refused. Compare fingerprints (sunstack org keys on both machines), then sunstack org trust "+h.Name+".", w)))
+	}
 	if h.Waiting > 0 {
 		out = append(out, field("waiting", fmt.Sprintf("%d message(s) on the hub", h.Waiting)))
 	}

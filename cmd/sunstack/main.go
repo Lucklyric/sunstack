@@ -108,14 +108,15 @@ Org (every team and Claude Code or Codex session on this host):
   sunstack tui [--org]                            dashboard: this team, or outside a team a picker of this host's teams;
                                                   --org opens the host view of every team and session (also: bare sunstack)
 
-Hosts (an org: several hosts connected through one hub, over SSH):
-  sunstack org join <ssh target> [--send]         join the org whose hub is there (a dedicated key, limited on the hub)
+Hosts (an org: several hosts connected through one hub, over Tailscale):
+  sunstack org join <hub> --code CODE             join the org whose hub is there (a Tailscale name or address)
   sunstack org leave                              leave it
+  sunstack org keys                               this host's key fingerprint and the ones it trusts
+  sunstack org trust <host>                       accept a host's changed key, after comparing fingerprints
   sunstack send <host>:<team>/<agent>[_task]|<host>:<session-id> "<text>"
                                                   a message to another host, through the hub
   sunstack hub init <org name>                    make this host the hub of a new org
-  sunstack hub allow <name> --id ID --key "<pub>" [--send]
-                                                  let a host in (org join runs this for you when it can)
+  sunstack hub invite [--read-only]               a one-time join code for another host (10 minutes)
   sunstack hub revoke <name>                      remove a host; its connections end
   sunstack hub hosts [--json]                     the hosts of the org, on the hub
   sunstack hub connect [--install|--uninstall]    keep one connection to the hub open (--install: as a service)
@@ -1168,7 +1169,7 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 		return nil
 
 	case "org":
-		if len(rest) > 0 && (rest[0] == "join" || rest[0] == "leave") {
+		if len(rest) > 0 && (rest[0] == "join" || rest[0] == "leave" || rest[0] == "keys" || rest[0] == "trust") {
 			return orgMembership(rest, stdin, stdout)
 		}
 		a, err := parse(rest, "by", "attention json refresh")

@@ -1,12 +1,17 @@
 package main
 
-// v0.9: hosts connected through an org hub (design §18). Three temporary
-// homes play the hub and two hosts; the stand-in ssh plays sshd on the hub.
+// v0.9 and v0.9.1: hosts connected through an org hub (design §18, §19).
+// Three temporary homes play the hub and two hosts; the hub listens on
+// 127.0.0.1 (SUNSTACK_HUB_LISTEN), the only case where the tailnet check is
+// skipped.
 
 import (
 	"bufio"
+	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"io"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -22,39 +27,38 @@ type orgHost struct {
 	env        []string
 }
 
-func needHub(t *testing.T) {
+// newOrg makes the hub (listening, with its connector running) and n hosts,
+// each with its own home. addr is where the hub listens.
+func newOrg(t *testing.T, names ...string) (hub *orgHost, addr string, hosts []*orgHost) {
 	t.Helper()
 	if runtime.GOOS == "windows" {
 		t.Skip("a hub on Windows is not supported")
 	}
-	if _, err := exec.LookPath("ssh-keygen"); err != nil {
-		t.Skip("ssh-keygen not found")
-	}
-}
-
-// newOrg makes the hub and n hosts, each with its own home.
-func newOrg(t *testing.T, names ...string) (hub *orgHost, hosts []*orgHost) {
-	t.Helper()
-	needHub(t)
-	mk := func(name string, hubHome string) *orgHost {
+	mk := func(name string) *orgHost {
 		home := t.TempDir()
-		if hubHome == "" {
-			hubHome = home
-		}
 		agents := filepath.Join(home, "agents.json")
 		must(t, os.WriteFile(agents, []byte("[]"), 0o600))
 		return &orgHost{name: name, home: home, env: []string{
 			"HOME=" + home, "USERPROFILE=" + home, "SUNSTACK_HOME=" + filepath.Join(home, ".sunstack"),
-			"SUNSTACK_HOST_NAME=" + name, "SUNSTACK_TEST_HUB_HOME=" + hubHome, "SUNSTACK_TEST_SUNSTACK=" + bin,
-			"SUNSTACK_CLAUDE_AGENTS=" + agents, "SUNSTACK_CODEX_SCAN=off", "SUNSTACK_HUB_NO_LOAD=1", "SUNSTACK_HUB_SNAP_MS=300",
+			"SUNSTACK_HOST_NAME=" + name, "SUNSTACK_CLAUDE_AGENTS=" + agents, "SUNSTACK_CODEX_SCAN=off",
+			"SUNSTACK_HUB_NO_LOAD=1", "SUNSTACK_HUB_SNAP_MS=300", "SUNSTACK_HUB_LISTEN=127.0.0.1:0",
 		}}
 	}
-	hub = mk("hub-host", "")
-	expect(t, sh(t, hub.home, hub.env, "hub", "init", "testorg"), 0, "hub init")
+	hub = mk("hub-host")
+	expect(t, hub.run(t, "hub", "init", "testorg"), 0, "hub init")
+	hub.connector(t)
+	soon(t, "the hub listener", func() bool {
+		m, _ := filepath.Glob(filepath.Join(hub.home, ".sunstack", "hub", "*", "listen.addr"))
+		if len(m) == 1 {
+			b, _ := os.ReadFile(m[0])
+			addr = strings.TrimSpace(string(b))
+		}
+		return addr != ""
+	})
 	for _, n := range names {
-		hosts = append(hosts, mk(n, hub.home))
+		hosts = append(hosts, mk(n))
 	}
-	return hub, hosts
+	return hub, addr, hosts
 }
 
 func (h *orgHost) run(t *testing.T, args ...string) result {
@@ -62,13 +66,17 @@ func (h *orgHost) run(t *testing.T, args ...string) result {
 	return sh(t, h.home, h.env, args...)
 }
 
-func (h *orgHost) with(env ...string) *orgHost {
-	c := *h
-	c.env = append(append([]string{}, h.env...), env...)
-	return &c
-}
-
 func (h *orgHost) file(rel string) string { return filepath.Join(h.home, ".sunstack", rel) }
+
+var codeRe = regexp.MustCompile(`join code: (\S+)`)
+
+// join lets h into the org with a fresh code.
+func (h *orgHost) join(t *testing.T, hub *orgHost, addr string, inviteArgs ...string) {
+	t.Helper()
+	r := hub.run(t, append([]string{"hub", "invite"}, inviteArgs...)...)
+	expect(t, r, 0, "invite")
+	expect(t, h.run(t, "org", "join", addr, "--code", field(codeRe, r.out)), 0, "join "+h.name)
+}
 
 func readText(t *testing.T, path string) string {
 	t.Helper()
@@ -86,66 +94,75 @@ func hostID(t *testing.T, h *orgHost) string {
 	return hi.ID
 }
 
-var keyLineRe = regexp.MustCompile(`^restrict,command="'[^']+' hub serve --host ([0-9a-f]{16})" ssh-ed25519 \S+ sunstack-hub:([0-9a-f]{16}):([0-9a-f]{16})$`)
+type orgFile struct {
+	OrgID string `json:"org_id"`
+	Token string `json:"token"`
+}
 
-func TestHubEnrollment(t *testing.T) {
-	hub, hs := newOrg(t, "laptop", "server")
-	a, b := hs[0], hs[1]
+func orgOf(t *testing.T, h *orgHost) orgFile {
+	t.Helper()
+	var c orgFile
+	must(t, json.Unmarshal([]byte(readText(t, h.file("org.json"))), &c))
+	return c
+}
+
+func TestHubJoin(t *testing.T) {
+	hub, addr, hs := newOrg(t, "laptop", "server", "spare")
+	a, b, c := hs[0], hs[1], hs[2]
 	expect(t, hub.run(t, "org", "leave"), 1, "the hub cannot leave")
 
-	// Join through the user's own login: allowed and connected in one go.
-	r := a.run(t, "org", "join", "hubbox", "--send")
-	expect(t, r, 0, "join")
+	r := hub.run(t, "hub", "invite")
+	code := field(codeRe, r.out)
+	if !regexp.MustCompile(`^[A-Z2-9]{4}-[A-Z2-9]{4}$`).MatchString(code) {
+		t.Fatalf("code %q", code)
+	}
+	r = a.run(t, "org", "join", addr, "--code", strings.ToLower(code))
+	expect(t, r, 0, "join with the code, any case")
 	requireContains(t, r.out, "joined org testorg")
-	keys := strings.TrimSpace(readText(t, filepath.Join(hub.home, ".ssh", "authorized_keys")))
-	m := keyLineRe.FindStringSubmatch(keys)
-	if m == nil {
-		t.Fatalf("key line has the wrong form: %q", keys)
+	if fi, _ := os.Stat(a.file("org.json")); fi == nil || fi.Mode().Perm()&0o077 != 0 {
+		t.Error("org.json is missing or readable by others")
 	}
-	if m[1] != hostID(t, a) || m[3] != m[1] {
-		t.Errorf("key line names host %s, want %s", m[1], hostID(t, a))
+	if fi, _ := os.Stat(a.file("keys.json")); fi == nil || fi.Mode().Perm()&0o077 != 0 {
+		t.Error("keys.json is missing or readable by others")
 	}
-	if fi, _ := os.Stat(filepath.Join(a.home, ".ssh", "sunstack_hub")); fi == nil || fi.Mode().Perm()&0o077 != 0 {
-		t.Error("the dedicated key is missing or readable by others")
-	}
-	// Joining again changes nothing; allowing again changes nothing.
-	expect(t, a.run(t, "org", "join", "hubbox"), 0, "join again")
-	pub := strings.TrimSpace(readText(t, filepath.Join(a.home, ".ssh", "sunstack_hub.pub")))
-	r = hub.run(t, "hub", "allow", "laptop", "--id", hostID(t, a), "--key", pub, "--send")
-	expect(t, r, 0, "allow again")
-	requireContains(t, r.out, "nothing changed")
-	if got := strings.TrimSpace(readText(t, filepath.Join(hub.home, ".ssh", "authorized_keys"))); got != keys {
-		t.Errorf("a repeated allow changed authorized_keys:\n%s", got)
-	}
-	// A name or key that belongs to another host is refused.
-	expect(t, hub.run(t, "hub", "allow", "laptop", "--id", "0123456789abcdef", "--key", pub), 1, "duplicate name")
-	expect(t, hub.run(t, "hub", "allow", "other", "--id", "0123456789abcdef", "--key", pub), 1, "duplicate key")
-	expect(t, hub.run(t, "hub", "allow", "x", "--id", "0123456789abcdef", "--key", pub+"\nssh-ed25519 AAAA"), 2, "two keys")
+	r = b.run(t, "org", "join", addr, "--code", code)
+	expect(t, r, 1, "a used code")
+	requireContains(t, r.stderr, "unknown or used code")
 
-	// Without the user's own login, join prints the line to run on the hub.
-	b2 := b.with("SUNSTACK_TEST_SSH_LOGIN=deny")
-	r = b2.run(t, "org", "join", "hubbox")
-	expect(t, r, 1, "join without login")
-	line := regexp.MustCompile(`(?m)^  (sunstack hub allow .*)$`).FindStringSubmatch(r.out)
-	if line == nil {
-		t.Fatalf("join did not print the allow line:\n%s", r.out)
+	// Three wrong codes kill every open invite.
+	live := field(codeRe, hub.run(t, "hub", "invite").out)
+	for i := 0; i < 3; i++ {
+		expect(t, b.run(t, "org", "join", addr, "--code", "AAAA-AAAA"), 1, "wrong code")
 	}
-	args := splitQuoted(strings.TrimPrefix(line[1], "sunstack "))
-	expect(t, hub.run(t, args...), 0, "allow from the printed line")
-	expect(t, b2.run(t, "org", "join", "hubbox"), 0, "join finishes")
+	expect(t, b.run(t, "org", "join", addr, "--code", live), 1, "an invite after three wrong codes")
+
+	// An expired code.
+	live = field(codeRe, hub.run(t, "hub", "invite").out)
+	inv, _ := filepath.Glob(filepath.Join(hub.file("hub"), "*", "invites", "*.json"))
+	for _, p := range inv {
+		must(t, os.WriteFile(p, []byte(`{"expires":"2000-01-01T00:00:00Z","can_send":true}`), 0o600))
+	}
+	r = b.run(t, "org", "join", addr, "--code", live)
+	expect(t, r, 1, "an expired code")
+	requireContains(t, r.stderr, "expired")
+
+	// The same name from another host, and a read-only host.
+	b.join(t, hub, addr, "--read-only")
+	c2 := &orgHost{name: c.name, home: c.home, env: append(append([]string{}, c.env...), "SUNSTACK_HOST_NAME=laptop")}
+	live = field(codeRe, hub.run(t, "hub", "invite").out)
+	r = c2.run(t, "org", "join", addr, "--code", live)
+	expect(t, r, 1, "a name already taken")
+	requireContains(t, r.stderr, "already used")
 
 	r = hub.run(t, "hub", "hosts")
-	requireContains(t, r.out, "hub-host (hub)", "laptop  can send", "server  read only")
+	requireContains(t, r.out, "hub-host (hub)", "laptop  can send, key ", "server  read only, key ")
+	keys := a.run(t, "org", "keys")
+	requireContains(t, keys.out, "This host (laptop): ", "hub-host: ")
 
-	// Revoke removes the key line and the host's files.
-	must(t, os.MkdirAll(filepath.Join(hub.file("hub"), "x"), 0o700))
+	// Revoke ends the host's access at once.
 	expect(t, hub.run(t, "hub", "revoke", "server"), 0, "revoke")
-	if strings.Contains(readText(t, filepath.Join(hub.home, ".ssh", "authorized_keys")), hostID(t, b)) {
-		t.Error("revoke left the key line")
-	}
-	expect(t, b.run(t, "org", "--refresh"), 0, "a revoked host still runs org")
 	r = b.run(t, "org", "--refresh")
-	requireContains(t, r.stderr, "hub not reached")
+	requireContains(t, r.stderr, "not in the org")
 	expect(t, hub.run(t, "hub", "revoke", "hub-host"), 1, "the hub cannot revoke itself")
 	expect(t, a.run(t, "org", "leave"), 0, "leave")
 	if _, err := os.Stat(a.file("org.json")); err == nil {
@@ -153,121 +170,84 @@ func TestHubEnrollment(t *testing.T) {
 	}
 }
 
-// splitQuoted splits a printed command line, keeping single-quoted parts.
-func splitQuoted(s string) []string {
-	var out []string
-	var cur strings.Builder
-	in, any := false, false
-	for _, r := range s {
-		switch {
-		case r == '\'':
-			in, any = !in, true
-		case r == ' ' && !in:
-			if any {
-				out = append(out, cur.String())
-				cur.Reset()
-				any = false
-			}
-		default:
-			cur.WriteRune(r)
-			any = true
-		}
-	}
-	if any {
-		out = append(out, cur.String())
-	}
-	return out
-}
-
-// serve runs hub serve on the hub as sshd would for host id.
-func serve(t *testing.T, hub *orgHost, id, verb, stdin string) result {
+// call makes an HTTP request to the hub as a host.
+func call(t *testing.T, addr, token, method, path, body string) (int, string) {
 	t.Helper()
-	cmd := exec.Command(bin, "hub", "serve", "--host", id)
-	cmd.Dir = hub.home
-	cmd.Env = append(append(cleanEnv(), hub.env...), "SSH_ORIGINAL_COMMAND="+verb)
-	cmd.Stdin = strings.NewReader(stdin)
-	var so, se strings.Builder
-	cmd.Stdout, cmd.Stderr = &so, &se
-	err := cmd.Run()
-	code := 0
-	if ee, ok := err.(*exec.ExitError); ok {
-		code = ee.ExitCode()
+	req, _ := http.NewRequest(method, "http://"+addr+path, strings.NewReader(body))
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
 	}
-	return result{code, so.String(), se.String()}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	b, _ := io.ReadAll(resp.Body)
+	return resp.StatusCode, string(b)
 }
 
-func TestHubServeRefusals(t *testing.T) {
-	hub, hs := newOrg(t, "laptop", "server")
+func TestHubRefusals(t *testing.T) {
+	hub, addr, hs := newOrg(t, "laptop", "server")
 	a, b := hs[0], hs[1]
-	expect(t, a.run(t, "org", "join", "hubbox", "--send"), 0, "join a")
-	expect(t, b.run(t, "org", "join", "hubbox"), 0, "join b (read only)")
+	a.join(t, hub, addr)
+	b.join(t, hub, addr, "--read-only")
+	ta, tb := orgOf(t, a).Token, orgOf(t, b).Token
 	ida, idb := hostID(t, a), hostID(t, b)
 
-	expect(t, serve(t, hub, ida, "hello", ""), 0, "hello")
-	for _, verb := range []string{"", "kill", "mail; touch pwned", "hello && touch pwned", "pull extra"} {
-		r := serve(t, hub, ida, verb, "")
-		if r.code == 0 {
-			t.Errorf("verb %q was accepted", verb)
+	if code, _ := call(t, addr, "", "GET", "/v1/hello", ""); code != 401 {
+		t.Errorf("no token: %d", code)
+	}
+	if code, _ := call(t, addr, "0123456789abcdef0123456789abcdef", "GET", "/v1/hello", ""); code != 401 {
+		t.Errorf("a wrong token: %d", code)
+	}
+	if code, _ := call(t, addr, ta, "GET", "/v1/serve", ""); code != 404 {
+		t.Errorf("an unknown route: %d", code)
+	}
+	if code, out := call(t, addr, ta, "GET", "/v1/hello", ""); code != 200 || !strings.Contains(out, `"name":"laptop"`) {
+		t.Errorf("hello: %d %s", code, out)
+	}
+	mail := func(id, from, to string, sealed bool) string {
+		m := map[string]string{"id": id, "from_host": from, "to_host": to}
+		if sealed {
+			m["eph"], m["sealed"], m["sig"] = "x", "x", "x"
 		}
+		bs, _ := json.Marshal(m)
+		return string(bs)
 	}
-	if _, err := os.Stat(filepath.Join(hub.home, "pwned")); err == nil {
-		t.Error("a verb with shell syntax ran")
-	}
-	expect(t, serve(t, hub, "0123456789abcdef", "hello", ""), 1, "unknown host")
-
-	mail := func(id, to, typ, addr string) string {
-		b, _ := json.Marshal(map[string]string{"id": id, "to_host": to, "from": "user", "to": addr, "type": typ, "at": "2026-10-07T00:00:00Z", "body": "hi"})
-		return string(b)
-	}
-	id1 := "20261007T000000Z-user-aaaaaa"
-	r := serve(t, hub, idb, "mail", mail(id1, ida, "fyi", "team/builder.alice"))
-	requireContains(t, r.out, `"op":"refused"`, "may not send")
-	for _, c := range [][2]string{
-		{mail("20261007T000000Z-user-bbbbbb", "0123456789abcdef", "fyi", "team/builder.alice"), "no such host"},
-		{mail("20261007T000000Z-user-cccccc", idb, "shutdown", "team/builder.alice"), "cannot be sent between hosts"},
-		{mail("20261007T000000Z-user-dddddd", idb, "fyi", "builder.alice"), "address must be"},
-		{mail("20261007T000000Z-user-eeeeee", idb, "fyi", "%12"), "address must be"},
-		{mail("20261007T000000Z-user-ffffff", idb, "answer", "team/builder.alice"), "cannot be sent between hosts"},
+	for _, c := range []struct{ token, body, want string }{
+		{tb, mail("20261007T000000Z-user-aaaaaa", idb, ida, true), "may not send"},
+		{ta, mail("20261007T000000Z-user-bbbbbb", ida, "0123456789abcdef", true), "no such host"},
+		{ta, mail("20261007T000000Z-user-cccccc", idb, idb, true), "names another sending host"},
+		{ta, mail("20261007T000000Z-user-dddddd", ida, idb, false), "not sealed"},
+		{ta, mail("not-an-id", ida, idb, true), "invalid message id"},
 	} {
-		requireContains(t, serve(t, hub, ida, "mail", c[0]).out, `"op":"refused"`, c[1])
+		_, out := call(t, addr, c.token, "POST", "/v1/mail", c.body)
+		requireContains(t, out, `"op":"refused"`, c.want)
 	}
-	big := strings.Repeat("x", 300<<10)
-	expect(t, serve(t, hub, ida, "push", big), 1, "an oversized snapshot")
-	expect(t, serve(t, hub, ida, "push", `{"not":"a snapshot"}`), 1, "not a snapshot")
-
-	// Stored once; a resend gets the same answer and no second copy.
-	id2 := "20261007T000001Z-user-abcdef"
-	requireContains(t, serve(t, hub, ida, "mail", mail(id2, idb, "fyi", "team/builder.alice")).out, `"op":"stored"`)
-	requireContains(t, serve(t, hub, ida, "mail", mail(id2, idb, "fyi", "team/builder.alice")).out, `"op":"stored"`)
-	org := orgID(t, hub)
-	waiting := filepath.Join(hub.file("hub"), org, "mail", idb, id2+".json")
-	if _, err := os.Stat(waiting); err != nil {
-		t.Fatal("the mail was not stored for the host")
+	if code, _ := call(t, addr, ta, "POST", "/v1/push", strings.Repeat("x", 300<<10)); code != 400 {
+		t.Errorf("an oversized snapshot: %d", code)
 	}
-	// Only the host the mail is for can ack it.
-	serve(t, hub, ida, "watch", `{"op":"ack","id":"`+id2+`","status":"delivered"}`+"\n")
+	if code, _ := call(t, addr, ta, "POST", "/v1/push", `{"not":"a snapshot"}`); code != 400 {
+		t.Errorf("not a snapshot: %d", code)
+	}
+	// Stored once; a resend gets the same answer. Only the recipient acks.
+	id := "20261007T000001Z-user-abcdef"
+	_, out := call(t, addr, ta, "POST", "/v1/mail", mail(id, ida, idb, true))
+	requireContains(t, out, `"op":"stored"`)
+	_, out = call(t, addr, ta, "POST", "/v1/mail", mail(id, ida, idb, true))
+	requireContains(t, out, `"op":"stored"`)
+	waiting := filepath.Join(hub.file("hub"), orgOf(t, hub).OrgID, "mail", idb, id+".json")
+	call(t, addr, ta, "POST", "/v1/ack", `{"id":"`+id+`","status":"delivered"}`)
 	if _, err := os.Stat(waiting); err != nil {
 		t.Error("another host's ack removed the mail")
 	}
-	serve(t, hub, idb, "watch", `{"op":"ack","id":"`+id2+`","status":"delivered"}`+"\n")
+	call(t, addr, tb, "POST", "/v1/ack", `{"id":"`+id+`","status":"delivered"}`)
 	if _, err := os.Stat(waiting); err == nil {
 		t.Error("the recipient's ack did not remove the mail")
 	}
-	if _, err := os.Stat(filepath.Join(hub.file("hub"), org, "receipts", ida, id2+".json")); err != nil {
+	if _, err := os.Stat(filepath.Join(hub.file("hub"), orgOf(t, hub).OrgID, "receipts", ida, id+".json")); err != nil {
 		t.Error("no receipt for the sender")
 	}
-	// A revoked host is refused at once.
-	expect(t, hub.run(t, "hub", "revoke", "server"), 0, "revoke")
-	expect(t, serve(t, hub, idb, "hello", ""), 1, "revoked host")
-}
-
-func orgID(t *testing.T, h *orgHost) string {
-	t.Helper()
-	var c struct {
-		OrgID string `json:"org_id"`
-	}
-	must(t, json.Unmarshal([]byte(readText(t, h.file("org.json"))), &c))
-	return c.OrgID
 }
 
 // team makes a team with builder.alice in a host's project folder.
@@ -286,13 +266,17 @@ func (h *orgHost) connector(t *testing.T) (stop func(), log func() string) {
 	cmd := exec.Command(bin, "hub", "connect")
 	cmd.Dir = h.home
 	cmd.Env = append(cleanEnv(), h.env...)
-	var buf strings.Builder
+	var mu bytes.Buffer
+	lines := make(chan string, 1000)
 	pr, pw := io.Pipe()
 	cmd.Stderr = pw
 	go func() {
 		s := bufio.NewScanner(pr)
 		for s.Scan() {
-			buf.WriteString(s.Text() + "\n")
+			select {
+			case lines <- s.Text():
+			default:
+			}
 		}
 	}()
 	must(t, cmd.Start())
@@ -307,7 +291,16 @@ func (h *orgHost) connector(t *testing.T) (stop func(), log func() string) {
 		}
 	}
 	t.Cleanup(stop)
-	return stop, func() string { return buf.String() }
+	return stop, func() string {
+		for {
+			select {
+			case l := <-lines:
+				mu.WriteString(l + "\n")
+			default:
+				return mu.String()
+			}
+		}
+	}
 }
 
 // soon waits up to 15 s for f.
@@ -328,11 +321,13 @@ func inboxFiles(t *testing.T, p, agent string) []string {
 	return m
 }
 
+var sentIDRe = regexp.MustCompile(`sent (\S+) to`)
+
 func TestHubMail(t *testing.T) {
-	hub, hs := newOrg(t, "laptop", "server")
+	hub, addr, hs := newOrg(t, "laptop", "server")
 	a, b := hs[0], hs[1]
-	expect(t, a.run(t, "org", "join", "hubbox", "--send"), 0, "join a")
-	expect(t, b.run(t, "org", "join", "hubbox", "--send"), 0, "join b")
+	a.join(t, hub, addr)
+	b.join(t, hub, addr)
 	pb := b.team(t, "shop")
 	expect(t, a.run(t, "org", "--refresh"), 0, "refresh roster")
 
@@ -342,31 +337,56 @@ func TestHubMail(t *testing.T) {
 	expect(t, a.run(t, "send", "server:shop/builder.alice", "stop", "--type", "shutdown"), 2, "shutdown")
 	expect(t, a.run(t, "send", "nohost:shop/builder.alice", "hi"), 1, "unknown host")
 
-	// No connector: the message goes to the hub at once.
-	r := a.run(t, "send", "server:shop/builder.alice", "please look at the export", "--type", "question")
+	// No connector here: the message goes to the hub at once, sealed.
+	secret := "the export password is in the vault"
+	r := a.run(t, "send", "server:shop/builder.alice", secret, "--type", "question")
 	expect(t, r, 0, "send")
 	requireContains(t, r.out, "(at hub)")
-	id := field(regexp.MustCompile(`sent (\S+) to`), r.out)
+	id := field(sentIDRe, r.out)
+	org := orgOf(t, hub).OrgID
+	stored := filepath.Join(hub.file("hub"), org, "mail", hostID(t, b), id+".json")
+	if text := readText(t, stored); strings.Contains(text, "export") || strings.Contains(text, "builder.alice") || strings.Contains(text, "question") {
+		t.Errorf("the hub can read the message: %s", text)
+	}
 	r = a.run(t, "send", "server:noteam/builder.alice", "hi")
 	expect(t, r, 0, "send to a team that does not exist")
-	bad := field(regexp.MustCompile(`sent (\S+) to`), r.out)
+	bad := field(sentIDRe, r.out)
 
-	// The receiving host's connector delivers it, keeping its ID.
+	// A tampered message is refused by the receiving host.
+	r = a.run(t, "send", "server:shop/builder.alice", "tampered")
+	tampered := field(sentIDRe, r.out)
+	tp := filepath.Join(hub.file("hub"), org, "mail", hostID(t, b), tampered+".json")
+	var m map[string]string
+	must(t, json.Unmarshal([]byte(readText(t, tp)), &m))
+	ct, _ := base64.StdEncoding.DecodeString(m["sealed"])
+	ct[len(ct)-1] ^= 1
+	m["sealed"] = base64.StdEncoding.EncodeToString(ct)
+	bs, _ := json.Marshal(m)
+	must(t, os.WriteFile(tp, bs, 0o600))
+
+	// The receiving host's connector opens and delivers, keeping the ID.
 	stop, _ := b.connector(t)
 	soon(t, "delivery", func() bool { return len(inboxFiles(t, pb, "builder.alice")) == 1 })
 	got := readText(t, inboxFiles(t, pb, "builder.alice")[0])
-	requireContains(t, got, "id: "+id, "from: laptop:user", "from_host: laptop", "type: question")
-	org := orgID(t, hub)
-	soon(t, "the refusal receipt", func() bool {
-		_, err := os.Stat(filepath.Join(hub.file("hub"), org, "receipts", hostID(t, a), bad+".json"))
-		return err == nil
+	requireContains(t, got, "id: "+id, "from: laptop:user", "from_host: laptop", "type: question", secret)
+	soon(t, "the refusal receipts", func() bool {
+		_, e1 := os.Stat(filepath.Join(hub.file("hub"), org, "receipts", hostID(t, a), bad+".json"))
+		_, e2 := os.Stat(filepath.Join(hub.file("hub"), org, "receipts", hostID(t, a), tampered+".json"))
+		return e1 == nil && e2 == nil
 	})
+	requireContains(t, readText(t, filepath.Join(hub.file("hub"), org, "receipts", hostID(t, a), tampered+".json")), "bad signature")
 	stop()
 
 	// The same mail again (a lost ack) is not delivered twice.
 	again := filepath.Join(hub.file("hub"), org, "mail", hostID(t, b), id+".json")
-	m, _ := json.Marshal(map[string]string{"id": id, "from_host": hostID(t, a), "from_name": "laptop", "to_host": hostID(t, b), "from": "user", "to": "shop/builder.alice", "type": "question", "at": "x", "body": "please look at the export"})
-	must(t, os.WriteFile(again, m, 0o600))
+	copyOf := filepath.Join(t.TempDir(), "again.json")
+	sentFile := filepath.Join(a.file("outbox"), "sent", id+".json")
+	var s struct {
+		Mail json.RawMessage `json:"mail"`
+	}
+	must(t, json.Unmarshal([]byte(readText(t, sentFile)), &s))
+	must(t, os.WriteFile(copyOf, s.Mail, 0o600))
+	must(t, os.WriteFile(again, s.Mail, 0o600))
 	stop, _ = b.connector(t)
 	soon(t, "the second ack", func() bool { _, err := os.Stat(again); return err != nil })
 	stop()
@@ -374,11 +394,11 @@ func TestHubMail(t *testing.T) {
 		t.Errorf("%d messages after a resend, want 1", n)
 	}
 
-	// The sender learns both outcomes when it connects.
+	// The sender learns every outcome when it connects.
 	stop, _ = a.connector(t)
 	soon(t, "receipts at the sender", func() bool {
 		out := a.run(t, "tasks", "--all", "--root", pb).out
-		return strings.Contains(out, id+"  question -> server:shop/builder.alice  delivered") && strings.Contains(out, bad) && strings.Contains(out, "refused")
+		return strings.Contains(out, id+"  question -> server:shop/builder.alice  delivered") && strings.Contains(out, bad) && strings.Contains(out, "bad signature")
 	})
 	stop()
 
@@ -393,10 +413,56 @@ func TestHubMail(t *testing.T) {
 	requireContains(t, readText(t, inboxFiles(t, pa, "builder.alice")[0]), "from: server:shop/builder.alice", "reply_to: "+id)
 }
 
+// A key that changes on the hub stops that host's mail until org trust.
+func TestHubKeyChange(t *testing.T) {
+	hub, addr, hs := newOrg(t, "laptop", "server")
+	a, b := hs[0], hs[1]
+	a.join(t, hub, addr)
+	b.join(t, hub, addr)
+	b.team(t, "shop")
+	expect(t, a.run(t, "org", "--refresh"), 0, "refresh")
+	expect(t, b.run(t, "org", "--refresh"), 0, "refresh")
+
+	// The hub's roster now shows another signing key for laptop.
+	hosts := filepath.Join(hub.file("hub"), orgOf(t, hub).OrgID, "hosts.json")
+	orig := readText(t, hosts)
+	var ro map[string]any
+	must(t, json.Unmarshal([]byte(orig), &ro))
+	for _, h := range ro["hosts"].([]any) {
+		hm := h.(map[string]any)
+		if hm["name"] == "laptop" {
+			hm["keys"].(map[string]any)["sign"] = base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{7}, 32))
+		}
+	}
+	bs, _ := json.Marshal(ro)
+	must(t, os.WriteFile(hosts, bs, 0o600))
+	expect(t, b.run(t, "org", "--refresh"), 0, "refresh after the change")
+	requireContains(t, b.run(t, "org", "keys").out, "laptop: ", "KEY CHANGED")
+	requireContains(t, b.run(t, "org").out, "its key changed")
+	expect(t, b.run(t, "send", "laptop:home/builder.alice", "hi"), 1, "sending to a host whose key changed")
+
+	// Mail from it is refused while the change stands.
+	r := a.run(t, "send", "server:shop/builder.alice", "hello")
+	id := field(sentIDRe, r.out)
+	stop, _ := b.connector(t)
+	rc := filepath.Join(hub.file("hub"), orgOf(t, hub).OrgID, "receipts", hostID(t, a), id+".json")
+	soon(t, "the refusal", func() bool { _, err := os.Stat(rc); return err == nil })
+	stop()
+	requireContains(t, readText(t, rc), "key changed")
+
+	// The real key back on the hub clears it; trust then has nothing to do.
+	must(t, os.WriteFile(hosts, []byte(orig), 0o600))
+	expect(t, b.run(t, "org", "--refresh"), 0, "refresh after the fix")
+	if strings.Contains(b.run(t, "org", "keys").out, "KEY CHANGED") {
+		t.Error("the change is still flagged after the key came back")
+	}
+	expect(t, b.run(t, "org", "trust", "laptop"), 1, "trust with no change")
+}
+
 func TestHubConnectorEndsOnRevoke(t *testing.T) {
-	hub, hs := newOrg(t, "laptop")
+	hub, addr, hs := newOrg(t, "laptop")
 	a := hs[0]
-	expect(t, a.run(t, "org", "join", "hubbox", "--send"), 0, "join")
+	a.join(t, hub, addr)
 	cmd := exec.Command(bin, "hub", "connect")
 	cmd.Env = append(cleanEnv(), a.env...)
 	var se strings.Builder
@@ -417,9 +483,9 @@ func TestHubConnectorEndsOnRevoke(t *testing.T) {
 }
 
 func TestHubInstallFiles(t *testing.T) {
-	_, hs := newOrg(t, "laptop")
+	hub, addr, hs := newOrg(t, "laptop")
 	a := hs[0]
-	expect(t, a.run(t, "org", "join", "hubbox"), 0, "join")
+	a.join(t, hub, addr)
 	r := a.run(t, "hub", "connect", "--install")
 	if runtime.GOOS != "darwin" && runtime.GOOS != "linux" {
 		expect(t, r, 1, "install elsewhere")
@@ -427,8 +493,7 @@ func TestHubInstallFiles(t *testing.T) {
 	}
 	expect(t, r, 0, "install")
 	path := strings.TrimSpace(strings.TrimPrefix(strings.SplitN(r.out, "\n", 2)[0], "wrote "))
-	text := readText(t, path)
-	requireContains(t, text, "hub", "connect")
+	requireContains(t, readText(t, path), "hub", "connect")
 	if !strings.HasPrefix(path, a.home) {
 		t.Errorf("service written outside the test home: %s", path)
 	}
@@ -439,10 +504,10 @@ func TestHubInstallFiles(t *testing.T) {
 }
 
 func TestHubViews(t *testing.T) {
-	_, hs := newOrg(t, "laptop", "server")
+	hub, addr, hs := newOrg(t, "laptop", "server")
 	a, b := hs[0], hs[1]
-	expect(t, a.run(t, "org", "join", "hubbox", "--send"), 0, "join a")
-	expect(t, b.run(t, "org", "join", "hubbox"), 0, "join b")
+	a.join(t, hub, addr)
+	b.join(t, hub, addr, "--read-only")
 	b.team(t, "shop")
 	stop, _ := b.connector(t)
 	soon(t, "the other host in org", func() bool {
@@ -455,10 +520,4 @@ func TestHubViews(t *testing.T) {
 		t.Error("org --json carries another host's teams; it is what this host pushes")
 	}
 	requireContains(t, a.run(t, "org", "--by", "host").out, "Host server")
-	// Without a hub, org shows the last known state and never fails.
-	a2 := a.with("SUNSTACK_TEST_HUB_HOME=")
-	r = a2.run(t, "org", "--refresh")
-	expect(t, r, 0, "org without the hub")
-	requireContains(t, r.stderr, "hub not reached")
-	requireContains(t, r.out, "Team shop")
 }

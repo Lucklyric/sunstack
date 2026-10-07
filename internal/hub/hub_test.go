@@ -39,7 +39,7 @@ func TestViewAges(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	must(saveConfig(&Config{OrgID: "0123456789abcdef", OrgName: "o", Hub: "hubbox"}))
+	must(saveConfig(&Config{OrgID: "0123456789abcdef", OrgName: "o", Hub: "hubbox", HubURL: "http://hubbox:7731", Token: "t"}))
 	hubNow := time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)
 	local := time.Date(2030, 1, 1, 0, 0, 0, 0, time.UTC) // clocks disagree
 	ago := func(d time.Duration) string { return stamp(hubNow.Add(-d)) }
@@ -87,5 +87,74 @@ func TestViewAges(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(home, "org.json")); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestSealOpen(t *testing.T) {
+	t.Setenv("SUNSTACK_HOME", t.TempDir())
+	alice, _ := LoadKeys()
+	bob := &Keys{}
+	{
+		home := t.TempDir()
+		t.Setenv("SUNSTACK_HOME", home)
+		bob, _ = LoadKeys()
+	}
+	m := &Mail{ID: "20261007T000000Z-user-aaaaaa", FromHost: "aaaaaaaaaaaaaaaa", ToHost: "bbbbbbbbbbbbbbbb"}
+	l := &Letter{From: "user", To: "shop/builder.alice", Type: "fyi", At: "x", Body: "SECRET"}
+	if err := seal(alice, bob.Public(), m, l); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(m.Sealed, "SECRET") {
+		t.Fatal("the body is in the clear")
+	}
+	got, err := open(bob, alice.Public(), m)
+	if err != nil || got.Body != "SECRET" || got.To != l.To {
+		t.Fatalf("open: %v %+v", err, got)
+	}
+	// Another sender's key, another receiver, a changed field: all refused.
+	if _, err := open(bob, bob.Public(), m); err == nil {
+		t.Error("opened with the wrong sender key")
+	}
+	if _, err := open(alice, alice.Public(), m); err == nil {
+		t.Error("opened by a host it was not sealed to")
+	}
+	moved := *m
+	moved.ToHost = "cccccccccccccccc"
+	if _, err := open(bob, alice.Public(), &moved); err == nil {
+		t.Error("opened after the hub changed the receiving host")
+	}
+	if alice.Public().Fingerprint() == bob.Public().Fingerprint() || len(alice.Public().Fingerprint()) != 19 {
+		t.Errorf("fingerprints: %s %s", alice.Public().Fingerprint(), bob.Public().Fingerprint())
+	}
+}
+
+func TestPinsAndTrust(t *testing.T) {
+	t.Setenv("SUNSTACK_HOME", t.TempDir())
+	k1, _ := LoadKeys()
+	other := &Keys{}
+	{
+		t.Setenv("SUNSTACK_HOME", t.TempDir())
+		other, _ = LoadKeys()
+	}
+	r := &Roster{Hosts: []*Host{{ID: "aaaaaaaaaaaaaaaa", Name: "laptop", Keys: k1.Public()}}}
+	if err := pinRoster(r); err != nil {
+		t.Fatal(err)
+	}
+	if p := loadPins()["aaaaaaaaaaaaaaaa"]; p == nil || p.Keys != k1.Public() || p.Changed != nil {
+		t.Fatalf("first sight not pinned: %+v", p)
+	}
+	r.Hosts[0].Keys = other.Public()
+	_ = pinRoster(r)
+	if p := loadPins()["aaaaaaaaaaaaaaaa"]; p.Keys != k1.Public() || p.Changed == nil {
+		t.Fatal("a changed key replaced the pin, or was not flagged")
+	}
+	if _, err := Trust("LAPTOP"); err != nil {
+		t.Fatal(err)
+	}
+	if p := loadPins()["aaaaaaaaaaaaaaaa"]; p.Keys != other.Public() || p.Changed != nil {
+		t.Fatal("trust did not take the new key")
+	}
+	if _, err := Trust("laptop"); err == nil {
+		t.Error("trust with no change succeeded")
 	}
 }
