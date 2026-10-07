@@ -29,6 +29,15 @@ func (p *Project) lock(id string) (func(), error) {
 	return lockDir(dir, id)
 }
 
+// LockDir takes the mkdir lock at dir for code outside a project (the org
+// hub); name is used in the busy message.
+func LockDir(dir, name string) (func(), error) {
+	if err := os.MkdirAll(filepath.Dir(dir), 0o700); err != nil {
+		return nil, fail(ExitFail, "fs", "%v", err)
+	}
+	return lockDir(dir, name)
+}
+
 // lockDir takes the mkdir lock at dir; name is used in the busy message.
 func lockDir(dir, id string) (func(), error) {
 	reclaimed := false
@@ -68,4 +77,31 @@ func trimNL(b []byte) string {
 		b = b[:len(b)-1]
 	}
 	return string(b)
+}
+
+// LockDirOnce takes the mkdir lock at dir without waiting: a lock held by a
+// live process is reported as busy at once, one left by a dead process is
+// taken over. The org connector uses it to run once per host.
+func LockDirOnce(dir string) (func(), error) {
+	if err := os.MkdirAll(filepath.Dir(dir), 0o700); err != nil {
+		return nil, fail(ExitFail, "fs", "%v", err)
+	}
+	err := os.Mkdir(dir, 0o755)
+	if os.IsExist(err) {
+		owner, _ := os.ReadFile(filepath.Join(dir, "owner"))
+		if !ownerDead(owner) {
+			return nil, fail(ExitClaim, "busy", "%s is held (%s)", filepath.Base(dir), trimNL(owner))
+		}
+		os.RemoveAll(dir)
+		err = os.Mkdir(dir, 0o755)
+	}
+	if err != nil {
+		return nil, fail(ExitClaim, "busy", "%v", err)
+	}
+	owner := fmt.Sprintf("%s pid %d", now(), os.Getpid())
+	if st := ProcStart(os.Getpid()); st != "" {
+		owner += " start " + st
+	}
+	_ = os.WriteFile(filepath.Join(dir, "owner"), []byte(owner+"\n"), 0o644)
+	return func() { os.RemoveAll(dir) }, nil
 }

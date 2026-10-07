@@ -40,6 +40,11 @@ func ThisHost() HostInfo {
 	if i := strings.IndexByte(name, '.'); i > 0 {
 		name = name[:i]
 	}
+	// SUNSTACK_HOST_NAME names this host in the org when its host name is
+	// not the name to show (or several test hosts share one machine).
+	if n := os.Getenv("SUNSTACK_HOST_NAME"); n != "" {
+		name = n
+	}
 	path := filepath.Join(Home(), "host.json")
 	var h HostInfo
 	if b, err := os.ReadFile(path); err == nil && json.Unmarshal(b, &h) == nil && h.ID != "" {

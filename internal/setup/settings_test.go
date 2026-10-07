@@ -113,4 +113,13 @@ func TestUserOnlyCommandsAsk(t *testing.T) {
 			t.Errorf("Codex does not ask before sunstack %s", c)
 		}
 	}
+	for _, c := range []string{"hub init", "hub allow", "hub revoke", "org join", "org leave"} {
+		if !slices.Contains(AskRules, "Bash(sunstack "+c+" *)") {
+			t.Errorf("Claude Code does not ask before sunstack %s", c)
+		}
+		if !strings.Contains(codexRules, `pattern = ["sunstack", "`+strings.ReplaceAll(c, " ", `", "`)+`"],
+    decision = "prompt"`) {
+			t.Errorf("Codex does not ask before sunstack %s", c)
+		}
+	}
 }

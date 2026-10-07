@@ -88,7 +88,7 @@ func SendToSession(s *HostSession, o SendOptions) (*SendResult, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, fail(ExitFail, "fs", "%v", err)
 	}
-	m := &Message{From: from, To: to, At: now(), Type: o.Type, ReplyTo: o.ReplyTo, Body: o.Body, Op: o.Op, FromSession: o.FromSession}
+	m := &Message{From: from, To: to, At: now(), Type: o.Type, ReplyTo: o.ReplyTo, Body: o.Body, Op: o.Op, FromSession: o.FromSession, FromHost: o.FromHost}
 	if from == "user" {
 		m.Via = o.Via
 	}
@@ -110,12 +110,22 @@ func SendToSession(s *HostSession, o SendOptions) (*SendResult, error) {
 			unlock()
 			return &SendResult{ID: prev.ID, To: to, Note: "already sent with this --op; not sent again"}, nil
 		}
+		if o.ID != "" && idUsed(o.ID, dir, hostArchive(), "") || o.ID != "" && idUsed(o.ID, hostTakenDir(s.SessionID), "", "") {
+			unlock()
+			return nil, fail(ExitFail, "conflict", "a different message with id %s is already here", o.ID)
+		}
 		release = unlock
 	}
 	defer func() { release() }()
 	var tmp string
 	for i := 0; ; i++ {
 		m.ID = newMessageID(from)
+		if o.ID != "" {
+			if !msgIDRe.MatchString(o.ID) || i > 0 {
+				return nil, fail(ExitUsage, "usage", "invalid or duplicate message id %s", o.ID)
+			}
+			m.ID = o.ID
+		}
 		tmp = filepath.Join(dir, "."+m.ID+".tmp")
 		f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 		if errors.Is(err, os.ErrExist) && i < 5 {

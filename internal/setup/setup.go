@@ -25,7 +25,8 @@ const (
 // agent's rules or the team objectives, creating, renaming or deleting an
 // agent, closing a session, and adding a directive or answering an ask in
 // the user's name, and halting the team.
-var AskRules = []string{AskRule, "Bash(sunstack hire *)", "Bash(sunstack rename *)", "Bash(sunstack fire *)", "Bash(sunstack kill *)", "Bash(sunstack direct *)", "Bash(sunstack answer *)", "Bash(sunstack halt *)"}
+var AskRules = []string{AskRule, "Bash(sunstack hire *)", "Bash(sunstack rename *)", "Bash(sunstack fire *)", "Bash(sunstack kill *)", "Bash(sunstack direct *)", "Bash(sunstack answer *)", "Bash(sunstack halt *)",
+	"Bash(sunstack hub init *)", "Bash(sunstack hub allow *)", "Bash(sunstack hub revoke *)", "Bash(sunstack org join *)", "Bash(sunstack org leave)", "Bash(sunstack org leave *)"}
 
 // Targets says which CLIs to act on.
 type Targets struct{ Claude, Codex bool }

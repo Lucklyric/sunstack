@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/Lucklyric/sunstack/internal/core"
+	"github.com/Lucklyric/sunstack/internal/hub"
 	"github.com/Lucklyric/sunstack/internal/setup"
 	"github.com/Lucklyric/sunstack/internal/tui"
 )
@@ -92,9 +93,10 @@ Team (run these yourself):
                                                   version; safe steps run on update and as, the rest on --apply all
 
 Org (every team and Claude Code or Codex session on this host):
-  sunstack org [--by team|agent|host] [--attention] [--json]
+  sunstack org [--by team|agent|host] [--attention] [--json] [--refresh]
                                                   what needs you, then work by team; --by agent: people,
-                                                  --by host: every session including free ones
+                                                  --by host: every session including free ones; other hosts
+                                                  of the org follow (--refresh fetches them from the hub first)
   sunstack peek <id_task|pane-id> [--lines N]     the end of a session's tmux pane, e.g. %12 (read only)
   sunstack doing <id> "<line>" --token T          one line on what this session is doing now ("" clears)
   sunstack reopen <session-id> [--window]         resume a closed session in a tmux pane beside this one, so
@@ -106,6 +108,18 @@ Org (every team and Claude Code or Codex session on this host):
   sunstack tui [--org]                            dashboard: this team, or outside a team a picker of this host's teams;
                                                   --org opens the host view of every team and session (also: bare sunstack)
 
+Hosts (an org: several hosts connected through one hub, over SSH):
+  sunstack org join <ssh target> [--send]         join the org whose hub is there (a dedicated key, limited on the hub)
+  sunstack org leave                              leave it
+  sunstack send <host>:<team>/<agent>[_task]|<host>:<session-id> "<text>"
+                                                  a message to another host, through the hub
+  sunstack hub init <org name>                    make this host the hub of a new org
+  sunstack hub allow <name> --id ID --key "<pub>" [--send]
+                                                  let a host in (org join runs this for you when it can)
+  sunstack hub revoke <name>                      remove a host; its connections end
+  sunstack hub hosts [--json]                     the hosts of the org, on the hub
+  sunstack hub connect [--install|--uninstall]    keep one connection to the hub open (--install: as a service)
+
 Setup:
   sunstack install [--claude] [--codex] [--yes]   install the plugin (both CLIs found on PATH by default)
   sunstack update [--claude] [--codex]            update this binary and the plugin
@@ -115,7 +129,10 @@ Setup:
 Exit codes: 0 ok, 1 error, 2 usage or missing_arguments, 3 snapshot mismatch, 4 claim problem.
 `
 
-func main() { os.Exit(run(os.Args[1:], os.Stdin, os.Stdout, os.Stderr)) }
+func main() {
+	hub.Version = version
+	os.Exit(run(os.Args[1:], os.Stdin, os.Stdout, os.Stderr))
+}
 
 // args splits positional arguments from --flags. valued lists flags that take
 // a value; any other known flag is a switch.
@@ -683,6 +700,7 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 			return err
 		}
 		fmt.Fprint(stdout, p.TasksText(a.has("all"), a.flags["from"]))
+		fmt.Fprint(stdout, sentText(a.has("all")))
 		return nil
 
 	case "halt":
@@ -885,6 +903,9 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 			opts.Via = tool + " session"
 		}
 		to := opts.To
+		if _, _, ok := hub.SplitAddress(to); ok && !strings.HasPrefix(to, "%") {
+			return sendRemote(p, opts, stdout)
+		}
 		external := strings.HasPrefix(to, "%") || core.IsSessionID(to) || strings.Contains(to, "/")
 		if external && opts.From != "" {
 			// Sending as an agent beyond its team: check the claim here, then
@@ -1147,7 +1168,10 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 		return nil
 
 	case "org":
-		a, err := parse(rest, "by", "attention json")
+		if len(rest) > 0 && (rest[0] == "join" || rest[0] == "leave") {
+			return orgMembership(rest, stdin, stdout)
+		}
+		a, err := parse(rest, "by", "attention json refresh")
 		if err == nil {
 			err = a.atMost(0, "org")
 		}
@@ -1163,14 +1187,28 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 		if a.has("attention") {
 			view = "attention"
 		}
+		if a.has("refresh") {
+			if err := hub.PushOnce(); err != nil {
+				fmt.Fprintf(stderr, "sunstack: hub not reached: %v\n", err)
+			} else if _, err := hub.PullOnce(); err != nil {
+				fmt.Fprintf(stderr, "sunstack: hub not reached: %v\n", err)
+			}
+		}
 		o := core.BuildOrg()
 		if a.has("json") {
+			// This host's snapshot only: it is what the hub receives.
 			b, _ := json.MarshalIndent(o, "", "  ")
 			fmt.Fprintln(stdout, string(b))
 			return nil
 		}
 		fmt.Fprint(stdout, o.Text(view))
+		if v := hub.LoadView(time.Now()); v != nil {
+			fmt.Fprint(stdout, v.Text(view))
+		}
 		return nil
+
+	case "hub":
+		return hubCommand(rest, stdin, stdout, stderr)
 
 	case "doing":
 		a, err := parse(rest, "root token", "")

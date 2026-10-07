@@ -29,6 +29,7 @@ type Message struct {
 	Op                                            string // sender's operation ID, so a repeated send is not delivered twice
 	FromSession                                   string // the sender's Claude session or Codex thread ID, for a reply to a session without an agent
 	Follows                                       string // the earlier task this one follows up (§17.4)
+	FromHost                                      string // the host a message from another host came from (§18.8)
 	Body                                          string
 	State                                         string // pending, taken (by this session), taken by <label>
 	path                                          string
@@ -36,6 +37,9 @@ type Message struct {
 }
 
 var msgIDRe = regexp.MustCompile(`^[0-9]{8}T[0-9]{6}Z-[a-z0-9._-]+-[0-9a-f]{6}$`)
+
+// IsMessageID reports whether s has the form of a message ID.
+func IsMessageID(s string) bool { return len(s) <= 128 && msgIDRe.MatchString(s) }
 
 func (p *Project) inboxDir(id string) string        { return p.local("inbox", id) }
 func (p *Project) takenDir(id, token string) string { return p.local("inbox", id, ".taken", token) }
@@ -88,6 +92,8 @@ func parseMessage(path string) (*Message, error) {
 					m.FromSession = v
 				case "follows":
 					m.Follows = v
+				case "from_host":
+					m.FromHost = v
 				}
 			}
 			m.Body = strings.TrimLeft(s[4+end+5:], "\n")
@@ -122,6 +128,9 @@ func (m *Message) text() string {
 	if m.Follows != "" {
 		fmt.Fprintf(&b, "follows: %s\n", m.Follows)
 	}
+	if m.FromHost != "" {
+		fmt.Fprintf(&b, "from_host: %s\n", m.FromHost)
+	}
 	b.WriteString("---\n")
 	b.WriteString(strings.TrimRight(m.Body, "\n") + "\n")
 	return b.String()
@@ -146,6 +155,9 @@ type SendOptions struct {
 	// FromAnswer marks the answer command (approval-gated): only it may send
 	// an answer, which speaks for the user on an ask.
 	FromAnswer bool
+	// ID presets the message ID, for mail from another host, which keeps
+	// its ID on every host; FromHost names that host.
+	ID, FromHost string
 }
 
 // SendResult says where a message went.
@@ -161,7 +173,7 @@ func (p *Project) resolveRecipient(to string) (id, session string, err error) {
 	// accepted, so a label can be pasted as is.
 	if i := strings.LastIndex(to, "@"); i > 0 {
 		if to[i+1:] != ThisHost().Name {
-			return "", "", fail(ExitFail, "not_found", "%s is on another host; messages between hosts come with peers (v0.9)", to)
+			return "", "", fail(ExitFail, "not_found", "%s is on another host; send to <host>:<team>/<agent> through the org hub", to)
 		}
 		to = to[:i]
 	}
@@ -183,6 +195,9 @@ func (p *Project) resolveRecipient(to string) (id, session string, err error) {
 	id, err = p.resolve(to)
 	return id, "", err
 }
+
+// NewMessageID makes a message ID for a sender.
+func NewMessageID(from string) string { return newMessageID(from) }
 
 func newMessageID(from string) string {
 	b := make([]byte, 3)
@@ -254,7 +269,7 @@ func (p *Project) Send(o SendOptions) (*SendResult, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, fail(ExitFail, "fs", "%v", err)
 	}
-	m := &Message{From: from, To: id, Session: session, At: now(), Type: o.Type, ReplyTo: o.ReplyTo, Body: o.Body, Op: o.Op, FromSession: o.FromSession, Follows: o.Follows}
+	m := &Message{From: from, To: id, Session: session, At: now(), Type: o.Type, ReplyTo: o.ReplyTo, Body: o.Body, Op: o.Op, FromSession: o.FromSession, Follows: o.Follows, FromHost: o.FromHost}
 	if from == "user" {
 		m.Via = o.Via
 	}
@@ -271,6 +286,10 @@ func (p *Project) Send(o SendOptions) (*SendResult, error) {
 			unlock()
 			return &SendResult{ID: prev.ID, To: id, Session: prev.Session, Note: "already sent with this --op; not sent again"}, nil
 		}
+		if o.ID != "" && idUsed(o.ID, p.inboxDir(id), p.messageArchive(), p.local("inbox", id, ".taken")) {
+			unlock()
+			return nil, fail(ExitFail, "conflict", "a different message with id %s is already here", o.ID)
+		}
 		release = unlock
 	}
 	defer func() { release() }()
@@ -279,6 +298,12 @@ func (p *Project) Send(o SendOptions) (*SendResult, error) {
 	var tmp string
 	for i := 0; ; i++ {
 		m.ID = newMessageID(from)
+		if o.ID != "" {
+			if !msgIDRe.MatchString(o.ID) || i > 0 {
+				return nil, fail(ExitUsage, "usage", "invalid or duplicate message id %s", o.ID)
+			}
+			m.ID = o.ID
+		}
 		tmp = filepath.Join(dir, "."+m.ID+".tmp")
 		f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
 		if errors.Is(err, os.ErrExist) && i < 5 {
@@ -729,6 +754,25 @@ var opRe = regexp.MustCompile(`^[A-Za-z0-9._-]{1,64}$`)
 // findOp returns an earlier message with the same operation ID and the same
 // recipient, session, sender, type, reply and text: pending, taken (in any
 // folder under taken) or already handled.
+// idUsed reports whether a message file with this ID exists in the pending,
+// archive or taken folders (taken has one folder per session).
+func idUsed(id, pending, archive, taken string) bool {
+	dirs := []string{pending, archive}
+	if taken != "" {
+		t, _ := filepath.Glob(filepath.Join(taken, "*"))
+		dirs = append(dirs, t...)
+	}
+	for _, d := range dirs {
+		if d == "" {
+			continue
+		}
+		if _, err := os.Stat(filepath.Join(d, id+".md")); err == nil {
+			return true
+		}
+	}
+	return false
+}
+
 func findOp(m *Message, pending, archive, taken string) *Message {
 	dirs := []string{pending, archive}
 	if taken != "" {

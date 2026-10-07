@@ -261,8 +261,8 @@ func replaceIfUnchanged(path string, want, data []byte, mode os.FileMode) error 
 const codexRules = `# Managed by sunstack install. Codex runs sunstack without asking, except
 # before any change to an agent's pillars, AGENT.md or the team objectives,
 # before an agent is created, renamed or deleted, before a session is closed,
-# before a directive or an answer is given in the user's name, and before the
-# team is halted or resumed.
+# before a directive or an answer is given in the user's name, before the
+# team is halted or resumed, and before this host joins, leaves or changes an org.
 prefix_rule(
     pattern = ["sunstack"],
     decision = "allow",
@@ -307,6 +307,31 @@ prefix_rule(
     pattern = ["sunstack", "halt"],
     decision = "prompt",
     justification = "Sunstack halt pauses or resumes the whole team; only the user may do that.",
+)
+prefix_rule(
+    pattern = ["sunstack", "hub", "init"],
+    decision = "prompt",
+    justification = "Sunstack hub init makes this host the hub of an org; only the user may do that.",
+)
+prefix_rule(
+    pattern = ["sunstack", "hub", "allow"],
+    decision = "prompt",
+    justification = "Sunstack hub allow lets another host into the org; only the user may do that.",
+)
+prefix_rule(
+    pattern = ["sunstack", "hub", "revoke"],
+    decision = "prompt",
+    justification = "Sunstack hub revoke removes a host from the org; only the user may do that.",
+)
+prefix_rule(
+    pattern = ["sunstack", "org", "join"],
+    decision = "prompt",
+    justification = "Sunstack org join joins this host to an org; only the user may do that.",
+)
+prefix_rule(
+    pattern = ["sunstack", "org", "leave"],
+    decision = "prompt",
+    justification = "Sunstack org leave takes this host out of its org; only the user may do that.",
 )
 `
 
