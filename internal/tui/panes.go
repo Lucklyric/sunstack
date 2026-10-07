@@ -148,17 +148,15 @@ func (m *model) chrome() int {
 func (m *model) inner() int { return max(4, m.h-m.chrome()-2) }
 
 func (m *model) showTabs() bool {
-	return m.p != nil && (m.view == viewTeam || m.view == viewNext || m.view == viewOrg || m.view == viewLog || m.view == viewInbox)
+	return m.p != nil && (m.view == viewTeam || m.view == viewNext || m.view == viewOrg || m.view == viewHosts || m.view == viewLog || m.view == viewInbox)
 }
 
 func (m *model) tabBar() string {
 	var parts []string
-	for _, t := range []struct {
-		v    view
-		name string
-	}{{viewTeam, "Team"}, {viewNext, "Next"}, {viewOrg, "Org"}} {
-		label := " " + t.name + " "
-		if tabIndex(m.view) == tabIndex(t.v) {
+	names := map[view]string{viewTeam: "Team", viewNext: "Next", viewOrg: "Org", viewHosts: "Hosts"}
+	for _, v := range m.tabs() {
+		label := " " + names[v] + " "
+		if m.tabIndex(m.view) == m.tabIndex(v) {
 			label = cSel.Render(label)
 		} else {
 			label = cDim.Render(label)
@@ -295,9 +293,10 @@ func (m *model) orgPane() string { return m.treeView() }
 func (m *model) helpView() string {
 	lines := []string{cHeader.Render("Keys"), "",
 		"t  teams: pick a team on this host",
-		"tab  next tab (Team, Next, Org)",
+		"tab  next tab (Team, Next, Org, and Hosts in an org)",
 		"n  next: what to do now, ranked",
 		"o  host view: every team and session",
+		"h  hosts: the org's hosts around its hub (in an org)",
 		"↑↓  select in the left list",
 		"pgup/pgdn  scroll the right pane",
 		"Team and Org tabs: ←→ fold · enter go to pane · m message",

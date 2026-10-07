@@ -16,6 +16,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/Lucklyric/sunstack/internal/core"
+	"github.com/Lucklyric/sunstack/internal/hub"
 )
 
 const refresh = 2 * time.Second
@@ -29,6 +30,7 @@ const (
 	viewOrg
 	viewNext
 	viewPicker
+	viewHosts
 )
 
 type tick time.Time
@@ -78,6 +80,12 @@ type model struct {
 	kill        func(*core.HostSession) string
 	reopen      func(*core.HostSession) string
 	peek        func(*core.HostSession) string
+
+	hosts      *hub.OrgView // the org this host belongs to, from the local files; nil outside an org
+	hostSel    int
+	loadView   func(time.Time) *hub.OrgView
+	remoteSend func(to, text string) string
+	refreshHub tea.Cmd
 }
 
 var (
@@ -103,7 +111,8 @@ func Run(p *core.Project, org bool) error {
 // newModel opens on the team, or with org on the host view. Without a team
 // it opens on the team picker, or with org on the host view.
 func newModel(p *core.Project, org bool) *model {
-	m := &model{p: p, folded: map[string]bool{}, sendTo: realSend, kill: realKill, reopen: realReopen, peek: realPeek}
+	m := &model{p: p, folded: map[string]bool{}, sendTo: realSend, kill: realKill, reopen: realReopen, peek: realPeek,
+		loadView: hub.LoadView, remoteSend: realRemoteSend, refreshHub: realRefresh}
 	switch {
 	case org:
 		m.view, m.orgBusy = viewOrg, true
@@ -115,6 +124,7 @@ func newModel(p *core.Project, org bool) *model {
 
 func (m *model) reload() {
 	m.updated = time.Now()
+	m.loadHosts()
 	if m.view == viewPicker {
 		m.loadTeams()
 	}
@@ -161,6 +171,9 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tickCmd()
 	case orgMsg:
 		m.org, m.orgAt, m.orgBusy = msg.o, time.Now(), false
+	case hubMsg:
+		m.note = msg.note
+		m.loadHosts()
 	case tea.KeyMsg:
 		cmd := m.key(msg.String())
 		m.saveState()
@@ -221,6 +234,14 @@ func (m *model) key(k string) tea.Cmd {
 	if (m.view == viewOrg || (m.view == viewTeam && m.p != nil)) && m.treeKey(k) {
 		return nil
 	}
+	if m.view == viewHosts {
+		if ok, cmd := m.hostsKey(k); ok {
+			return cmd
+		}
+	}
+	if k == "h" && m.hosts != nil {
+		return m.show(toggle(m.view, viewHosts))
+	}
 	if k == "t" {
 		m.openPicker()
 		return nil
@@ -231,7 +252,9 @@ func (m *model) key(k string) tea.Cmd {
 		case "esc":
 			m.openPicker()
 			return nil
-		case "o", "l", "i", "g", "c", "n", "tab", "shift+tab":
+		case "o":
+			return m.show(viewOrg)
+		case "l", "i", "g", "c", "n", "tab", "shift+tab":
 			return nil
 		}
 	}
@@ -239,11 +262,12 @@ func (m *model) key(k string) tea.Cmd {
 	case "esc":
 		m.view = viewTeam
 	case "tab", "shift+tab":
+		ts := m.tabs()
 		step := 1
 		if k == "shift+tab" {
-			step = len(tabs) - 1
+			step = len(ts) - 1
 		}
-		return m.show(tabs[(tabIndex(m.view)+step)%len(tabs)])
+		return m.show(ts[(m.tabIndex(m.view)+step)%len(ts)])
 	case "up", "k":
 		// The trees take their own keys first; this is the Next list.
 		if m.view == viewNext {
@@ -287,11 +311,16 @@ func (m *model) key(k string) tea.Cmd {
 	return nil
 }
 
-// tabs are the views a team shows in its tab bar.
-var tabs = []view{viewTeam, viewNext, viewOrg}
+// tabs are the views a team shows in its tab bar; Hosts only in an org.
+func (m *model) tabs() []view {
+	if m.hosts != nil {
+		return []view{viewTeam, viewNext, viewOrg, viewHosts}
+	}
+	return []view{viewTeam, viewNext, viewOrg}
+}
 
-func tabIndex(v view) int {
-	for i, t := range tabs {
+func (m *model) tabIndex(v view) int {
+	for i, t := range m.tabs() {
 		if t == v {
 			return i
 		}
@@ -420,6 +449,8 @@ func (m *model) View() string {
 		body = m.inboxView()
 	case m.view == viewOrg:
 		body = m.orgPane()
+	case m.view == viewHosts:
+		body = m.hostsView()
 	default:
 		body = m.teamView()
 	}
@@ -431,6 +462,8 @@ func (m *model) View() string {
 		help = cDim.Render("↑↓ select · r refresh · tab switch · t teams · esc back · ? help · q quit")
 	case m.view == viewOrg:
 		help = cDim.Render("↑↓ move · ←→ fold · enter go to pane · m message · / filter · f show · R reopen · K close · ? keys · q quit")
+	case m.view == viewHosts:
+		help = cDim.Render("←→↑↓ choose a host · enter its sessions · r refresh · h back · ? keys · q quit")
 	}
 	if m.note != "" {
 		help = cWarn.Render(m.note) + "  " + help

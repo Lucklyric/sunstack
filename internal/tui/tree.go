@@ -12,6 +12,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/Lucklyric/sunstack/internal/core"
+	"github.com/Lucklyric/sunstack/internal/hub"
 )
 
 // The Org tab is a tree: what needs the user, then each team with its
@@ -29,6 +30,8 @@ type treeNode struct {
 	group *core.FreeGroup
 	sess  *core.HostSession
 	st    *core.AgentStatus // the agent's files, on the Team tab
+	org   *core.Org         // the snapshot the node comes from (this host's, or another host's)
+	host  *hub.HostView     // set for nodes of another host of the org
 }
 
 var filterModes = []string{"all", "needs you", "busy", "outside tmux"}
@@ -115,25 +118,53 @@ func (m *model) treeNodes() []treeNode {
 		return nil
 	}
 	var out []treeNode
-	open := func(key string) bool { return !m.folded[key] }
 	if !m.filtering() {
-		out = append(out, treeNode{kind: "needs", key: "needs", label: fmt.Sprintf("Needs you (%d)", len(o.Attention))})
+		out = append(out, treeNode{kind: "needs", key: "needs", label: fmt.Sprintf("Needs you (%d)", len(o.Attention)), org: o})
 	}
+	out = append(out, m.orgRows(o, "", 0, nil)...)
+	// The other hosts of the org, from their last snapshots (§18.7).
+	if m.hosts != nil {
+		for _, h := range m.hosts.Hosts {
+			if h.You {
+				continue
+			}
+			hk := "host:" + h.ID
+			var rows []treeNode
+			if h.Org != nil {
+				rows = m.orgRows(h.Org, hk+"/", 1, h)
+			}
+			if m.filtering() && len(rows) == 0 {
+				continue
+			}
+			out = append(out, treeNode{kind: "host", key: hk, label: h.Label(), fold: len(rows) > 0, host: h, org: h.Org})
+			if !m.folded[hk] {
+				out = append(out, rows...)
+			}
+		}
+	}
+	return out
+}
+
+// orgRows are the rows of one host's snapshot: its teams, then sessions
+// outside teams. Another host's rows carry it, and sit one level deeper.
+func (m *model) orgRows(o *core.Org, prefix string, d int, h *hub.HostView) []treeNode {
+	var out []treeNode
+	open := func(key string) bool { return !m.folded[key] }
 	for _, t := range o.Teams {
 		var rows []treeNode
-		tk := "team:" + t.Root
+		tk := prefix + "team:" + t.Root
 		for _, a := range t.Agents {
 			ak := tk + "/" + a.ID
 			var ss []treeNode
 			for _, s := range a.Sessions {
 				if m.keep(s, t.Name, a.ID) {
-					ss = append(ss, treeNode{kind: "session", key: ak + "/" + sessionName(s), depth: 2, label: sessionName(s), sess: s})
+					ss = append(ss, treeNode{kind: "session", key: ak + "/" + sessionName(s), depth: d + 2, label: sessionName(s), sess: s, org: o, host: h})
 				}
 			}
 			if m.filtering() && len(ss) == 0 {
 				continue
 			}
-			rows = append(rows, treeNode{kind: "agent", key: ak, depth: 1, label: a.ID, fold: len(ss) > 0, team: t, agent: a})
+			rows = append(rows, treeNode{kind: "agent", key: ak, depth: d + 1, label: a.ID, fold: len(ss) > 0, team: t, agent: a, org: o, host: h})
 			if open(ak) {
 				rows = append(rows, ss...)
 			}
@@ -141,12 +172,12 @@ func (m *model) treeNodes() []treeNode {
 		var free []treeNode
 		for _, s := range t.Free {
 			if m.keep(s, t.Name, "") {
-				free = append(free, treeNode{kind: "session", key: tk + "/free/" + sessionName(s), depth: 2, label: sessionName(s), sess: s})
+				free = append(free, treeNode{kind: "session", key: tk + "/free/" + sessionName(s), depth: d + 2, label: sessionName(s), sess: s, org: o, host: h})
 			}
 		}
 		if len(free) > 0 {
 			fk := tk + "/free"
-			rows = append(rows, treeNode{kind: "free", key: fk, depth: 1, label: fmt.Sprintf("free sessions (%d)", len(free)), fold: true, team: t})
+			rows = append(rows, treeNode{kind: "free", key: fk, depth: d + 1, label: fmt.Sprintf("free sessions (%d)", len(free)), fold: true, team: t, org: o, host: h})
 			if open(fk) {
 				rows = append(rows, free...)
 			}
@@ -154,31 +185,32 @@ func (m *model) treeNodes() []treeNode {
 		if m.filtering() && len(rows) == 0 {
 			continue
 		}
-		out = append(out, treeNode{kind: "team", key: tk, label: t.Name, fold: len(rows) > 0, team: t})
+		out = append(out, treeNode{kind: "team", key: tk, depth: d, label: t.Name, fold: len(rows) > 0, team: t, org: o, host: h})
 		if open(tk) {
 			out = append(out, rows...)
 		}
 	}
 	var outside []treeNode
 	for _, g := range o.Free {
-		gk := "group:" + g.Group
+		gk := prefix + "group:" + g.Group
 		var ss []treeNode
 		for _, s := range g.Sessions {
 			if m.keep(s, "", "") {
-				ss = append(ss, treeNode{kind: "session", key: gk + "/" + sessionName(s), depth: 2, label: sessionName(s), sess: s})
+				ss = append(ss, treeNode{kind: "session", key: gk + "/" + sessionName(s), depth: d + 2, label: sessionName(s), sess: s, org: o, host: h})
 			}
 		}
 		if len(ss) == 0 {
 			continue
 		}
-		outside = append(outside, treeNode{kind: "group", key: gk, depth: 1, label: path.Base(strings.TrimSuffix(g.Group, ".git")), fold: true, group: g})
+		outside = append(outside, treeNode{kind: "group", key: gk, depth: d + 1, label: path.Base(strings.TrimSuffix(g.Group, ".git")), fold: true, group: g, org: o, host: h})
 		if open(gk) {
 			outside = append(outside, ss...)
 		}
 	}
 	if len(outside) > 0 {
-		out = append(out, treeNode{kind: "outside", key: "outside", label: "outside teams", fold: true})
-		if open("outside") {
+		ok := prefix + "outside"
+		out = append(out, treeNode{kind: "outside", key: ok, depth: d, label: "outside teams", fold: true, org: o, host: h})
+		if open(ok) {
 			out = append(out, outside...)
 		}
 	}
@@ -207,7 +239,7 @@ func (m *model) teamNodes() []treeNode {
 	name, root := filepath.Base(m.p.Root), m.p.Root
 	if team != nil {
 		name = team.Name
-		if n := m.teamAttention(team); n > 0 && !m.filtering() {
+		if n := teamAttention(m.org, team); n > 0 && !m.filtering() {
 			out = append(out, treeNode{kind: "needs", key: "needs:" + root, label: fmt.Sprintf("Needs you (%d)", n), team: team})
 		}
 	}
@@ -289,9 +321,15 @@ func (m *model) row(n treeNode, w int) string {
 			tail = cDim.Render("no session")
 		}
 	case "team":
-		if c := m.teamAttention(n.team); c > 0 {
+		o := n.org
+		if o == nil {
+			o = m.org
+		}
+		if c := teamAttention(o, n.team); c > 0 {
 			tail = cWarn.Render(fmt.Sprintf("%d for you", c))
 		}
+	case "host":
+		tail = stateGlyph(n.host.State)
 	}
 	if tail == "" {
 		return line
@@ -303,9 +341,12 @@ func (m *model) row(n treeNode, w int) string {
 	return line + strings.Repeat(" ", pad) + tail
 }
 
-func (m *model) teamAttention(t *core.OrgTeam) int {
+func teamAttention(o *core.Org, t *core.OrgTeam) int {
+	if o == nil {
+		return 0
+	}
 	n := 0
-	for _, a := range m.org.Attention {
+	for _, a := range o.Attention {
 		if strings.HasPrefix(a, t.Name+":") {
 			n++
 		}
@@ -431,9 +472,15 @@ func (m *model) details2(n treeNode, w int) []string {
 		if len(t.Issues) > 0 {
 			out = append(out, "", fmt.Sprintf("%d board item(s) need attention (Next tab, or sunstack board)", len(t.Issues)))
 		}
-		for _, a := range m.org.Attention {
-			if strings.HasPrefix(a, t.Name+":") {
-				out = append(out, cWarn.Render(wrap("• "+strings.TrimPrefix(a, t.Name+": "), w)))
+		o := n.org
+		if o == nil {
+			o = m.org
+		}
+		if o != nil {
+			for _, a := range o.Attention {
+				if strings.HasPrefix(a, t.Name+":") {
+					out = append(out, cWarn.Render(wrap("• "+strings.TrimPrefix(a, t.Name+": "), w)))
+				}
 			}
 		}
 	case "agent":
@@ -454,6 +501,8 @@ func (m *model) details2(n treeNode, w int) []string {
 		if len(a.Sessions) == 0 {
 			out = append(out, "", cDim.Render("no live session (sunstack spawn "+a.ID+" starts one)"))
 		}
+	case "host":
+		return hostDetails(n.host, w, m.org)
 	case "free", "outside", "group":
 		out = append(out, cHeader.Render(n.label), "", cDim.Render("sessions that hold no agent; select one for its details"))
 		if n.group != nil {
@@ -491,6 +540,11 @@ func (m *model) details2(n treeNode, w int) []string {
 		}
 		if s.Pending > 0 {
 			out = append(out, cWarn.Render(fmt.Sprintf("%d message(s) waiting", s.Pending)))
+		}
+		if n.host != nil {
+			out = append(out, "", cDim.Render("on "+n.host.Name+", as of its last snapshot ("+hub.Age(n.host.SnapAge)+" old)"),
+				"", cDim.Render("m message (through the hub) · other actions only on "+n.host.Name))
+			break
 		}
 		if tail := m.peek(s); tail != "" {
 			out = append(out, "", cDim.Render("── pane ──"))
@@ -535,6 +589,8 @@ func (m *model) treeKey(k string) bool {
 	case "enter":
 		switch {
 		case n == nil:
+		case n.kind == "session" && n.host != nil:
+			m.note = "that session is on " + n.host.Name + "; go to it there"
 		case n.kind == "session":
 			m.note = m.goToSession(n.sess)
 		case n.fold:
@@ -556,13 +612,34 @@ func (m *model) treeKey(k string) bool {
 			return true
 		}
 		s := n.sess
+		if h := n.host; h != nil {
+			addr := remoteAddress(s)
+			if addr == "" {
+				m.note = "that session has no address another host can use"
+				return true
+			}
+			m.inputPrompt, m.inputText = "message to "+h.Name+":"+addr, ""
+			m.inputDone = func(text string) {
+				if strings.TrimSpace(text) != "" {
+					m.note = m.remoteSend(h.Name+":"+addr, text)
+				}
+			}
+			return true
+		}
 		m.inputPrompt, m.inputText = "message to "+sessionName(s), ""
 		m.inputDone = func(text string) {
 			if strings.TrimSpace(text) != "" {
 				m.note = m.sendTo(s, text)
 			}
 		}
-	case "R":
+	case "R", "K":
+		if n != nil && n.host != nil && n.kind == "session" {
+			m.note = "only on " + n.host.Name + ": reopen and close run on the session's own host"
+			return true
+		}
+		if k == "K" {
+			return m.closeKey(n)
+		}
 		if n == nil || n.kind != "session" || n.sess.SessionID == "" {
 			m.note = "select a session with a session ID to reopen"
 			return true
@@ -570,21 +647,25 @@ func (m *model) treeKey(k string) bool {
 		s := n.sess
 		m.confirm = "Reopen " + sessionName(s) + " in a tmux pane? Exit it where it runs first. y to reopen, any other key to cancel"
 		m.confirmDo = func() { m.note = m.reopen(s) }
-	case "K":
-		if n == nil || n.kind != "session" {
-			m.note = "select a session to close"
-			return true
-		}
-		s := n.sess
-		if s.Agent == "" {
-			m.note = "only an agent's session can be closed here; close a free session in its own pane"
-			return true
-		}
-		m.confirm = "Close " + sessionName(s) + "'s pane now? Unsaved work is lost. y to close, any other key to cancel"
-		m.confirmDo = func() { m.note = m.kill(s) }
 	default:
 		return false
 	}
+	return true
+}
+
+// closeKey asks to close an agent's session (K).
+func (m *model) closeKey(n *treeNode) bool {
+	if n == nil || n.kind != "session" {
+		m.note = "select a session to close"
+		return true
+	}
+	s := n.sess
+	if s.Agent == "" {
+		m.note = "only an agent's session can be closed here; close a free session in its own pane"
+		return true
+	}
+	m.confirm = "Close " + sessionName(s) + "'s pane now? Unsaved work is lost. y to close, any other key to cancel"
+	m.confirmDo = func() { m.note = m.kill(s) }
 	return true
 }
 
