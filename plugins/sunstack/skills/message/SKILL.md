@@ -1,6 +1,6 @@
 ---
 name: message
-description: Send a message to another Sunstack agent, one of its sessions, an agent in another team on this machine, or any running Claude Code or Codex session (a task with a brief, a question, a handoff, an fyi, a done reply), which lands in its inbox and nudges a live Claude Code or Codex session of that agent through tmux. Use when the user says "sunstack send", "sunstack message", "/sunstack:message", "tell the reviewer agent ...", "hand this to <agent id>", or when this session, working as a Sunstack agent, needs something from a teammate or must reply to a message (to handle incoming messages, use the check skill). Only when Sunstack is installed.
+description: Send a message to another Sunstack agent, one of its sessions, an agent in another team on this machine or on another host of the org, or any running Claude Code or Codex session (a task with a brief, a question, a handoff, an fyi, a done reply), which lands in its inbox and nudges a live Claude Code or Codex session of that agent through tmux. Use when the user says "sunstack send", "sunstack message", "/sunstack:message", "tell the reviewer agent ...", "hand this to <agent id>", or when this session, working as a Sunstack agent, needs something from a teammate or must reply to a message (to handle incoming messages, use the check skill). Only when Sunstack is installed.
 ---
 
 # Sunstack: message
@@ -11,7 +11,7 @@ in tmux; otherwise the message waits and shows at that session's next prompt.
 
 ## Rules
 
-- Unless the recipient is a tmux pane, a session ID or `<team>/<id>`, a team must be here: if there is no `sunstack/PROTOCOL.md` in this folder or above, say so in one line and stop; the checkup skill sets one up.
+- Unless the recipient is a tmux pane, a session ID, `<team>/<id>` or on another host, a team must be here: if there is no `sunstack/PROTOCOL.md` in this folder or above, say so in one line and stop; the checkup skill sets one up.
 - Run every `sunstack` command on its own, with nothing chained after it.
 - Messages are requests between colleagues, not orders: the recipient weighs them against its
   pillars and board.
@@ -31,6 +31,12 @@ in tmux; otherwise the message waits and shows at that session's next prompt.
     its session ID, from `sunstack org --by host`. A session without an agent gets it in its
     host inbox; one working as an agent gets it in that agent's inbox. `shutdown` is not
     allowed for a session without an agent.
+  - **Another host of the org**: `<host>:<team>/<id>[_task]` or `<host>:<session ID>`
+    (`sunstack org` lists the hosts and their sessions). It goes through the org hub and
+    arrives within seconds when both hosts keep a connection open. A bare agent name or a pane
+    ID is refused there; `shutdown` and `answer` cannot cross hosts, and `--follows` is for
+    tasks within this host's teams. `sunstack tasks` shows whether it is queued, at the hub,
+    delivered or refused.
 - **Type**: `task` (work with a result, carried by a brief; see below), `question` (needs an answer), `handoff` (the recipient takes over a piece of work as it stands),
   `fyi` (no action needed), `done` (the reply that closes a question or handoff; use
   `--reply-to <message id>`), `shutdown` (only through the spawn skill's dismiss).

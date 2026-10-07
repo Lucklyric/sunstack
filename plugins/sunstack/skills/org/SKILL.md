@@ -1,6 +1,6 @@
 ---
 name: org
-description: Show the user's whole Sunstack org on this host, every team, agent and running Claude Code or Codex session (with or without a Sunstack identity), in four views, what needs the user, work by team, people, and hosts, and inspect or summarize any session or team on request. Use when the user says "sunstack org", "/sunstack:org", "what needs me", "what is running on this machine", "show all my sessions", "what is every team doing across teams", "summarize that session", "peek at <session>", "sunstack teams", or asks for a team's event log, inbox or effective pillars. To start or close sessions, use the spawn skill.
+description: Show the user's whole Sunstack org on this host and the other hosts of its org, every team, agent and running Claude Code or Codex session (with or without a Sunstack identity), in four views, what needs the user, work by team, people, and hosts, and inspect or summarize any session or team on request. Use when the user says "sunstack org", "/sunstack:org", "what needs me", "what is running on this machine", "show all my sessions", "what is every team doing across teams", "summarize that session", "peek at <session>", "sunstack teams", or asks for a team's event log, inbox or effective pillars. To start or close sessions, use the spawn skill.
 ---
 
 # Sunstack: org
@@ -9,6 +9,12 @@ The org view covers this host: every team in its index (`~/.sunstack/teams.json`
 agents and boards, and every running Claude Code and Codex session, found from the processes
 themselves. Sessions that hold no agent are "free": inside a team's project, or grouped by git
 remote or folder. It is read only.
+
+When this host is in an org (several hosts connected through one hub), `sunstack org` also
+lists the other hosts after this one, each with its state (live, stale, offline) and the age of
+its last contact, from their last snapshots. Those show no prompts, replies or pane text, and
+their sessions can only be messaged from here. `sunstack org --refresh` fetches them first when
+no connector runs (`sunstack hub connect` keeps one open).
 
 ## Rules
 
@@ -87,4 +93,6 @@ first, hand over to the next skill.
   same tree for the current team, and the Org tab one of every team, agent and session: select a session for its details and the end of its pane, then
   `enter` to go to it, `m` to message it, `R` to reopen it in tmux, `K` to close an agent's
   session (both ask first), `/` to filter, `f` to show only what needs the user. `sunstack tui --org`
-  opens on the host view. It reopens on the last tab and team used.
+  opens on the host view. It reopens on the last tab and team used. In an org, `h` opens the
+  Hosts tab: the hosts drawn around the hub, each with its link state, teams and sessions;
+  `enter` shows that host's sessions in the Org tab.

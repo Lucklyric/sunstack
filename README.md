@@ -20,7 +20,7 @@ curl -fsSL https://raw.githubusercontent.com/Lucklyric/sunstack/main/install.sh 
 sunstack install
 ```
 
-The first line puts the `sunstack` binary in `~/.local/bin`. The second adds the plugin to Claude Code and Codex (whichever are on your PATH, or pick one with `--claude` / `--codex`). For Claude Code it also offers permission rules: allow `Bash(sunstack *)`, so you are not asked before every call, and ask before `sunstack amend`, `hire`, `rename`, `fire`, `kill`, `direct`, `answer` and `halt`. For Codex it writes `~/.codex/rules/sunstack.rules` with the same asks.
+The first line puts the `sunstack` binary in `~/.local/bin`. The second adds the plugin to Claude Code and Codex (whichever are on your PATH, or pick one with `--claude` / `--codex`). For Claude Code it also offers permission rules: allow `Bash(sunstack *)`, so you are not asked before every call, and ask before `sunstack amend`, `hire`, `rename`, `fire`, `kill`, `direct`, `answer` and `halt`, and before a host joins or leaves an org (`org join`, `org leave`, `hub init`, `hub allow`, `hub revoke`). For Codex it writes `~/.codex/rules/sunstack.rules` with the same asks.
 
 Keep it current with `sunstack update`. Remove it with `sunstack uninstall`.
 
@@ -67,6 +67,15 @@ A nudge is typed only while the CLI shows its normal input box, never while it s
 
 Codex also loads the plugin's prompt hook and asks you to review it once, the first time a Codex session starts after install.
 
+## Several hosts
+
+Hosts of one org connect through one always-on host, the hub, over SSH. The hub stores files and passes traffic; each host stays in charge of its own sessions and inboxes.
+
+- On the hub: `sunstack hub init <org>`. On each other host: `sunstack org join <hub> --send`, then `sunstack hub connect --install`. Each host gets its own key (`~/.ssh/sunstack_hub`), which the hub limits to `sunstack hub serve`: no shell, no forwarding, five fixed requests.
+- `sunstack org` and the TUI's Org and Hosts tabs show every host, with its state and the age of its last contact. Other hosts' prompts, replies and pane text never leave them.
+- `sunstack send <host>:<team>/<agent> "..."` reaches an agent on another host within seconds. A message from another host is a request: the receiving session asks you before anything consequential, and user-only commands never run from another host.
+- Tailscale is the easy way to reach a hub at home. `sunstack hub revoke <host>` cuts a host off at once.
+
 ## Keeping work honest
 
 - **Briefs.** A `task` message must say what to achieve, what it may touch, when it is done, how to check it and what to report, or it is refused.
@@ -81,7 +90,7 @@ Codex also loads the plugin's prompt hook and asks you to review it once, the fi
 
 ## What needs your approval
 
-Agents update their own boards and context on their own. Changing a pillar, an agent's `AGENT.md` or the team objectives, and creating, renaming or deleting an agent, always waits for you: `sunstack install` sets Claude Code and Codex to ask before `sunstack amend`, `hire`, `rename`, `fire`, `kill`, `direct`, `answer` and `halt`. If your Codex config sets `approvals_reviewer`, Codex sends those prompts to its automatic reviewer instead, and the skills' own questions are what keep you in the loop.
+Agents update their own boards and context on their own. Changing a pillar, an agent's `AGENT.md` or the team objectives, and creating, renaming or deleting an agent, always waits for you: `sunstack install` sets Claude Code and Codex to ask before `sunstack amend`, `hire`, `rename`, `fire`, `kill`, `direct`, `answer` and `halt`, and before a host joins or leaves an org (`org join`, `org leave`, `hub init`, `hub allow`, `hub revoke`). If your Codex config sets `approvals_reviewer`, Codex sends those prompts to its automatic reviewer instead, and the skills' own questions are what keep you in the loop.
 
 Every agent is `<title>.<name>`: the title is the role, the name is one agent in it, so a project can have `researcher.macro` and `researcher.equities`. Each has its own `AGENT.md` copy, pillars and context. A new agent's role comes from `~/.sunstack/library/` (your own, saved with `sunstack library save`), then the built-in `builder` and `reviewer`, then another agent of the same role in the project.
 
