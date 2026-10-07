@@ -290,7 +290,7 @@ func Join(target string, canSend bool, in io.Reader, out io.Writer) (*Config, er
 		return nil, err
 	}
 	me := core.ThisHost()
-	cl := &client{target: target}
+	cl := &client{target: target, first: true}
 	hello, err := cl.hello()
 	if err != nil {
 		f := strings.Fields(pub)

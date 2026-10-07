@@ -88,7 +88,14 @@ func session(cl *client, logw io.Writer) error {
 	if err := cmd.Start(); err != nil {
 		return err
 	}
-	defer func() { stdin.Close(); _ = cmd.Process.Kill(); _ = cmd.Wait() }()
+	waited := false
+	defer func() {
+		if !waited {
+			stdin.Close()
+			_ = cmd.Process.Kill()
+			_ = cmd.Wait()
+		}
+	}()
 
 	var mu sync.Mutex
 	send := func(f frame) error {
@@ -107,10 +114,6 @@ func session(cl *client, logw io.Writer) error {
 		for {
 			line, err := readLine(br)
 			if err != nil {
-				msg := bytes.TrimSpace(errb.Bytes())
-				if len(msg) > 0 {
-					err = errors.New(string(msg))
-				}
 				ended <- err
 				return
 			}
@@ -168,6 +171,13 @@ func session(cl *client, logw io.Writer) error {
 		var err error
 		select {
 		case err = <-ended:
+			// Read the hub's error only after the process is done writing it.
+			stdin.Close()
+			_ = cmd.Wait()
+			waited = true
+			if msg := bytes.TrimSpace(errb.Bytes()); len(msg) > 0 && !errors.Is(err, ErrRevoked) {
+				err = errors.New(string(msg))
+			}
 			return err
 		case <-snapTick.C:
 			err = pushSnap()

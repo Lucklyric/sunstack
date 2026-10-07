@@ -27,7 +27,12 @@ func sshProgram() string {
 // client reaches the hub: over SSH with the dedicated key, or, on the hub
 // itself, by running hub serve as a child, so the hub's own traffic goes
 // through the same checks as every other host's (§18.5).
-type client struct{ target string }
+type client struct {
+	target string
+	// first is the join's first contact: an unknown hub key is accepted and
+	// recorded, as ssh does when asked once by hand. Later calls check it.
+	first bool
+}
 
 func (c *client) command(verb string) (*exec.Cmd, error) {
 	if c.target == LocalHub {
@@ -40,6 +45,9 @@ func (c *client) command(verb string) (*exec.Cmd, error) {
 		return cmd, nil
 	}
 	args := []string{"-i", KeyPath(), "-o", "IdentitiesOnly=yes", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-T"}
+	if c.first {
+		args = append(args, "-o", "StrictHostKeyChecking=accept-new")
+	}
 	if verb == "watch" {
 		args = append(args, "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=3")
 	}
