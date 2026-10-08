@@ -36,6 +36,11 @@ func main() {
 	name := strings.TrimSuffix(filepath.Base(os.Args[0]), ".exe")
 	switch name {
 	case "tmux":
+		// Production passes -u first; keep it and check what follows.
+		utf8 := len(args) > 0 && args[0] == "-u"
+		if utf8 {
+			args = args[1:]
+		}
 		// The production scanner probes the default server. Deny that probe,
 		// or map it to a second explicitly supplied PRIVATE server for tests.
 		if len(args) < 2 || (args[0] != "-L" && args[0] != "-S") {
@@ -47,6 +52,9 @@ func main() {
 		}
 		if !privateSocket(args[1]) {
 			os.Exit(1)
+		}
+		if utf8 {
+			args = append([]string{"-u"}, args...)
 		}
 		run(os.Getenv("SUNSTACK_TEST_REAL_TMUX"), args...)
 		return

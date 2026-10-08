@@ -89,7 +89,7 @@ func (p *Project) home(id string) (*homePane, error) {
 func openHome(name, owner, cwd, win string) (*homePane, error) {
 	sock, override := DefaultSocket()
 	tm := func(args ...string) ([]byte, error) {
-		cmd := exec.Command("tmux", append([]string{"-S", sock}, args...)...)
+		cmd := exec.Command("tmux", TmuxArgs(sock, args...)...)
 		cmd.Env = withoutTMUX(os.Environ())
 		return cmd.Output()
 	}
@@ -189,7 +189,7 @@ func FindAttach(p *Project, t string) (*AttachPlace, error) {
 		}
 		at.Socket, at.Pane = found[0].Socket(), found[0].Pane
 	}
-	out, err := exec.Command("tmux", "-S", at.Socket, "display-message", "-p", "-t", at.Pane, "#{session_name}").Output()
+	out, err := exec.Command("tmux", "-u", "-S", at.Socket, "display-message", "-p", "-t", at.Pane, "#{session_name}").Output()
 	if err != nil {
 		return nil, fail(ExitFail, "no_pane", "could not reach pane %s: %v", at.Pane, err)
 	}

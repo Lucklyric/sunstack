@@ -605,10 +605,12 @@ type AgentStatus struct {
 
 // TmuxArgs targets the tmux server a claim was made on.
 func TmuxArgs(socket string, args ...string) []string {
+	// -u: without a UTF-8 locale (a connector under launchd) tmux prints
+	// the tabs in formats as "_".
 	if socket != "" {
-		return append([]string{"-S", socket}, args...)
+		return append([]string{"-u", "-S", socket}, args...)
 	}
-	return args
+	return append([]string{"-u"}, args...)
 }
 
 // TmuxWhere resolves a pane ID on the claim's tmux server to

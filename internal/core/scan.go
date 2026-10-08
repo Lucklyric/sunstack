@@ -529,7 +529,7 @@ func tmuxPanes() map[string]paneInfo {
 		if sock == "" {
 			// Name the default server by its path, so later commands reach it
 			// even from inside another server.
-			q := exec.Command("tmux", "list-sessions", "-F", "#{socket_path}")
+			q := exec.Command("tmux", "-u", "list-sessions", "-F", "#{socket_path}")
 			q.Env = withoutTMUX(os.Environ())
 			if out, err := q.Output(); err == nil {
 				if path := strings.SplitN(strings.TrimSpace(string(out)), "\n", 2)[0]; path != "" {

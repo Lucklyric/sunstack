@@ -47,7 +47,7 @@ type freePane struct{ pane, scope, label, tool string }
 // freePanes lists the free sessions on the default tmux server.
 func freePanes() ([]freePane, string) {
 	sock, _ := DefaultSocket()
-	cmd := exec.Command("tmux", "-S", sock, "list-panes", "-a", "-F", "#{pane_id}\t#{@sunstack_launch}\t#{@sunstack_scope}\t#{@sunstack_label}\t#{@sunstack_tool}")
+	cmd := exec.Command("tmux", "-u", "-S", sock, "list-panes", "-a", "-F", "#{pane_id}\t#{@sunstack_launch}\t#{@sunstack_scope}\t#{@sunstack_label}\t#{@sunstack_tool}")
 	cmd.Env = withoutTMUX(os.Environ())
 	out, err := cmd.Output()
 	if err != nil {

@@ -972,3 +972,24 @@ func TestSpawnFree(t *testing.T) {
 	}
 	expect(t, sh(t, p, s.env, "spawn", "--free", "--tool", "claude", "--name", "review"), 0, "the label is free again")
 }
+
+// A connector started by launchd has no UTF-8 locale, and tmux then prints
+// tabs in formats as "_". Spawning and the free-session count must still
+// read tmux's answers.
+func TestSpawnWithoutLocale(t *testing.T) {
+	p := fixture(t)
+	must(t, os.WriteFile(filepath.Join(p, "sunstack", "TEAM"), []byte("id: a1b2000000000000\nname: alpha\nmax_sessions: 1\n"), 0o644))
+	s := privateTmux(t, p, isolatedEnv(t))
+	var env []string
+	for _, e := range s.env {
+		if !strings.HasPrefix(e, "LANG=") && !strings.HasPrefix(e, "LC_") {
+			env = append(env, e)
+		}
+	}
+	env = append(env, "LC_ALL=C")
+	r := sh(t, p, env, "spawn", "--free", "--tool", "codex")
+	expect(t, r, 0, "free codex without a locale")
+	requireContains(t, r.out, "ss-alpha-a1b2:free")
+	r = sh(t, p, env, "spawn", "--free", "--tool", "claude")
+	expect(t, r, 4, "the cap counts the first session")
+}
