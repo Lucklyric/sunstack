@@ -92,7 +92,12 @@ type model struct {
 	updateHost func(name, target string) string // asks another host to update
 	updateHere func() string                    // updates this host and restarts its connector
 	pending    tea.Cmd                          // what a confirmed action runs next
-	refreshHub tea.Cmd
+	// Another host's sessions (§20.4, §20.5), through the hub.
+	peekRemote  func(host, target string) (string, error)
+	spawnRemote func(host string, a hub.SpawnArgs) string
+	spawnLocal  func(n treeNode, tool, note string) string
+	remotePanes map[string]remotePane // by host ID and address
+	refreshHub  tea.Cmd
 }
 
 var (
@@ -124,7 +129,8 @@ func Run(p *core.Project, org bool) error {
 func newModel(p *core.Project, org bool) *model {
 	m := &model{p: p, folded: map[string]bool{}, sendTo: realSend, kill: realKill, isFree: realIsFree, reopen: realReopen, peek: realPeek,
 		loadView: hub.LoadView, remoteSend: realRemoteSend, refreshHub: realRefresh,
-		updateHost: realUpdateHost, updateHere: realUpdateHere}
+		updateHost: realUpdateHost, updateHere: realUpdateHere,
+		peekRemote: realPeekRemote, spawnRemote: realSpawnRemote, spawnLocal: realSpawnLocal, remotePanes: map[string]remotePane{}}
 	switch {
 	case org:
 		m.view, m.orgBusy = viewOrg, true
@@ -186,6 +192,13 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case hubMsg:
 		m.note = msg.note
 		m.loadHosts()
+	case peekMsg:
+		if msg.err != nil {
+			m.note = msg.err.Error()
+		} else {
+			m.remotePanes[msg.key] = remotePane{text: msg.text, at: time.Now()}
+			m.note = "pane read through the hub"
+		}
 	case tea.KeyMsg:
 		cmd := m.key(msg.String())
 		m.saveState()
@@ -246,7 +259,9 @@ func (m *model) key(k string) tea.Cmd {
 		return m.pickerKey(k)
 	}
 	if (m.view == viewOrg || (m.view == viewTeam && m.p != nil)) && m.treeKey(k) {
-		return nil
+		cmd := m.pending
+		m.pending = nil
+		return cmd
 	}
 	if m.view == viewHosts {
 		if ok, cmd := m.hostsKey(k); ok {
@@ -477,7 +492,7 @@ func (m *model) View() string {
 	case m.view == viewOrg:
 		help = cDim.Render("↑↓ move · ←→ fold · enter go to pane · m message · / filter · f show · R reopen · K close · ? keys · q quit")
 		if m.hosts != nil && !m.teamScope() {
-			help = cDim.Render("↑↓ move · ←→ fold · enter go to pane · m message · / filter · f show · b by team/host · R reopen · K close · ? keys · q quit")
+			help = cDim.Render("↑↓ move · ←→ fold · enter go to pane · m message · s start · p peek remote · / filter · f show · b by team/host · R reopen · K close · ? keys · q quit")
 		}
 	case m.view == viewHosts:
 		help = cDim.Render("←→↑↓ choose a host · enter its sessions · u update it · U update all behind · r refresh · h back · ? keys · q quit")

@@ -1,10 +1,12 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/Lucklyric/sunstack/internal/core"
@@ -19,7 +21,7 @@ func orgView() *hub.OrgView {
 		Attention: []string{"shop: Q1 waits for you", "alpha: todo is waiting for you", "alpha: deploy waits for you"},
 		Teams: []*core.OrgTeam{
 			{ID: "00000000000000aa", Name: "shop", Root: "/srv/shop", Agents: []*core.OrgAgent{{ID: "builder.alice", Sessions: []*core.HostSession{
-				{Tool: "codex", Status: "busy", Agent: "builder.alice", Label: "builder.alice_api@server", Team: "00000000000000aa", TeamName: "shop", Pane: "%3", Where: "w:1.0", Reach: "nudge"},
+				{Tool: "codex", Status: "busy", Agent: "builder.alice", Label: "builder.alice_api@server", Team: "00000000000000aa", TeamName: "shop", Pane: "%3", Where: "w:1.0", Reach: "nudge", SessionID: "00000000-0000-4000-8000-0000000000aa"},
 			}}}},
 			// alpha's files sync through git: the same team as this host's.
 			{ID: "00000000000000a1", Name: "alpha", Root: "/srv/alpha", Agents: []*core.OrgAgent{
@@ -43,6 +45,10 @@ func orgView() *hub.OrgView {
 
 func hostsModel(t *testing.T, w int) *model {
 	t.Helper()
+	// The user runs the TUI: not from an agent session (core.UserOnly).
+	for _, k := range []string{"CLAUDECODE", "CLAUDE_CODE_SESSION_ID", "CODEX_THREAD_ID", "TMUX_PANE"} {
+		t.Setenv(k, "")
+	}
 	m := treeModel(t)
 	m.w = w
 	v := orgView()
@@ -265,5 +271,72 @@ func TestHostsVersionsAndUpdate(t *testing.T) {
 	}
 	if !strings.Contains(m.note, "this host updated") {
 		t.Errorf("u here: note %q", m.note)
+	}
+}
+
+// p peeks another host's session through the hub and shows the lines in its
+// details; s starts a session from a row: on another host's rows there.
+func TestRemotePeekAndSpawnKeys(t *testing.T) {
+	m := hostsModel(t, 150)
+	var peeked, spawned []string
+	m.peekRemote = func(host, target string) (string, error) {
+		peeked = append(peeked, host+":"+target)
+		return "REMOTE-PANE-LINE\n", nil
+	}
+	m.spawnRemote = func(host string, a hub.SpawnArgs) string {
+		spawned = append(spawned, host+" "+a.Team+"/"+a.Agent+" free="+fmt.Sprint(a.Free)+" beside="+a.Beside+" tool="+a.Tool+" note="+a.Note)
+		return "started"
+	}
+	m.spawnLocal = func(n treeNode, tool, note string) string {
+		spawned = append(spawned, "local "+n.kind+" "+n.label+" tool="+tool+" note="+note)
+		return "started"
+	}
+	run := func(cmd tea.Cmd) {
+		if cmd != nil {
+			m.Update(cmd())
+		}
+	}
+
+	selectRow(t, m, "builder.alice_api")
+	run(m.key("p"))
+	if len(peeked) != 1 || peeked[0] != "server:00000000000000aa/builder.alice_api" {
+		t.Fatalf("p peeked %v", peeked)
+	}
+	requireAll(t, ansi.Strip(m.View()), "pane on server", "REMOTE-PANE-LINE")
+
+	// s on the server's agent starts it there, after the line and a y.
+	selectRow(t, m, "builder.alice")
+	m.key("s")
+	for _, r := range "codex fix the build" {
+		m.key(string(r))
+	}
+	m.key("enter")
+	requireAll(t, ansi.Strip(m.View()), "Start builder.alice on server")
+	run(m.key("y"))
+	// s on a session starts a free session beside it, on its host.
+	selectRow(t, m, "builder.alice_api")
+	m.key("s")
+	m.key("enter")
+	run(m.key("y"))
+	// s on this host's team starts a free session here.
+	selectRow(t, m, "alpha")
+	m.key("s")
+	for _, r := range "claude" {
+		m.key(string(r))
+	}
+	m.key("enter")
+	run(m.key("y"))
+	want := []string{
+		"server shop/builder.alice free=false beside= tool=codex note=fix the build",
+		"local team alpha tool=claude note=",
+	}
+	got := strings.Join(spawned, "|")
+	for _, w := range want {
+		if !strings.Contains(got, w) {
+			t.Errorf("spawned %q, want %q", got, w)
+		}
+	}
+	if !strings.Contains(got, "server / free=true beside=00000000-0000-4000-8000-0000000000aa") {
+		t.Errorf("no free session beside the remote one: %q", got)
 	}
 }

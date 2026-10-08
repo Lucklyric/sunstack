@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/Lucklyric/sunstack/internal/core"
@@ -735,8 +736,12 @@ func (m *model) details2(n treeNode, w int) []string {
 			out = append(out, cWarn.Render(fmt.Sprintf("%d message(s) waiting", s.Pending)))
 		}
 		if n.host != nil {
-			out = append(out, "", cDim.Render("on "+n.host.Name+", as of its last snapshot ("+hub.Age(n.host.SnapAge)+" old)"),
-				"", cDim.Render("m message (through the hub) · other actions only on "+n.host.Name))
+			out = append(out, "", cDim.Render("on "+n.host.Name+", as of its last snapshot ("+hub.Age(n.host.SnapAge)+" old)"))
+			if rp, ok := m.remotePanes[n.host.ID+"|"+remoteAddress(s)]; ok {
+				out = append(out, "", cDim.Render("── pane on "+n.host.Name+", "+hub.Age(time.Since(rp.at))+" ago ──"))
+				out = append(out, strings.Split(strings.TrimRight(rp.text, "\n"), "\n")...)
+			}
+			out = append(out, "", cDim.Render("m message · p peek · s start a session beside it (through the hub) · other actions only on "+n.host.Name))
 			break
 		}
 		if tail := m.peek(s); tail != "" {
@@ -830,6 +835,27 @@ func (m *model) treeKey(k string) bool {
 				m.note = m.sendTo(s, text)
 			}
 		}
+	case "p":
+		if n == nil || n.kind != "session" || n.host == nil {
+			return false
+		}
+		addr := remoteAddress(n.sess)
+		if addr == "" {
+			m.note = "that session has no address another host can use"
+			return true
+		}
+		if err := core.UserOnly("peek"); err != nil {
+			m.note = err.Error()
+			return true
+		}
+		h := n.host
+		m.note = "asking " + h.Name + " for the pane…"
+		m.pending = func() tea.Msg {
+			text, err := m.peekRemote(h.Name, addr)
+			return peekMsg{key: h.ID + "|" + addr, text: text, err: err}
+		}
+	case "s":
+		return m.spawnKey(n)
 	case "R", "K":
 		if n != nil && n.host != nil && n.kind == "session" {
 			m.note = "only on " + n.host.Name + ": reopen and close run on the session's own host"
@@ -978,4 +1004,115 @@ func (m *model) orgCounts() string {
 		return out + cWarn.Render(fmt.Sprintf("%d for you", n))
 	}
 	return out + cDim.Render("0 for you")
+}
+
+type remotePane struct {
+	text string
+	at   time.Time
+}
+
+type peekMsg struct {
+	key, text string
+	err       error
+}
+
+func realPeekRemote(host, target string) (string, error) {
+	r, err := hub.Peek(host, target, 30)
+	if err != nil {
+		return "", err
+	}
+	return r.Text, nil
+}
+
+func realSpawnRemote(host string, a hub.SpawnArgs) string {
+	r, err := hub.Spawn(host, a)
+	if err != nil {
+		return err.Error()
+	}
+	return "started " + r.Label + " on " + host + " in " + r.Place
+}
+
+func realSpawnLocal(n treeNode, tool, note string) string {
+	switch n.kind {
+	case "agent":
+		p, err := core.FindProject(n.team.Root)
+		if err != nil {
+			return err.Error()
+		}
+		r, err := p.Spawn(core.SpawnOptions{Arg: n.label, Tool: tool, Note: note, Place: "team"})
+		if err != nil {
+			return err.Error()
+		}
+		return "started " + r.Name + " in " + r.Home
+	case "team":
+		r, err := core.SpawnFree(core.FreeOptions{Tool: tool, Note: note, Root: n.team.Root})
+		if err != nil {
+			return err.Error()
+		}
+		return "started " + r.Label + " in " + r.Home
+	}
+	beside := n.sess.SessionID
+	if beside == "" {
+		beside = sessionName(n.sess)
+	}
+	r, err := core.SpawnFree(core.FreeOptions{Tool: tool, Note: note, Beside: beside})
+	if err != nil {
+		return err.Error()
+	}
+	return "started " + r.Label + " in " + r.Home
+}
+
+// spawnKey (s) starts a session from the selected row (§20.4): an agent row
+// starts that agent, a team row a free session in the team, a session row a
+// free session beside it. Rows of another host start it there.
+func (m *model) spawnKey(n *treeNode) bool {
+	if n == nil || (n.kind != "agent" && n.kind != "team" && n.kind != "session") || (n.kind != "session" && n.team == nil) {
+		m.note = "select an agent, a team or a session to start a session from"
+		return true
+	}
+	if err := core.UserOnly("starting a session"); err != nil {
+		m.note = err.Error()
+		return true
+	}
+	node := *n
+	where := "this host"
+	if node.host != nil {
+		where = node.host.Name
+	}
+	var what string
+	var a hub.SpawnArgs
+	switch node.kind {
+	case "agent":
+		what = node.label
+		a = hub.SpawnArgs{Team: node.team.Name, Agent: node.label}
+	case "team":
+		what = "a free session in " + node.team.Name
+		a = hub.SpawnArgs{Team: node.team.Name, Free: true}
+	default:
+		what = "a free session beside " + sessionName(node.sess)
+		a = hub.SpawnArgs{Free: true, Beside: node.sess.SessionID}
+		if node.host != nil && !core.IsSessionID(a.Beside) {
+			m.note = "that session has no ID another host can use"
+			return true
+		}
+	}
+	m.inputPrompt, m.inputText = "start "+what+" on "+where+": [claude|codex] [first instruction]", ""
+	m.inputDone = func(text string) {
+		tool, note := "", strings.TrimSpace(text)
+		if f := strings.Fields(note); len(f) > 0 && (f[0] == "claude" || f[0] == "codex") {
+			tool, note = f[0], strings.TrimSpace(strings.TrimPrefix(note, f[0]))
+		}
+		a.Tool, a.Note = tool, note
+		m.confirm = "Start " + what + " on " + where + "? It starts a paid session. y to start, any other key to cancel"
+		m.confirmDo = func() {
+			m.note = "starting " + what + " on " + where + "…"
+			m.pending = func() tea.Msg {
+				if node.host != nil {
+					return hubMsg{m.spawnRemote(node.host.Name, a)}
+				}
+				return hubMsg{m.spawnLocal(node, tool, note)}
+			}
+		}
+	}
+	return true
 }
