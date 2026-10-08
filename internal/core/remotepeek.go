@@ -1,6 +1,7 @@
 package core
 
 import (
+	"errors"
 	"strings"
 	"sync"
 	"time"
@@ -53,13 +54,29 @@ func PeekFor(addr string, n int) (label, text string, err error) {
 			return "", "", err
 		}
 		id, c, err := p.target(agent)
-		if err != nil {
+		var ce *Error
+		switch {
+		case err == nil:
+			if c.TmuxPane == "" || c.TmuxSocket == "" || !sameServer(c) {
+				return "", "", fail(ExitFail, "no_pane", "%s is not in a tmux pane sunstack knows", c.Label(id))
+			}
+			socket, pane, tool, label = c.TmuxSocket, c.TmuxPane, c.Tool, c.Label(id)
+		case errors.As(err, &ce) && ce.Reason == "not_found":
+			// A free session in the team, by its label: a new one has no
+			// session ID until its first prompt.
+			_, scope := p.homeOf()
+			ps, sock := freePanes()
+			for _, fp := range ps {
+				if fp.label == agent && fp.scope == scope {
+					socket, pane, tool, label = sock, fp.pane, fp.tool, fp.label
+				}
+			}
+			if pane == "" {
+				return "", "", fail(ExitFail, "not_found", "no agent or free session %s in %s", agent, team)
+			}
+		default:
 			return "", "", err
 		}
-		if c.TmuxPane == "" || c.TmuxSocket == "" || !sameServer(c) {
-			return "", "", fail(ExitFail, "no_pane", "%s is not in a tmux pane sunstack knows", c.Label(id))
-		}
-		socket, pane, tool, label = c.TmuxSocket, c.TmuxPane, c.Tool, c.Label(id)
 	}
 	key := socket + "|" + pane
 	peekMu.Lock()

@@ -126,6 +126,16 @@ func TestRemoteSpawn(t *testing.T) {
 	r = laptop.run(t, "spawn", "--free", "--team", "hub-host:shop", "--dir", "web", "--name", "helper", "--tool", "codex", "--yes")
 	expect(t, r, 0, "remote free spawn")
 	requireContains(t, r.out, "helper on hub-host")
+	// A new free session has no session ID until its first prompt; peek
+	// finds it by its label in the team.
+	expect(t, hubHost.run(t, "org", "allow", "laptop", "peek"), 0, "allow peek")
+	soon(t, "peek the free session by label", func() bool {
+		r := laptop.run(t, "peek", "hub-host:shop/helper", "--lines", "5")
+		return r.code == 0 && strings.Contains(r.out, "helper on hub-host")
+	})
+	r = laptop.run(t, "peek", "hub-host:shop/nobody", "--lines", "5")
+	expect(t, r, 1, "peek an unknown name")
+	requireContains(t, r.stderr, "no agent or free session nobody")
 	r = laptop.run(t, "spawn", "--free", "--team", "hub-host:shop", "--dir", "../outside", "--tool", "codex", "--yes")
 	expect(t, r, 1, "a --dir that leaves the team")
 	requireContains(t, r.stderr, "subfolder")
