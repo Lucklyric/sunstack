@@ -134,3 +134,34 @@ func TestOlder(t *testing.T) {
 		}
 	}
 }
+
+// Claude Code reads a trailing ":*" as its old prefix syntax, so a rule
+// like Bash(sunstack peek *:*) matched nothing. Setup no longer writes such
+// rules and removes the ones earlier versions wrote.
+func TestRetiredAskRulesRemoved(t *testing.T) {
+	for _, r := range AskRules {
+		if strings.HasSuffix(r, ":*)") {
+			t.Errorf("ask rule %s ends in :*", r)
+		}
+	}
+	dir := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", dir)
+	path := dir + "/settings.json"
+	src := `{"permissions":{"allow":["Bash(sunstack *)"],"ask":["Bash(sunstack peek *:*)","Bash(sunstack spawn *:*)","Bash(git push *)"]}}`
+	if err := os.WriteFile(path, []byte(src), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if HasClaudeRules() {
+		t.Error("retired rules still count as current, so update would keep them")
+	}
+	if _, err := SetClaudeRules(true); err != nil {
+		t.Fatal(err)
+	}
+	if !HasClaudeRules() {
+		t.Error("rules not current after setup")
+	}
+	b, _ := os.ReadFile(path)
+	if strings.Contains(string(b), ":*)") || !strings.Contains(string(b), "Bash(git push *)") {
+		t.Errorf("settings after setup:\n%s", b)
+	}
+}

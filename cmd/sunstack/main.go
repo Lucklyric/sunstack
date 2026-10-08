@@ -1655,7 +1655,7 @@ func lifecycle(cmd string, t setup.Targets, yes, skipBinary bool, args []string,
 				_, err := setup.SetClaudeRules(true)
 				step("permission rules", err)
 				if err == nil {
-					fmt.Fprintf(out, "added the newer ask rules: %s\n", strings.Join(setup.AskRules, ", "))
+					fmt.Fprintf(out, "updated the ask rules: %s\n", strings.Join(setup.AskRules, ", "))
 				}
 			}
 		}

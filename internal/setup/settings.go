@@ -174,6 +174,11 @@ func HasClaudeRules() bool {
 			return false
 		}
 	}
+	for _, a := range RetiredAskRules {
+		if _, changed, err := editRule(b, "ask", a, false); err != nil || changed {
+			return false
+		}
+	}
 	return true
 }
 
@@ -201,9 +206,13 @@ func SetClaudeRules(add bool) (bool, error) {
 		return false, err
 	}
 	out, changedAny := src, false
-	for _, r := range claudeRules {
+	rules := claudeRules
+	for _, a := range RetiredAskRules {
+		rules = append(rules[:len(rules):len(rules)], [2]string{"ask", a})
+	}
+	for i, r := range rules {
 		var changed bool
-		if out, changed, err = editRule(out, r[0], r[1], add); err != nil {
+		if out, changed, err = editRule(out, r[0], r[1], add && i < len(claudeRules)); err != nil {
 			return false, err
 		}
 		changedAny = changedAny || changed
