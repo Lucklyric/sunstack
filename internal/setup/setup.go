@@ -26,13 +26,16 @@ const (
 // agent, closing a session, and adding a directive or answering an ask in
 // the user's name, and halting the team.
 var AskRules = []string{AskRule, "Bash(sunstack hire *)", "Bash(sunstack rename *)", "Bash(sunstack fire *)", "Bash(sunstack kill *)", "Bash(sunstack direct *)", "Bash(sunstack answer *)", "Bash(sunstack halt *)",
-	"Bash(sunstack hub init *)", "Bash(sunstack hub invite *)", "Bash(sunstack hub invite)", "Bash(sunstack hub revoke *)", "Bash(sunstack org join *)", "Bash(sunstack org leave)", "Bash(sunstack org leave *)", "Bash(sunstack org trust *)", "Bash(sunstack org allow *)", "Bash(sunstack org deny *)", "Bash(sunstack org update *)"}
+	"Bash(sunstack hub init *)", "Bash(sunstack hub invite *)", "Bash(sunstack hub invite)", "Bash(sunstack hub revoke *)", "Bash(sunstack org join *)", "Bash(sunstack org leave)", "Bash(sunstack org leave *)", "Bash(sunstack org trust *)"}
 
 // RetiredAskRules are rules earlier versions wrote; setup removes them.
 // Claude Code reads their trailing ":*" as its old prefix syntax, so they
 // matched nothing. sunstack itself refuses peek and spawn on another host
 // from an agent session (§20.7).
-var RetiredAskRules = []string{"Bash(sunstack peek *:*)", "Bash(sunstack spawn *:*)"}
+// The org allow, deny and update rules went in 0.10.4: sunstack refuses
+// those from any agent session itself, so asking first only added a step.
+var RetiredAskRules = []string{"Bash(sunstack peek *:*)", "Bash(sunstack spawn *:*)", "Bash(sunstack hub allow *)",
+	"Bash(sunstack org allow *)", "Bash(sunstack org deny *)", "Bash(sunstack org update *)"}
 
 // Targets says which CLIs to act on.
 type Targets struct{ Claude, Codex bool }

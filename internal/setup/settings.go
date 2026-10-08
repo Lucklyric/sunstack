@@ -347,21 +347,6 @@ prefix_rule(
     decision = "prompt",
     justification = "Sunstack org trust accepts another host's changed key; only the user may do that, after comparing fingerprints.",
 )
-prefix_rule(
-    pattern = ["sunstack", "org", "allow"],
-    decision = "prompt",
-    justification = "Sunstack org allow lets another host spawn, peek or update here; only the user may do that.",
-)
-prefix_rule(
-    pattern = ["sunstack", "org", "deny"],
-    decision = "prompt",
-    justification = "Sunstack org deny changes which hosts may spawn, peek or update here; only the user may do that.",
-)
-prefix_rule(
-    pattern = ["sunstack", "org", "update"],
-    decision = "prompt",
-    justification = "Sunstack org update replaces sunstack on other hosts; only the user may do that.",
-)
 `
 
 // CodexRulesPath is where the Codex exec-policy rule lives.
