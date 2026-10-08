@@ -425,6 +425,9 @@ func TestReopenPrivatePane(t *testing.T) {
 			must(t, os.MkdirAll(cwd, 0o755))
 			transcript(t, env, tool, sid, cwd)
 			caller := privateTmux(t, p, env)
+			// The session's team has a home (§20.1): reopen puts it there.
+			home := privateTmux(t, p, env) // panes write their launches to env's folder
+			caller.env = append(caller.env, "SUNSTACK_TMUX_SOCKET="+home.socket)
 			asEnv := append(append([]string{}, env...), "CODEX_THREAD_ID="+sid)
 			if tool == "claude" {
 				asEnv = append(append([]string{}, env...), "CLAUDECODE=1", "CLAUDE_CODE_SESSION_ID="+sid)
@@ -458,11 +461,14 @@ func TestReopenPrivatePane(t *testing.T) {
 			must(t, err)
 			var c core.Live
 			must(t, json.Unmarshal(b, &c))
-			if c.Token != tok || c.Session != sid || c.TmuxPane != pane || c.TmuxSocket != caller.socket || c.TmuxServer != caller.pid {
-				t.Errorf("claim did not move to reopened pane")
+			if c.Token != tok || c.Session != sid || c.TmuxPane != pane || c.TmuxSocket != home.socket || c.TmuxServer != home.pid {
+				t.Errorf("claim did not move to reopened pane: %+v", c)
 			}
-			if got := caller.tmux(t, "display-message", "-p", "-t", pane, "#{pane_title}"); got != "reviewer" {
-				t.Errorf("pane title %q", got)
+			if got := home.tmux(t, "display-message", "-p", "-t", pane, "#{pane_title}\t#{window_name}"); got != "reviewer\treviewer" {
+				t.Errorf("pane title and window %q", got)
+			}
+			if n := len(strings.Fields(caller.tmux(t, "list-panes", "-a", "-F", "#{pane_id}"))); n != 1 {
+				t.Errorf("reopen opened %d panes on the caller's server", n)
 			}
 		})
 	}
@@ -875,4 +881,28 @@ func TestSpawnTeamHome(t *testing.T) {
 	r = sh(t, q, env, "spawn", "reviewer", "--tool", "claude")
 	expect(t, r, 1, "unowned home")
 	requireContains(t, r.stderr, "home_taken")
+}
+
+// attach finds a session by name and brings its pane forward; from another
+// tmux server, or without a terminal, it prints the command instead.
+func TestAttach(t *testing.T) {
+	p := fixture(t)
+	must(t, os.WriteFile(filepath.Join(p, "sunstack", "TEAM"), []byte("id: a1b2000000000000\nname: alpha\n"), 0o644))
+	home := privateTmux(t, p, isolatedEnv(t))
+	caller := privateTmux(t, p, isolatedEnv(t))
+	env := append(append([]string{}, caller.env...), "SUNSTACK_TMUX_SOCKET="+home.socket)
+	var panes []string
+	for _, task := range []string{"one", "two"} {
+		r := sh(t, p, env, "spawn", "reviewer", "--task", task, "--tool", "claude")
+		expect(t, r, 0, "spawn "+task)
+		panes = append(panes, field(paneRe, r.out))
+	}
+	r := sh(t, p, env, "attach", "reviewer_one")
+	expect(t, r, 0, "attach from another server")
+	requireContains(t, r.out, "tmux -S "+home.socket+" attach -t ss-alpha-a1b2")
+	if got := home.tmux(t, "display-message", "-p", "-t", panes[0], "#{pane_active}"); got != "1" {
+		t.Errorf("attach did not select the pane: active %q", got)
+	}
+	expect(t, sh(t, p, env, "attach", "reviewer"), 2, "ambiguous name")
+	expect(t, sh(t, p, env, "attach", "nobody"), 1, "unknown name")
 }

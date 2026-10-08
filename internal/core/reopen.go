@@ -20,6 +20,7 @@ type ReopenOptions struct {
 	Server    string // its PID
 	Caller    string // the caller's pane
 	Window    bool   // a new window instead of a pane beside the caller
+	Place     string // team, here or window; default team for a session in a team (§20.1)
 }
 
 // ReopenResult says where the session was reopened.
@@ -82,14 +83,48 @@ func Reopen(o ReopenOptions) (*ReopenResult, error) {
 		}
 	}
 	res := &ReopenResult{Tool: tool, Cwd: cwd, Command: cmd}
-	if o.Socket == "" {
+	team, terr := FindProject(realPath(cwd))
+	place := o.Place
+	switch {
+	case o.Window:
+		place = "window"
+	case place == "" && terr == nil:
+		place = "team"
+	case place == "":
+		place = "here"
+	case place != "team" && place != "here" && place != "window":
+		return nil, fail(ExitUsage, "usage", "--place must be team, here or window")
+	}
+	if place == "team" && terr != nil {
+		return nil, fail(ExitUsage, "usage", "%s is in no team, so it has no home; use --place here or window", cwd)
+	}
+	if place != "team" && o.Socket == "" {
 		return res, fail(ExitFail, "no_tmux", "reopen opens a tmux pane, so run it inside tmux; or start tmux and run: cd %q && %s", cwd, cmd)
 	}
 	if _, err := exec.LookPath(tool); err != nil {
 		return nil, fail(ExitFail, "no_cli", "%s is not on PATH", tool)
 	}
+	if place == "team" {
+		// The agent's window when the session holds a claim, else free.
+		win := "free"
+		for _, id := range team.Agents() {
+			claims, _ := team.Claims(id)
+			for _, c := range claims {
+				if c.Session == o.SessionID {
+					win = id
+				}
+			}
+		}
+		name, owner := team.homeOf()
+		h, err := openHome(name, owner, cwd, win)
+		if err != nil {
+			return nil, err
+		}
+		o.Socket, o.Server = h.socket, h.server
+		return finishReopen(o, res, tool, cmd, h.pane)
+	}
 	var args []string
-	if o.Window || o.Caller == "" {
+	if place == "window" || o.Caller == "" {
 		args = []string{"new-window", "-d", "-P", "-F", "#{pane_id}", "-c", cwd, "-e", "PATH=" + os.Getenv("PATH")}
 	} else {
 		split := "-v"
@@ -103,7 +138,13 @@ func Reopen(o ReopenOptions) (*ReopenResult, error) {
 	if err != nil || pane == "" {
 		return nil, fail(ExitFail, "tmux", "could not open a tmux pane (%v); rerun with --window", err)
 	}
-	err = exec.Command("tmux", TmuxArgs(o.Socket, "send-keys", "-t", pane, "-l", cmd)...).Run()
+	return finishReopen(o, res, tool, cmd, pane)
+}
+
+// finishReopen resumes the session in its new pane and moves a claim that
+// recorded it there.
+func finishReopen(o ReopenOptions, res *ReopenResult, tool, cmd, pane string) (*ReopenResult, error) {
+	err := exec.Command("tmux", TmuxArgs(o.Socket, "send-keys", "-t", pane, "-l", cmd)...).Run()
 	if err == nil {
 		err = exec.Command("tmux", TmuxArgs(o.Socket, "send-keys", "-t", pane, "Enter")...).Run()
 	}

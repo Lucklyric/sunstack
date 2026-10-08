@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -18,6 +19,7 @@ import (
 	"github.com/Lucklyric/sunstack/internal/hub"
 	"github.com/Lucklyric/sunstack/internal/setup"
 	"github.com/Lucklyric/sunstack/internal/tui"
+	"golang.org/x/term"
 )
 
 // version is set at release time with -ldflags "-X main.version=...".
@@ -66,8 +68,9 @@ Sessions and messages:
   sunstack ack <id> <msg> --token T               archive a handled message
   sunstack check|take|ack --session [<msg>]       the same for a session that works as no agent (its host inbox)
   sunstack whoami [--root DIR]
-  sunstack spawn <id|title> [--tool claude|codex] [--task LABEL] [--note "..."] [--brief FILE] [--window] [--over-cap]
-                                                  split this pane (--window: a new window) and start a session as that agent;
+  sunstack spawn <id|title> [--tool claude|codex] [--task LABEL] [--note "..."] [--brief FILE] [--place team|here|window] [--over-cap]
+                                                  start a session as that agent in the team's tmux session (ss-<team>-<id>,
+                                                  one window per agent; here: beside this pane; window: a new window);
                                                   --brief puts a task in its inbox; refused at max_sessions (sunstack/TEAM, default 6)
                                                   and while the team is halted; the tool defaults to tool: in AGENT.md
   sunstack dismiss <id|id_task>                   ask a session to finish (a shutdown message)
@@ -99,8 +102,9 @@ Org (every team and Claude Code or Codex session on this host):
                                                   of the org follow (--refresh fetches them from the hub first)
   sunstack peek <id_task|pane-id> [--lines N]     the end of a session's tmux pane, e.g. %12 (read only)
   sunstack doing <id> "<line>" --token T          one line on what this session is doing now ("" clears)
-  sunstack reopen <session-id> [--window]         resume a closed session in a tmux pane beside this one, so
-                                                  messages wake it at once (exit it where it ran first)
+  sunstack reopen <session-id> [--place P]        resume a closed session in a tmux pane (in its team's tmux session, else
+                                                  beside this one), so messages wake it at once (exit it where it ran first)
+  sunstack attach <session>                       go to a session's tmux pane: an agent session's name or any session's ID or label
   sunstack log [--id ID] [--follow]               the event log
   sunstack inbox <id>                             pending messages, read only
   sunstack pillar <id> | --team                   effective pillars with their source
@@ -1342,7 +1346,7 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 		return nil
 
 	case "reopen":
-		a, err := parse(rest, "", "window")
+		a, err := parse(rest, "place", "window")
 		if err == nil {
 			err = a.atMost(1, "reopen")
 		}
@@ -1352,12 +1356,30 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 		if len(a.pos) < 1 {
 			return missing("session ID")
 		}
-		r, err := core.Reopen(core.ReopenOptions{SessionID: a.pos[0], Socket: tmuxSocket(), Server: tmuxServer(), Caller: os.Getenv("TMUX_PANE"), Window: a.has("window")})
+		r, err := core.Reopen(core.ReopenOptions{SessionID: a.pos[0], Socket: tmuxSocket(), Server: tmuxServer(), Caller: os.Getenv("TMUX_PANE"), Window: a.has("window"), Place: a.flags["place"]})
 		if err != nil {
 			return err
 		}
 		fmt.Fprintf(stdout, "sunstack: reopened %s session %s in tmux pane %s (%s)\n", r.Tool, a.pos[0], r.Pane, r.Cwd)
 		return nil
+
+	case "attach":
+		a, err := parse(rest, "root", "")
+		if err == nil {
+			err = a.atMost(1, "attach")
+		}
+		if err != nil {
+			return err
+		}
+		if len(a.pos) < 1 {
+			return missing("session name or ID")
+		}
+		p, _ := core.FindProject(a.flags["root"])
+		at, err := core.FindAttach(p, a.pos[0])
+		if err != nil {
+			return err
+		}
+		return attach(at, stdout)
 
 	case "teams":
 		a, err := parse(rest, "scan", "prune json")
@@ -1794,4 +1816,35 @@ func printMessages(stdout io.Writer, ms []*core.Message) {
 func hookContext(stdout io.Writer, ctx string) {
 	b, _ := json.Marshal(map[string]any{"hookSpecificOutput": map[string]string{"hookEventName": "UserPromptSubmit", "additionalContext": ctx}})
 	fmt.Fprintln(stdout, string(b))
+}
+
+// attach brings a session's pane forward on its tmux server, then switches
+// to it inside tmux on that server, attaches outside tmux on a terminal,
+// and otherwise prints the command: it never nests tmux.
+func attach(at *core.AttachPlace, stdout io.Writer) error {
+	tm := func(args ...string) error {
+		return exec.Command("tmux", append([]string{"-S", at.Socket}, args...)...).Run()
+	}
+	_ = tm("select-window", "-t", at.Pane)
+	_ = tm("select-pane", "-t", at.Pane)
+	same := func(a, b string) bool {
+		ra, _ := filepath.EvalSymlinks(a)
+		rb, _ := filepath.EvalSymlinks(b)
+		return a == b || (ra != "" && ra == rb)
+	}
+	command := "tmux -S " + at.Socket + " attach -t " + at.Session
+	switch mine := tmuxSocket(); {
+	case mine != "" && same(mine, at.Socket):
+		if err := tm("switch-client", "-t", at.Pane); err != nil {
+			return &core.Error{Code: core.ExitFail, Reason: "tmux", Msg: "could not switch to " + at.Pane + ": " + err.Error()}
+		}
+		fmt.Fprintf(stdout, "sunstack: switched to %s (%s, pane %s)\n", at.Label, at.Session, at.Pane)
+	case mine == "" && term.IsTerminal(int(os.Stdin.Fd())) && term.IsTerminal(int(os.Stdout.Fd())):
+		cmd := exec.Command("tmux", "-S", at.Socket, "attach", "-t", at.Session)
+		cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
+		return cmd.Run()
+	default:
+		fmt.Fprintf(stdout, "sunstack: %s is in %s, pane %s, on another tmux server; to open it:\n  %s\n", at.Label, at.Session, at.Pane, command)
+	}
+	return nil
 }

@@ -52,8 +52,9 @@ vault or code root), then look again. `sunstack teams --prune` drops teams that 
 
 For a session outside tmux that should be reachable, offer the options: leave it (it sees
 messages at its next prompt), or move it into tmux: the user exits it where it runs (`/exit`),
-then `sunstack reopen <session id>` resumes the same conversation in a pane beside this one
-(`--window` for a new window). An agent's claim follows it to the new pane.
+then `sunstack reopen <session id>` resumes the same conversation in its team's tmux session
+(beside this pane for a session in no team; `--place here` or `--place window` to choose). An
+agent's claim follows it to the new pane. `sunstack attach <session>` goes to a session's pane.
 
 **Asks.** Agents' questions for the user show in the attention list as
 `<id>#Q<n> asks the user: <question> (options: ...) (default: <answer> after <date>)`. Offer
