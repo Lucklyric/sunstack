@@ -103,6 +103,10 @@ Org (every team and Claude Code or Codex session on this host):
   sunstack peek <id_task|pane-id> [--lines N]     the end of a session's tmux pane, e.g. %12 (read only)
   sunstack peek <host>:<team>/<agent>[_task]|<host>:<session-id> [--lines N]
                                                   the same on another host that allows it (org allow), at most 50 lines
+  sunstack spawn <host>:<team>/<agent> [--tool T] [--task L] [--note "..."] [--brief FILE] [--yes]
+  sunstack spawn --free --team <host>:<team> [--dir SUBDIR] | --beside <host>:<session-id> [--tool T] [--name L] [--yes]
+                                                  start a session on another host that allows it (org allow), in its team's
+                                                  tmux session; it asks first (or --yes), since it starts a paid session
   sunstack spawn --free [--tool claude|codex] [--name LABEL] [--note "..."] [--dir DIR | --beside SESSION] [--over-cap]
                                                   start a plain session that holds no agent, in the team's tmux session (window
                                                   free), in DIR, or in the folder of another session; sunstack kill LABEL closes it
@@ -1045,12 +1049,18 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 		return nil
 
 	case "spawn":
-		a, err := parse(rest, "root tool task note brief place name beside dir", "window over-cap free")
+		a, err := parse(rest, "root tool task note brief place name beside dir team", "window over-cap free yes")
 		if err == nil {
 			err = a.atMost(1, "spawn")
 		}
 		if err != nil {
 			return err
+		}
+		if host, sa, ok, err := remoteSpawn(a); ok || err != nil {
+			if err != nil {
+				return err
+			}
+			return spawnOnHost(host, sa, a.has("yes"), stdin, stdout)
 		}
 		if a.has("free") {
 			if len(a.pos) > 0 || a.has("task") || a.has("brief") {
@@ -1912,4 +1922,91 @@ func attach(at *core.AttachPlace, stdout io.Writer) error {
 		fmt.Fprintf(stdout, "sunstack: %s is in %s, pane %s, on another tmux server; to open it:\n  %s\n", at.Label, at.Session, at.Pane, command)
 	}
 	return nil
+}
+
+// remoteSpawn reads a spawn on another host (§20.4) from the arguments:
+// <host>:<team>/<agent>, --free --team <host>:<team>, or --free --beside
+// <host>:<session ID>. ok is false for a spawn on this host.
+func remoteSpawn(a *args) (string, hub.SpawnArgs, bool, error) {
+	sa := hub.SpawnArgs{Tool: a.flags["tool"], Task: a.flags["task"], Name: a.flags["name"], Note: a.flags["note"], Dir: a.flags["dir"], Free: a.has("free")}
+	var host string
+	switch {
+	case !sa.Free && len(a.pos) == 1:
+		h, addr, ok := hub.SplitAddress(a.pos[0])
+		if !ok {
+			return "", sa, false, nil
+		}
+		team, agent, ok := strings.Cut(addr, "/")
+		if !ok || core.IsSessionID(addr) {
+			return "", sa, true, &core.Error{Code: core.ExitUsage, Reason: "usage", Msg: "spawn on another host as <host>:<team>/<agent>"}
+		}
+		host, sa.Team, sa.Agent = h, team, agent
+		if a.has("brief") {
+			b, err := readBody(a.flags["brief"])
+			if err != nil {
+				return "", sa, true, err
+			}
+			if err := core.CheckBrief(b); err != nil {
+				return "", sa, true, err
+			}
+			sa.Brief = b
+		}
+	case sa.Free && strings.Contains(a.flags["team"], ":"):
+		h, team, _ := strings.Cut(a.flags["team"], ":")
+		host, sa.Team = h, team
+	case sa.Free && strings.Contains(a.flags["beside"], ":"):
+		h, sid, _ := strings.Cut(a.flags["beside"], ":")
+		if !core.IsSessionID(sid) {
+			return "", sa, true, &core.Error{Code: core.ExitUsage, Reason: "usage", Msg: "beside a session on another host: --beside <host>:<session ID>"}
+		}
+		host, sa.Beside = h, sid
+	default:
+		return "", sa, false, nil
+	}
+	if a.has("place") || a.has("window") || a.has("over-cap") || a.has("root") {
+		return "", sa, true, &core.Error{Code: core.ExitUsage, Reason: "usage", Msg: "a spawn on another host always goes to the team's home, within its cap"}
+	}
+	return host, sa, true, nil
+}
+
+// spawnOnHost asks another host to start a session, after the user's yes:
+// it starts a paid session.
+func spawnOnHost(host string, sa hub.SpawnArgs, yes bool, stdin io.Reader, stdout io.Writer) error {
+	if err := core.UserOnly("sunstack spawn <host>:"); err != nil {
+		return err
+	}
+	what := "a free " + orDefault(sa.Tool, "claude") + " session"
+	switch {
+	case sa.Agent != "":
+		what = sa.Agent + " of " + sa.Team
+	case sa.Beside != "":
+		what += " beside session " + sa.Beside
+	default:
+		what += " in " + sa.Team
+	}
+	if !yes {
+		if !setup.IsTerminal(os.Stdin) {
+			return &core.Error{Code: core.ExitUsage, Reason: "confirm", Msg: "this starts " + what + " on " + host + "; rerun with --yes once the user has confirmed"}
+		}
+		if !setup.Confirm(stdin, stdout, "Start "+what+" on "+host+"? It starts a paid session.", false) {
+			fmt.Fprintln(stdout, "sunstack: nothing started")
+			return nil
+		}
+	}
+	r, err := hub.Spawn(host, sa)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(stdout, "sunstack: started %s on %s in %s, pane %s\n", r.Label, host, r.Place, r.Pane)
+	if !r.Running {
+		fmt.Fprintf(stdout, "warning: it was not seen running a few seconds after launch; it may be at a login or trust prompt there (sunstack peek %s:%s)\n", host, r.Label)
+	}
+	return nil
+}
+
+func orDefault(s, d string) string {
+	if s == "" {
+		return d
+	}
+	return s
 }

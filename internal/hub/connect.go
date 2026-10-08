@@ -71,6 +71,8 @@ func Connect(logw io.Writer) error {
 			}
 		}()
 	}
+	// Requests a restart cut short get their answer (§20.3).
+	RecoverRequests()
 	backoff := time.Second
 	for {
 		start := time.Now()

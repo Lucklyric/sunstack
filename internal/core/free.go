@@ -28,6 +28,9 @@ type FreeOptions struct {
 	Dir         string // a folder; relative to the team root in a team, else to the working directory
 	Root        string // the caller's team root, if any
 	OverCap     bool
+	// Remote: another host asked (§20.4); Dir must then stay inside Root.
+	Remote  bool
+	Request string // that request's ID, marked on the pane
 }
 
 // FreeResult is a started free session.
@@ -145,7 +148,11 @@ func SpawnFree(o FreeOptions) (*FreeResult, error) {
 	}
 	launch := make([]byte, 8)
 	rand.Read(launch)
-	for k, v := range map[string]string{"@sunstack_launch": hex.EncodeToString(launch), "@sunstack_scope": scope, "@sunstack_label": label, "@sunstack_tool": o.Tool, "@sunstack_root": cwd} {
+	marks := map[string]string{"@sunstack_launch": hex.EncodeToString(launch), "@sunstack_scope": scope, "@sunstack_label": label, "@sunstack_tool": o.Tool, "@sunstack_root": cwd}
+	if o.Request != "" {
+		marks["@sunstack_request"] = o.Request
+	}
+	for k, v := range marks {
 		tm("set-option", "-p", "-t", h.pane, k, v)
 	}
 	tm("select-pane", "-t", h.pane, "-T", label)
@@ -195,6 +202,16 @@ func freeFolder(o FreeOptions) (string, error) {
 			return "", fail(ExitFail, "not_found", "could not tell which folder %s runs in", o.Beside)
 		}
 		dir = found[0].Cwd
+	case o.Dir != "" && o.Remote:
+		// Another host names only a subfolder of the team (§20.4).
+		if o.Root == "" || filepath.IsAbs(o.Dir) || strings.HasPrefix(filepath.Clean(o.Dir), "..") {
+			return "", fail(ExitUsage, "usage", "from another host, --dir is a subfolder of the team")
+		}
+		dir = realPath(filepath.Join(o.Root, o.Dir))
+		root := realPath(o.Root)
+		if dir != root && !strings.HasPrefix(dir, root+string(filepath.Separator)) {
+			return "", fail(ExitUsage, "usage", "%s leaves the team's folder", o.Dir)
+		}
 	case o.Dir != "":
 		dir = o.Dir
 		if !filepath.IsAbs(dir) {

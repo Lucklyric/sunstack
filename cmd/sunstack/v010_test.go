@@ -87,3 +87,52 @@ func TestRemotePeek(t *testing.T) {
 		})
 	}
 }
+
+// Remote spawn (§20.4): the receiving host starts the session in the team's
+// home after its own checks; the reply never carries the claim token.
+func TestRemoteSpawn(t *testing.T) {
+	events := t.TempDir()
+	s := privateTmux(t, t.TempDir(), []string{"SUNSTACK_TEST_EVENTS=" + events})
+	hubHost, addr, hosts := newOrgEnv(t, []string{"SUNSTACK_TMUX_SOCKET=" + s.socket}, "laptop")
+	laptop := hosts[0]
+	laptop.join(t, hubHost, addr)
+	laptop.connector(t)
+	p := hubHost.team(t, "shop")
+	must(t, os.MkdirAll(filepath.Join(p, "web"), 0o755))
+	soon(t, "both hosts pinned", func() bool {
+		return strings.Contains(laptop.run(t, "org", "keys").out, "hub-host") && strings.Contains(hubHost.run(t, "org", "keys").out, "laptop")
+	})
+
+	r := laptop.run(t, "spawn", "hub-host:shop/builder.alice", "--task", "remote", "--tool", "claude", "--yes")
+	expect(t, r, 1, "spawn without a grant")
+	requireContains(t, r.stderr, "not allowed")
+	expect(t, laptop.run(t, "spawn", "hub-host:shop/builder.alice", "--tool", "claude"), 2, "no --yes without a terminal")
+	agent := &orgHost{name: laptop.name, home: laptop.home, env: append(append([]string{}, laptop.env...), "CLAUDECODE=1")}
+	expect(t, agent.run(t, "spawn", "hub-host:shop/builder.alice", "--yes"), 2, "spawn from an agent session")
+
+	expect(t, hubHost.run(t, "org", "allow", "laptop", "spawn"), 0, "allow spawn")
+	r = laptop.run(t, "spawn", "hub-host:shop/builder.alice", "--task", "remote", "--tool", "claude", "--note", "say hello", "--yes")
+	expect(t, r, 0, "remote spawn")
+	requireContains(t, r.out, "builder.alice_remote on hub-host", "ss-shop-")
+	if strings.Contains(r.out, "token") {
+		t.Errorf("the reply shows the token: %s", r.out)
+	}
+	pane := field(paneRe, r.out)
+	if got := s.tmux(t, "show-options", "-p", "-v", "-t", pane, "@sunstack_request"); got == "" {
+		t.Error("the pane does not carry the request ID")
+	}
+
+	r = laptop.run(t, "spawn", "--free", "--team", "hub-host:shop", "--dir", "web", "--name", "helper", "--tool", "codex", "--yes")
+	expect(t, r, 0, "remote free spawn")
+	requireContains(t, r.out, "helper on hub-host")
+	r = laptop.run(t, "spawn", "--free", "--team", "hub-host:shop", "--dir", "../outside", "--tool", "codex", "--yes")
+	expect(t, r, 1, "a --dir that leaves the team")
+	requireContains(t, r.stderr, "subfolder")
+
+	eventually(t, "two launches", func() bool { return len(launches(t, []string{"SUNSTACK_TEST_EVENTS=" + events})) == 2 })
+	var args []string
+	for _, e := range launches(t, []string{"SUNSTACK_TEST_EVENTS=" + events}) {
+		args = append(args, e.Cwd+" "+strings.Join(e.Args, " "))
+	}
+	requireContains(t, strings.Join(args, "|"), "say hello", "/web")
+}

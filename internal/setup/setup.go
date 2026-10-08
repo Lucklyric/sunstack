@@ -26,7 +26,7 @@ const (
 // agent, closing a session, and adding a directive or answering an ask in
 // the user's name, and halting the team.
 var AskRules = []string{AskRule, "Bash(sunstack hire *)", "Bash(sunstack rename *)", "Bash(sunstack fire *)", "Bash(sunstack kill *)", "Bash(sunstack direct *)", "Bash(sunstack answer *)", "Bash(sunstack halt *)",
-	"Bash(sunstack hub init *)", "Bash(sunstack hub invite *)", "Bash(sunstack hub invite)", "Bash(sunstack hub revoke *)", "Bash(sunstack org join *)", "Bash(sunstack org leave)", "Bash(sunstack org leave *)", "Bash(sunstack org trust *)", "Bash(sunstack org allow *)", "Bash(sunstack org deny *)", "Bash(sunstack peek *:*)"}
+	"Bash(sunstack hub init *)", "Bash(sunstack hub invite *)", "Bash(sunstack hub invite)", "Bash(sunstack hub revoke *)", "Bash(sunstack org join *)", "Bash(sunstack org leave)", "Bash(sunstack org leave *)", "Bash(sunstack org trust *)", "Bash(sunstack org allow *)", "Bash(sunstack org deny *)", "Bash(sunstack peek *:*)", "Bash(sunstack spawn *:*)"}
 
 // Targets says which CLIs to act on.
 type Targets struct{ Claude, Codex bool }

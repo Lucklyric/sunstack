@@ -26,6 +26,10 @@ type SpawnOptions struct {
 	OverCap     bool   // start it even when the team is at max_sessions
 	Via         string // the agent session that spawned it, for the brief
 	FromSession string // that session's CLI session ID, so a reply can reach it
+	// FromHost names the host that asked for this spawn (§20.4); the brief
+	// then comes from <host>:user and its reply goes back there.
+	FromHost string
+	Request  string // that request's ID, marked on the pane
 }
 
 // SpawnResult is a started session. Running is false when the CLI was not
@@ -143,6 +147,9 @@ func (p *Project) Spawn(o SpawnOptions) (*SpawnResult, error) {
 	closePane := func() { exec.Command("tmux", TmuxArgs(o.Socket, "kill-pane", "-t", pane)...).Run() }
 	// Mark the pane, so kill can tell it from the user's own panes.
 	exec.Command("tmux", TmuxArgs(o.Socket, "set-option", "-p", "-t", pane, "@sunstack", p.Root+"|"+id)...).Run()
+	if o.Request != "" {
+		exec.Command("tmux", TmuxArgs(o.Socket, "set-option", "-p", "-t", pane, "@sunstack_request", o.Request)...).Run()
+	}
 
 	unlock, err := p.lock(id)
 	if err != nil {
@@ -174,7 +181,11 @@ func (p *Project) Spawn(o SpawnOptions) (*SpawnResult, error) {
 		// Before the CLI starts, so its first inbox check finds it; no
 		// nudge, since the first prompt checks the inbox. It keeps the
 		// caller's session, so the reply has a way back.
-		if _, err := p.Send(SendOptions{To: name, Body: o.Brief, Type: "task", NoNudge: true, Via: o.Via, FromSession: o.FromSession}); err != nil {
+		so := SendOptions{To: name, Body: o.Brief, Type: "task", NoNudge: true, Via: o.Via, FromSession: o.FromSession}
+		if o.FromHost != "" {
+			so.FromLabel, so.FromHost = o.FromHost+":user", o.FromHost
+		}
+		if _, err := p.Send(so); err != nil {
 			p.removeLive(l)
 			closePane()
 			return nil, fail(ExitFail, "brief", "could not deliver the brief to %s: %v", name, err)

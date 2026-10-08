@@ -154,6 +154,8 @@ func takeReply(m *Mail, l *Letter) (string, string, bool) {
 
 // journal entry: a request this host received.
 type received struct {
+	From    string `json:"from"` // the asking host's name
+	Kind    string `json:"kind"`
 	Digest  string `json:"digest"`
 	Status  string `json:"status"` // queued, running, done, uncertain
 	Reply   *Mail  `json:"reply,omitempty"`
@@ -191,8 +193,9 @@ var (
 )
 
 // Handlers run requests on this host; they return the reply's result.
-var handlers = map[string]func(from string, args json.RawMessage) (any, error){
-	"peek": peekHandler,
+var handlers = map[string]func(from, id string, args json.RawMessage) (any, error){
+	"peek":  peekHandler,
+	"spawn": spawnHandler,
 }
 
 // takeRequest records a request, then queues it for the worker. A request
@@ -215,7 +218,7 @@ func takeRequest(m *Mail, pin *Pin, l *Letter) (string, string, bool) {
 		}
 		return "delivered", "", true
 	}
-	j[m.ID] = &received{Digest: digest, Status: "queued", Expires: c.Expires}
+	j[m.ID] = &received{From: pin.Name, Kind: l.Type, Digest: digest, Status: "queued", Expires: c.Expires}
 	err := saveJournal(j)
 	journalMu.Unlock()
 	if err != nil {
@@ -246,7 +249,7 @@ func worker() {
 		case h == nil:
 			err = errors.New(jb.kind + " is not available on this host")
 		default:
-			res, err = h(jb.from.Name, jb.args)
+			res, err = h(jb.from.Name, jb.mail.ID, jb.args)
 		}
 		reply(jb.mail, jb.from, jb.kind, res, err)
 	}
@@ -305,7 +308,7 @@ type PeekResult struct {
 	At    string `json:"at"`
 }
 
-func peekHandler(_ string, raw json.RawMessage) (any, error) {
+func peekHandler(_, _ string, raw json.RawMessage) (any, error) {
 	var a peekArgs
 	if json.Unmarshal(raw, &a) != nil {
 		return nil, errors.New("bad peek request")
@@ -342,4 +345,38 @@ func Peek(hostName, target string, lines int) (*PeekResult, error) {
 		return nil, failErr("bad_reply", "the peek reply cannot be read")
 	}
 	return &r, nil
+}
+
+// RecoverRequests answers the requests a restart cut short: one still
+// queued never ran; one that was running may have started, so it is
+// reported as uncertain and never run again (§20.3). The connector calls
+// it when it starts.
+func RecoverRequests() {
+	journalMu.Lock()
+	j := loadJournal()
+	var open []string
+	for id, e := range j {
+		if e.Status == "queued" || e.Status == "running" {
+			open = append(open, id)
+		}
+	}
+	journalMu.Unlock()
+	pins := loadPins()
+	for _, id := range open {
+		e := j[id]
+		var pin *Pin
+		for _, p := range pins {
+			if p.Name == e.From {
+				pin = p
+			}
+		}
+		if pin == nil {
+			continue
+		}
+		msg := "this host restarted before running it; ask again"
+		if e.Status == "running" {
+			msg = "this host restarted while running it; the result is uncertain (a session it started carries @sunstack_request " + id + "); it is not run again"
+		}
+		reply(&Mail{ID: id}, pin, e.Kind, nil, errors.New(msg))
+	}
 }

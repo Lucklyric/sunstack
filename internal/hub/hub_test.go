@@ -313,7 +313,7 @@ func TestControlRequests(t *testing.T) {
 	}
 
 	ran := make(chan string, 4)
-	handlers["peek"] = func(_ string, _ json.RawMessage) (any, error) { ran <- "peek"; return nil, nil }
+	handlers["peek"] = func(_, _ string, _ json.RawMessage) (any, error) { ran <- "peek"; return nil, nil }
 	defer func() { handlers["peek"] = peekHandler }()
 	_, err := Allow("laptop", []string{"peek"})
 	must(err)
