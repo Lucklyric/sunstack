@@ -24,6 +24,7 @@ type HostView struct {
 	Org         *core.Org // its last snapshot; nil for this host and a host never synced
 	Fingerprint string    // of the key this host trusts for it (§19.4)
 	Version     string    // the sunstack it last reported; this host's own for this host
+	Machine     string    // its machine's host name, when it reported one
 	KeyChanged  bool      // the roster shows another key; its mail is refused until org trust
 }
 
@@ -71,9 +72,9 @@ func LoadView(now time.Time) *OrgView {
 		since = 0
 	}
 	for _, h := range r.Hosts {
-		hv := &HostView{ID: h.ID, Name: h.Name, Hub: h.Hub, You: h.ID == me, CanSend: h.CanSend, Waiting: h.Waiting, State: "not synced yet", Version: h.Version}
+		hv := &HostView{ID: h.ID, Name: h.Name, Hub: h.Hub, You: h.ID == me, CanSend: h.CanSend, Waiting: h.Waiting, State: "not synced yet", Version: h.Version, Machine: h.Machine}
 		if hv.You {
-			hv.Version = Version
+			hv.Version, hv.Machine = Version, core.MachineName()
 		}
 		if h.Hub {
 			v.HubName = h.Name
@@ -169,13 +170,23 @@ func Age(d time.Duration) string {
 
 // Label is a host's heading: "server (live, 4s)".
 func (h *HostView) Label() string {
+	name := h.Title()
 	switch {
 	case h.You:
-		return h.Name + " (this host)"
+		return name + " (this host)"
 	case h.State == "not synced yet":
-		return h.Name + " (not synced yet)"
+		return name + " (not synced yet)"
 	}
-	return fmt.Sprintf("%s (%s, %s)", h.Name, h.State, Age(h.ContactAge))
+	return fmt.Sprintf("%s (%s, %s)", name, h.State, Age(h.ContactAge))
+}
+
+// Title is the host's org name, with its machine's host name when that
+// differs.
+func (h *HostView) Title() string {
+	if h.Machine != "" && !strings.EqualFold(h.Machine, h.Name) {
+		return h.Name + " · " + h.Machine
+	}
+	return h.Name
 }
 
 // Counts are a host's teams, sessions and items that need the user.

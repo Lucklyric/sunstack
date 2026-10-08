@@ -116,6 +116,7 @@ type Host struct {
 	Waiting int        `json:"waiting"`           // mail waiting for it on the hub
 	Hub     bool       `json:"hub,omitempty"`
 	Version string     `json:"version,omitempty"` // the sunstack it last reported (§20.6)
+	Machine string     `json:"machine,omitempty"` // its machine's host name, when it reported one
 	// Kept on the hub only, never sent: the token's hash and the tailnet
 	// address the host joined from.
 	TokenHash string `json:"token_hash,omitempty"`
@@ -157,7 +158,17 @@ func (r *Roster) byName(name string) *Host {
 			return h
 		}
 	}
-	return nil
+	// Then by its machine's host name, when only one host has it.
+	var hit *Host
+	for _, h := range r.Hosts {
+		if h.Machine != "" && strings.EqualFold(h.Machine, name) {
+			if hit != nil {
+				return nil
+			}
+			hit = h
+		}
+	}
+	return hit
 }
 
 func (s store) roster() (*Roster, error) {
@@ -205,8 +216,11 @@ func (s store) liveRoster() (*Roster, error) {
 			if len(f) > 0 {
 				h.Contact = f[0]
 			}
-			if len(f) > 1 {
+			if len(f) > 1 && f[1] != "-" {
 				h.Version = f[1]
+			}
+			if len(f) > 2 {
+				h.Machine = f[2]
 			}
 		}
 		h.Waiting = len(jsonFiles(s.mailDir(h.ID)))
@@ -214,15 +228,22 @@ func (s store) liveRoster() (*Roster, error) {
 	return r, nil
 }
 
-func (s store) touch(id, version string) {
+func (s store) touch(id, version, machine string) {
 	line := stamp(time.Now())
-	if versionRe.MatchString(version) {
-		line += " " + version
+	if !versionRe.MatchString(version) {
+		version = "-"
+	}
+	line += " " + version
+	if machineRe.MatchString(machine) {
+		line += " " + machine
 	}
 	_ = writeFile(s.seenFile(id), []byte(line+"\n"), 0o600)
 }
 
-var versionRe = regexp.MustCompile(`^[0-9A-Za-z.+-]{1,40}$`)
+var (
+	versionRe = regexp.MustCompile(`^[0-9A-Za-z.+-]{1,40}$`)
+	machineRe = regexp.MustCompile(`^[0-9A-Za-z][0-9A-Za-z_-]{0,62}$`)
+)
 
 // Snap is a host's snapshot as the hub stores and forwards it.
 type Snap struct {

@@ -213,3 +213,20 @@ func entries(dir string) []string {
 	}
 	return out
 }
+
+// A host's org name can differ from its machine's host name; the roster
+// and the views carry both, and either names the host.
+func TestHostMachineName(t *testing.T) {
+	hubHost, addr, hosts := newOrg(t, "laptop")
+	laptop := hosts[0]
+	laptop.env = append(laptop.env, "SUNSTACK_MACHINE_NAME=laptop-box-7")
+	laptop.join(t, hubHost, addr)
+	soon(t, "the machine name in the roster", func() bool {
+		laptop.run(t, "org", "--refresh")
+		return strings.Contains(hubHost.run(t, "hub", "hosts").out, "laptop-box-7")
+	})
+	expect(t, hubHost.run(t, "org", "--refresh"), 0, "refresh")
+	requireContains(t, hubHost.run(t, "org", "--by", "host").out, "laptop · laptop-box-7")
+	expect(t, hubHost.run(t, "org", "allow", "laptop-box-7", "peek"), 0, "allow by machine name")
+	requireContains(t, hubHost.run(t, "org", "allow").out, "laptop: peek")
+}

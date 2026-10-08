@@ -113,6 +113,9 @@ func hubCommand(rest []string, stdin io.Reader, stdout, stderr io.Writer) error 
 			if ver == "" {
 				ver = "version unknown"
 			}
+			if h.Machine != "" && !strings.EqualFold(h.Machine, h.Name) {
+				role += " (machine " + h.Machine + ")"
+			}
 			fmt.Fprintf(stdout, "  %s%s  %s, %s, last contact %s, %d waiting\n", h.Name, role, send, ver, contact, h.Waiting)
 		}
 		return nil

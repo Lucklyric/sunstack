@@ -35,6 +35,20 @@ type HostInfo struct {
 
 // ThisHost reads ~/.sunstack/host.json, creating it on first use. The name
 // follows the current short host name.
+// MachineName is the machine's short host name (hostname -s), whatever
+// the host is called in the org. SUNSTACK_MACHINE_NAME stands in for it in
+// tests.
+func MachineName() string {
+	if n := os.Getenv("SUNSTACK_MACHINE_NAME"); n != "" {
+		return n
+	}
+	name, _ := os.Hostname()
+	if i := strings.IndexByte(name, '.'); i > 0 {
+		name = name[:i]
+	}
+	return name
+}
+
 func ThisHost() HostInfo {
 	name, _ := os.Hostname()
 	if i := strings.IndexByte(name, '.'); i > 0 {

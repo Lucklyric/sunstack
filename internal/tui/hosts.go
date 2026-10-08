@@ -76,7 +76,7 @@ func linkText(h *hub.HostView, outbox int) string {
 
 // hostBox is one host's box: name, counts and link.
 func hostBox(h *hub.HostView, local *core.Org, outbox int, latest string, selected, linkUp, linkDown bool) []string {
-	name := h.Name
+	name := h.Title()
 	if h.Hub {
 		name = "◆ " + name + "  (hub)"
 	}
@@ -285,7 +285,7 @@ func hostDetails(h *hub.HostView, w int, local *core.Org) []string {
 		return nil
 	}
 	field := func(k, v string) string { return cDim.Render(fmt.Sprintf("%-9s", k)) + " " + wrap(v, w-10) }
-	title := h.Name
+	title := h.Title()
 	if h.Hub {
 		title += " (hub)"
 	}

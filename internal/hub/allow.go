@@ -56,8 +56,15 @@ func checkKinds(kinds []string) error {
 
 // pinByName finds a trusted host by name, now.
 func pinByName(name string) (string, *Pin, error) {
-	for id, p := range loadPins() {
-		if strings.EqualFold(p.Name, name) {
+	pins := loadPins()
+	byMachine := ""
+	if r := cachedHosts(); r != nil {
+		if h := r.byName(name); h != nil {
+			byMachine = h.ID
+		}
+	}
+	for id, p := range pins {
+		if strings.EqualFold(p.Name, name) || id == byMachine {
 			if p.Changed != nil {
 				return "", nil, failErr("key_changed", "%s's key changed; compare fingerprints and run sunstack org trust %s first", p.Name, p.Name)
 			}

@@ -47,7 +47,7 @@ func newOrgEnv(t *testing.T, hubEnv []string, names ...string) (hub *orgHost, ad
 		must(t, os.WriteFile(agents, []byte("[]"), 0o600))
 		return &orgHost{name: name, home: home, env: []string{
 			"HOME=" + home, "USERPROFILE=" + home, "SUNSTACK_HOME=" + filepath.Join(home, ".sunstack"),
-			"SUNSTACK_HOST_NAME=" + name, "SUNSTACK_CLAUDE_AGENTS=" + agents, "SUNSTACK_CODEX_SCAN=off",
+			"SUNSTACK_HOST_NAME=" + name, "SUNSTACK_MACHINE_NAME=" + name, "SUNSTACK_CLAUDE_AGENTS=" + agents, "SUNSTACK_CODEX_SCAN=off",
 			"SUNSTACK_HUB_NO_LOAD=1", "SUNSTACK_HUB_SNAP_MS=300", "SUNSTACK_HUB_LISTEN=127.0.0.1:0",
 		}}
 	}
