@@ -87,6 +87,10 @@ func ScanSessions() ([]*HostSession, []string) {
 		}
 		if p, ok := panes[s.TTY]; ok && s.TTY != "" {
 			s.Pane, s.Where, s.socket = p.id, p.where, p.socket
+			if p.label != "" {
+				// A free session started by spawn --free (§20.2).
+				s.Name = p.label
+			}
 		}
 		switch {
 		case s.Kind == "background":
@@ -494,7 +498,7 @@ func oneLine(s string) string {
 	return ""
 }
 
-type paneInfo struct{ id, where, socket string }
+type paneInfo struct{ id, where, socket, label string }
 
 // tmuxPanes maps terminal names (ttys001, pts/3) to panes, on the default
 // tmux server and the caller's.
@@ -512,7 +516,7 @@ func tmuxPanes() map[string]paneInfo {
 		sockets = append(sockets, strings.SplitN(t, ",", 2)[0])
 	}
 	for _, sock := range sockets {
-		cmd := exec.Command("tmux", TmuxArgs(sock, "list-panes", "-a", "-F", "#{pane_tty}\t#{pane_id}\t#{session_name}:#{window_index}.#{pane_index}")...)
+		cmd := exec.Command("tmux", TmuxArgs(sock, "list-panes", "-a", "-F", "#{pane_tty}\t#{pane_id}\t#{session_name}:#{window_index}.#{pane_index}\t#{@sunstack_label}")...)
 		if sock == "" {
 			// The default server: inside another server, $TMUX would
 			// point tmux there instead.
@@ -534,11 +538,11 @@ func tmuxPanes() map[string]paneInfo {
 			}
 		}
 		for _, l := range strings.Split(string(b), "\n") {
-			f := strings.SplitN(l, "\t", 3)
-			if len(f) == 3 {
+			f := strings.SplitN(l, "\t", 4)
+			if len(f) == 4 {
 				tty := strings.TrimPrefix(f[0], "/dev/")
 				if _, seen := out[tty]; !seen {
-					out[tty] = paneInfo{f[1], f[2], sock}
+					out[tty] = paneInfo{f[1], f[2], sock, f[3]}
 				}
 			}
 		}

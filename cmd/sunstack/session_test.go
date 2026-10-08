@@ -906,3 +906,69 @@ func TestAttach(t *testing.T) {
 	expect(t, sh(t, p, env, "attach", "reviewer"), 2, "ambiguous name")
 	expect(t, sh(t, p, env, "attach", "nobody"), 1, "unknown name")
 }
+
+// spawn --free starts a plain Claude or Codex session that holds no agent:
+// in the team's home (window free), in a subfolder, or in a folder outside
+// any team; labels are unique, the team's cap counts it, kill closes it.
+func TestSpawnFree(t *testing.T) {
+	p := fixture(t)
+	must(t, os.WriteFile(filepath.Join(p, "sunstack", "TEAM"), []byte("id: a1b2000000000000\nname: alpha\nmax_sessions: 3\n"), 0o644))
+	env := isolatedEnv(t)
+	s := privateTmux(t, p, env)
+	root, _ := filepath.EvalSymlinks(p)
+	opt := func(pane, name string) string {
+		return s.tmux(t, "display-message", "-p", "-t", pane, "#{"+name+"}")
+	}
+
+	r := sh(t, p, s.env, "spawn", "--free", "--tool", "codex")
+	expect(t, r, 0, "free codex")
+	requireContains(t, r.out, "codex-1", "ss-alpha-a1b2:free")
+	first := field(paneRe, r.out)
+	if got := opt(first, "@sunstack_label") + " " + opt(first, "window_name") + " " + opt(first, "pane_title"); got != "codex-1 free codex-1" {
+		t.Errorf("marks %q", got)
+	}
+
+	r = sh(t, p, s.env, "spawn", "--free", "--tool", "claude", "--name", "review", "--note", "look at the fixture")
+	expect(t, r, 0, "free claude with a note")
+	expect(t, sh(t, p, s.env, "spawn", "--free", "--tool", "claude", "--name", "review"), 4, "label taken")
+
+	must(t, os.MkdirAll(filepath.Join(p, "sub"), 0o755))
+	r = sh(t, p, s.env, "spawn", "--free", "--tool", "claude", "--dir", "sub")
+	expect(t, r, 0, "free in a subfolder")
+	requireContains(t, r.out, "claude-1")
+
+	eventually(t, "three launches", func() bool { return len(launches(t, env)) == 3 })
+	var cwds, args []string
+	for _, e := range launches(t, env) {
+		c, _ := filepath.EvalSymlinks(e.Cwd)
+		cwds = append(cwds, c)
+		args = append(args, strings.Join(e.Args, " "))
+	}
+	requireContains(t, strings.Join(cwds, "|"), root+"|", filepath.Join(root, "sub"))
+	requireContains(t, strings.Join(args, "|"), "look at the fixture")
+	if strings.Contains(strings.Join(args, "|"), "sunstack:as") {
+		t.Errorf("a free session took on an agent: %v", args)
+	}
+
+	// The team's cap counts free sessions.
+	r = sh(t, p, s.env, "spawn", "--free", "--tool", "claude")
+	expect(t, r, 4, "cap")
+	requireContains(t, r.stderr, "team_full", "review")
+
+	// A folder in no team gets its own home.
+	loose := t.TempDir()
+	r = sh(t, p, s.env, "spawn", "--free", "--tool", "claude", "--dir", loose, "--name", "loose")
+	expect(t, r, 0, "free outside teams")
+	if home := opt(field(paneRe, r.out), "session_name"); !strings.HasPrefix(home, "ss-") || home == "ss-alpha-a1b2" {
+		t.Errorf("outside-team home %q", home)
+	}
+
+	// kill closes a free session by its label.
+	expect(t, sh(t, p, s.env, "kill", "review", "--yes"), 0, "kill a free session")
+	for _, pane := range strings.Fields(s.tmux(t, "list-panes", "-a", "-F", "#{@sunstack_label}")) {
+		if pane == "review" {
+			t.Error("review still open")
+		}
+	}
+	expect(t, sh(t, p, s.env, "spawn", "--free", "--tool", "claude", "--name", "review"), 0, "the label is free again")
+}

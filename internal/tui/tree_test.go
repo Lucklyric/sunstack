@@ -42,6 +42,7 @@ func treeModel(t *testing.T) *model {
 	m.w, m.h = 120, 32
 	m.org, m.orgBusy = treeOrg(), false
 	m.peek = func(*core.HostSession) string { return "" }
+	m.isFree = func(s *core.HostSession) bool { return s.Name == "codex-1" }
 	return m
 }
 
@@ -155,10 +156,20 @@ func TestTreeActions(t *testing.T) {
 	if killed != "pm.lead_cloud@h" {
 		t.Errorf("K kills: %q", killed)
 	}
-	// K on a session that holds no agent is refused, without asking.
+	// K on a session that holds no agent is refused, without asking,
+	// unless spawn --free started it.
 	selectRow(t, m, "scratch")
 	m.Update(key("K"))
-	requireAll(t, m.View(), "only an agent's session")
+	requireAll(t, m.View(), "only an agent's session or a free session")
+	m.org.Teams[0].Free[0].Name = "codex-1"
+	selectRow(t, m, "codex-1")
+	m.Update(key("K"))
+	requireAll(t, m.View(), "Close codex-1")
+	m.note = ""
+	m.Update(key("y"))
+	if m.note != "closed" {
+		t.Errorf("K on a free session: note %q", m.note)
+	}
 }
 
 // teamTreeModel is a team (two agents, one claimed from a pane that is gone)

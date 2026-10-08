@@ -853,8 +853,8 @@ func (m *model) closeKey(n *treeNode) bool {
 		return true
 	}
 	s := n.sess
-	if s.Agent == "" {
-		m.note = "only an agent's session can be closed here; close a free session in its own pane"
+	if s.Agent == "" && !m.isFree(s) {
+		m.note = "only an agent's session or a free session sunstack started can be closed here; close this one in its own pane"
 		return true
 	}
 	m.confirm = "Close " + sessionName(s) + "'s pane now? Unsaved work is lost. y to close, any other key to cancel"
@@ -897,7 +897,23 @@ func realSend(s *core.HostSession, text string) string {
 	return "sent " + r.ID + "; " + r.Note
 }
 
+func realIsFree(s *core.HostSession) bool {
+	_, _, ok := core.FreeByPane(s.Pane)
+	return ok
+}
+
 func realKill(s *core.HostSession) string {
+	if s.Agent == "" {
+		label, sock, ok := core.FreeByPane(s.Pane)
+		if !ok {
+			return sessionName(s) + " is not a free session sunstack started"
+		}
+		out, err := core.KillFree(s.Pane, sock, label)
+		if err != nil {
+			return err.Error()
+		}
+		return out
+	}
 	p, err := core.FindProject(s.TeamRoot)
 	if err != nil {
 		return err.Error()

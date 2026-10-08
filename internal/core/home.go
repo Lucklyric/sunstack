@@ -70,6 +70,12 @@ func (p *Project) homeOf() (name, owner string) {
 	return HomeName(tname, owner, p.Root), owner
 }
 
+// HomeScope is the mark the team's home and its free sessions carry.
+func (p *Project) HomeScope() string {
+	_, owner := p.homeOf()
+	return owner
+}
+
 // home opens a pane for agent id in the team's home.
 func (p *Project) home(id string) (*homePane, error) {
 	name, owner := p.homeOf()

@@ -101,6 +101,9 @@ Org (every team and Claude Code or Codex session on this host):
                                                   --by host: every session including free ones; other hosts
                                                   of the org follow (--refresh fetches them from the hub first)
   sunstack peek <id_task|pane-id> [--lines N]     the end of a session's tmux pane, e.g. %12 (read only)
+  sunstack spawn --free [--tool claude|codex] [--name LABEL] [--note "..."] [--dir DIR | --beside SESSION] [--over-cap]
+                                                  start a plain session that holds no agent, in the team's tmux session (window
+                                                  free), in DIR, or in the folder of another session; sunstack kill LABEL closes it
   sunstack doing <id> "<line>" --token T          one line on what this session is doing now ("" clears)
   sunstack reopen <session-id> [--place P]        resume a closed session in a tmux pane (in its team's tmux session, else
                                                   beside this one), so messages wake it at once (exit it where it ran first)
@@ -1038,12 +1041,32 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 		return nil
 
 	case "spawn":
-		a, err := parse(rest, "root tool task note brief place", "window over-cap")
+		a, err := parse(rest, "root tool task note brief place name beside dir", "window over-cap free")
 		if err == nil {
 			err = a.atMost(1, "spawn")
 		}
 		if err != nil {
 			return err
+		}
+		if a.has("free") {
+			if len(a.pos) > 0 || a.has("task") || a.has("brief") {
+				return &core.Error{Code: core.ExitUsage, Reason: "usage", Msg: "spawn --free takes no agent, --task or --brief; use --name for its label"}
+			}
+			root := ""
+			if p, err := core.FindProject(a.flags["root"]); err == nil {
+				root = p.Root
+			}
+			callerTool, _ := detectTool()
+			r, err := core.SpawnFree(core.FreeOptions{Tool: a.flags["tool"], DefaultTool: callerTool, Name: a.flags["name"], Note: a.flags["note"],
+				Beside: a.flags["beside"], Dir: a.flags["dir"], Root: root, OverCap: a.has("over-cap")})
+			if err != nil {
+				return err
+			}
+			fmt.Fprintf(stdout, "sunstack: started free session %s (%s) in %s, in tmux session %s, pane %s (sunstack attach %s)\n", r.Label, r.Tool, r.Cwd, r.Home, r.Pane, r.Label)
+			if !r.Running {
+				fmt.Fprintf(stdout, "warning: %s is not running in pane %s yet; it may be at a login or trust prompt, or have exited; sunstack kill %s closes it\n", r.Tool, r.Pane, r.Label)
+			}
+			return nil
 		}
 		if len(a.pos) < 1 {
 			return missing("id")
@@ -1116,9 +1139,32 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 		if len(a.pos) < 1 {
 			return missing("session name (sunstack sessions lists them)")
 		}
-		p, err := core.FindProject(a.flags["root"])
-		if err != nil {
-			return err
+		p, perr := core.FindProject(a.flags["root"])
+		scope := ""
+		if perr == nil {
+			scope = p.HomeScope()
+		}
+		// A free session (§20.2), by its label or session ID.
+		if pane, sock, label, ferr := core.FindFree(a.pos[0], scope); ferr == nil {
+			if !a.has("yes") {
+				plan := "close tmux pane " + pane + " running the free session " + label
+				if !setup.IsTerminal(os.Stdin) {
+					return &core.Error{Code: core.ExitUsage, Reason: "confirm", Msg: "this will " + plan + "; rerun with --yes once the user has confirmed"}
+				}
+				if !setup.Confirm(stdin, stdout, "This will "+plan+". Unsaved work in that session is lost. Continue?", false) {
+					fmt.Fprintln(stdout, "sunstack: nothing closed")
+					return nil
+				}
+			}
+			msg, err := core.KillFree(pane, sock, label)
+			if err != nil {
+				return err
+			}
+			fmt.Fprintf(stdout, "sunstack: %s\n", msg)
+			return nil
+		}
+		if perr != nil {
+			return perr
 		}
 		plan, err := p.KillPlan(a.pos[0])
 		if err != nil {

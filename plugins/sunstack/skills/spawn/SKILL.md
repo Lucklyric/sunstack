@@ -71,6 +71,19 @@ resume it. `sunstack team` shows the same per agent.
 
 To give it work, send a message (message skill) to the new session name.
 
+## Start a free session
+
+A plain Claude or Codex session that holds no agent, for work outside the team's roles:
+
+```sh
+sunstack spawn --free --tool <claude|codex> [--name <label>] [--note "<first prompt>"] [--dir <folder> | --beside <session>]
+```
+
+It opens in the team's tmux session (window `free`), in `--dir` (relative to the team root),
+or in the folder of the session named by `--beside`. Its label (`--name`, else `<tool>-<n>`)
+names it in the org view, in `sunstack attach` and in `sunstack kill`. It counts toward
+`max_sessions` like any session. Confirm with the user first: it starts a paid session.
+
 ## Ask a session to finish
 
 ```sh

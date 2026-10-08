@@ -390,6 +390,9 @@ func (p *Project) checkCap() error {
 			live = append(live, line)
 		}
 	}
+	// Free sessions count too (§20.2).
+	_, owner := p.homeOf()
+	live = append(live, freeCount(owner)...)
 	if len(live) < tf.MaxSessions {
 		return nil
 	}

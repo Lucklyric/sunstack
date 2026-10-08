@@ -79,6 +79,7 @@ type model struct {
 	confirmDo   func()
 	sendTo      func(*core.HostSession, string) string
 	kill        func(*core.HostSession) string
+	isFree      func(*core.HostSession) bool // a free session spawn --free started
 	reopen      func(*core.HostSession) string
 	peek        func(*core.HostSession) string
 
@@ -112,7 +113,7 @@ func Run(p *core.Project, org bool) error {
 // newModel opens on the team, or with org on the host view. Without a team
 // it opens on the team picker, or with org on the host view.
 func newModel(p *core.Project, org bool) *model {
-	m := &model{p: p, folded: map[string]bool{}, sendTo: realSend, kill: realKill, reopen: realReopen, peek: realPeek,
+	m := &model{p: p, folded: map[string]bool{}, sendTo: realSend, kill: realKill, isFree: realIsFree, reopen: realReopen, peek: realPeek,
 		loadView: hub.LoadView, remoteSend: realRemoteSend, refreshHub: realRefresh}
 	switch {
 	case org:
