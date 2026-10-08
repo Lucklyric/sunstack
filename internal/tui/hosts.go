@@ -2,6 +2,8 @@ package tui
 
 import (
 	"fmt"
+	"os"
+	"os/exec"
 	"strings"
 	"time"
 
@@ -10,6 +12,7 @@ import (
 
 	"github.com/Lucklyric/sunstack/internal/core"
 	"github.com/Lucklyric/sunstack/internal/hub"
+	"github.com/Lucklyric/sunstack/internal/setup"
 )
 
 // The Hosts tab (design §18.6): the org as a star around its hub, drawn
@@ -72,7 +75,7 @@ func linkText(h *hub.HostView, outbox int) string {
 }
 
 // hostBox is one host's box: name, counts and link.
-func hostBox(h *hub.HostView, local *core.Org, outbox int, selected, linkUp, linkDown bool) []string {
+func hostBox(h *hub.HostView, local *core.Org, outbox int, latest string, selected, linkUp, linkDown bool) []string {
 	name := h.Name
 	if h.Hub {
 		name = "◆ " + name + "  (hub)"
@@ -85,7 +88,9 @@ func hostBox(h *hub.HostView, local *core.Org, outbox int, selected, linkUp, lin
 	if needs > 0 {
 		counts += " · " + cWarn.Render(fmt.Sprintf("%d for you", needs))
 	}
-	lines := []string{cHeader.Render(name), counts, linkText(h, outbox)}
+	// Every box has the version line, empty when unknown, so the star's
+	// boxes line up.
+	lines := []string{cHeader.Render(name), counts, linkText(h, outbox), versionText(h, latest)}
 	w := 0
 	for _, l := range lines {
 		w = max(w, lipgloss.Width(l))
@@ -108,12 +113,36 @@ func hostBox(h *hub.HostView, local *core.Org, outbox int, selected, linkUp, lin
 	return append(out, edge("└", "┘", linkDown, '┬'))
 }
 
+// versionText is a host's sunstack version, marked when it is behind the
+// newest release.
+func versionText(h *hub.HostView, latest string) string {
+	switch {
+	case h.Version == "":
+		return ""
+	case latest != "" && setup.Older(h.Version, latest):
+		return h.Version + " · " + cWarn.Render("update to "+latest)
+	}
+	return cDim.Render(h.Version)
+}
+
+// behind are the other hosts older than latest, or that never reported a
+// version.
+func behind(v *hub.OrgView, latest string) []string {
+	var out []string
+	for _, h := range v.Hosts {
+		if !h.You && (h.Version == "" || setup.Older(h.Version, latest)) {
+			out = append(out, h.Name)
+		}
+	}
+	return out
+}
+
 // linkCol is the column of a box's link mark: the middle of its border.
 func linkCol(box []string) int { return 1 + (lipgloss.Width(box[0])-2)/2 }
 
 // graph draws the org: the hub's box on top, every other host's box below
 // it joined by links when they fit in width, otherwise one line per host.
-func graph(v *hub.OrgView, sel int, width int, local *core.Org) []string {
+func graph(v *hub.OrgView, sel int, width int, local *core.Org, latest string) []string {
 	if v == nil || len(v.Hosts) == 0 {
 		return []string{cDim.Render("this host is in no org (sunstack org join <hub>)")}
 	}
@@ -129,11 +158,11 @@ func graph(v *hub.OrgView, sel int, width int, local *core.Org) []string {
 			kids = append(kids, i)
 		}
 	}
-	top := hostBox(v.Hosts[hubAt], local, v.Outbox, sel == hubAt, false, len(v.Hosts) > 1)
+	top := hostBox(v.Hosts[hubAt], local, v.Outbox, latest, sel == hubAt, false, len(v.Hosts) > 1)
 	boxes := make([][]string, len(kids))
 	total := 0
 	for k, i := range kids {
-		boxes[k] = hostBox(v.Hosts[i], local, v.Outbox, sel == i, true, false)
+		boxes[k] = hostBox(v.Hosts[i], local, v.Outbox, latest, sel == i, true, false)
 		if k > 0 {
 			total += 2
 		}
@@ -145,7 +174,7 @@ func graph(v *hub.OrgView, sel int, width int, local *core.Org) []string {
 	}
 	if total > width {
 		// Narrow: the hub, then one line per host.
-		out := append([]string{}, hostBox(v.Hosts[hubAt], local, v.Outbox, sel == hubAt, false, false)...)
+		out := append([]string{}, hostBox(v.Hosts[hubAt], local, v.Outbox, latest, sel == hubAt, false, false)...)
 		for k, i := range kids {
 			h := v.Hosts[i]
 			branch := "├─ "
@@ -158,6 +187,9 @@ func graph(v *hub.OrgView, sel int, width int, local *core.Org) []string {
 				line += " (you)"
 			}
 			line += "  " + linkText(h, v.Outbox) + cDim.Render(fmt.Sprintf(" · %s · %s", plural(teams, "team", "teams"), plural(sessions, "session", "sessions")))
+			if vt := versionText(h, latest); vt != "" {
+				line += cDim.Render(" · ") + vt
+			}
 			if sel == i {
 				line = cAccent.Render("▸ ") + line
 			} else {
@@ -391,8 +423,17 @@ func (m *model) hostsView() string {
 	rightW := m.w - leftW - 4
 	h := m.inner()
 	title := cHeader.Render(fmt.Sprintf("Org %s", v.OrgName))
-	left := append([]string{title, ""}, graph(v, m.hostSel, leftW-2, m.org)...)
+	if m.latest != "" && setup.Older(hub.Version, m.latest) {
+		title += "  " + cWarn.Render(m.latest+" available (u on this host)")
+	}
+	left := append([]string{title, ""}, graph(v, m.hostSel, leftW-2, m.org, m.latest)...)
 	right := hostDetails(v.Hosts[m.hostSel], rightW-2, m.org)
+	if t := versionText(v.Hosts[m.hostSel], m.latest); t != "" {
+		right = append(right[:2:2], append([]string{cDim.Render(fmt.Sprintf("%-9s", "version")) + " " + t}, right[2:]...)...)
+	}
+	if m.confirm != "" {
+		right = append(right, "", cWarn.Render(wrap(m.confirm, rightW-2)))
+	}
 	l := cBox.Width(leftW).Height(h).Render(strings.Join(clip(fitAll(left, leftW-2), h), "\n"))
 	r := cBox.Width(rightW).Height(h).Render(strings.Join(clip(fitAll(right, rightW-2), h), "\n"))
 	return lipgloss.JoinHorizontal(lipgloss.Top, l, r)
@@ -428,10 +469,74 @@ func (m *model) hostsKey(k string) (bool, tea.Cmd) {
 		}
 	case "r":
 		return true, m.refreshHub
+	case "u":
+		h := m.hosts.Hosts[m.hostSel]
+		if h.You {
+			m.confirm = "Update sunstack on this host and restart its connector? y to update, any other key to cancel"
+			m.confirmDo = func() {
+				m.note = "updating this host…"
+				m.pending = func() tea.Msg { return hubMsg{m.updateHere()} }
+			}
+			return true, nil
+		}
+		target := m.latest
+		if target == "" {
+			target = hub.Version
+		}
+		m.confirm = "Update sunstack on " + h.Name + " to " + target + " and restart its connector? y to update, any other key to cancel"
+		m.confirmDo = func() {
+			m.note = "asking " + h.Name + " to update…"
+			m.pending = func() tea.Msg { return hubMsg{m.updateHost(h.Name, target)} }
+		}
+	case "U":
+		target := m.latest
+		if target == "" {
+			target = hub.Version
+		}
+		names := behind(m.hosts, target)
+		if len(names) == 0 {
+			m.note = "every host runs " + target + " or newer"
+			return true, nil
+		}
+		m.confirm = "Update sunstack to " + target + " on " + strings.Join(names, ", ") + " and restart their connectors? y to update, any other key to cancel"
+		m.confirmDo = func() {
+			m.note = "asking " + strings.Join(names, ", ") + " to update…"
+			m.pending = func() tea.Msg {
+				var notes []string
+				for _, n := range names {
+					notes = append(notes, m.updateHost(n, target))
+				}
+				return hubMsg{strings.Join(notes, "; ")}
+			}
+		}
 	default:
 		return false, nil
 	}
 	return true, nil
+}
+
+func realUpdateHost(name, target string) string {
+	r, err := hub.Update(name, target)
+	if err != nil {
+		return name + ": " + err.Error()
+	}
+	return name + " updated " + r.From + " -> " + r.To
+}
+
+func realUpdateHere() string {
+	exe, err := os.Executable()
+	if err != nil {
+		return err.Error()
+	}
+	out, err := exec.Command(exe, "update").CombinedOutput()
+	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
+	if err != nil {
+		return "update failed: " + lines[len(lines)-1]
+	}
+	if err := hub.RestartService(); err != nil {
+		return lines[len(lines)-1] + "; restart the connector yourself (" + err.Error() + "); quit and reopen the TUI for the new version"
+	}
+	return lines[len(lines)-1] + "; connector restarted; quit and reopen the TUI for the new version"
 }
 
 // loadHosts reads the org view from the local files.

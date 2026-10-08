@@ -6,10 +6,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"strings"
+	"time"
 
 	"github.com/Lucklyric/sunstack/internal/core"
 	"github.com/Lucklyric/sunstack/internal/hub"
+	"github.com/Lucklyric/sunstack/internal/setup"
 )
 
 const hubUsage = `sunstack hub init <org name>                    make this host the hub of a new org (user only)
@@ -106,7 +109,11 @@ func hubCommand(rest []string, stdin io.Reader, stdout, stderr io.Writer) error 
 			if contact == "" {
 				contact = "never"
 			}
-			fmt.Fprintf(stdout, "  %s%s  %s, last contact %s, %d waiting\n", h.Name, role, send, contact, h.Waiting)
+			ver := h.Version
+			if ver == "" {
+				ver = "version unknown"
+			}
+			fmt.Fprintf(stdout, "  %s%s  %s, %s, last contact %s, %d waiting\n", h.Name, role, send, ver, contact, h.Waiting)
 		}
 		return nil
 
@@ -159,6 +166,67 @@ func orgMembership(rest []string, stdin io.Reader, stdout io.Writer) error {
 			return err
 		}
 		fmt.Fprint(stdout, t)
+		return nil
+	case "update":
+		a, err := parse(rest[1:], "", "all yes")
+		if err == nil {
+			err = a.atMost(1, "org update")
+		}
+		if err != nil {
+			return err
+		}
+		if err := core.UserOnly("sunstack org update"); err != nil {
+			return err
+		}
+		setup.RefreshLatest()
+		target := setup.CachedLatest()
+		if target == "" || setup.Older(target, version) {
+			target = version
+		}
+		var names []string
+		switch {
+		case a.has("all") && len(a.pos) == 0:
+			v := hub.LoadView(time.Now())
+			if v == nil {
+				return &core.Error{Code: core.ExitFail, Reason: "no_org", Msg: "this host is in no org"}
+			}
+			for _, h := range v.Hosts {
+				if !h.You && (h.Version == "" || setup.Older(h.Version, target)) {
+					names = append(names, h.Name)
+				}
+			}
+			if len(names) == 0 {
+				fmt.Fprintf(stdout, "sunstack: every host runs %s or newer\n", target)
+				return nil
+			}
+		case len(a.pos) == 1 && !a.has("all"):
+			names = a.pos
+		default:
+			return missing("a host name, or --all")
+		}
+		if !a.has("yes") {
+			what := "update sunstack to " + target + " on " + strings.Join(names, ", ") + " and restart its connector"
+			if !setup.IsTerminal(os.Stdin) {
+				return &core.Error{Code: core.ExitUsage, Reason: "confirm", Msg: "this will " + what + "; rerun with --yes once the user has confirmed"}
+			}
+			if !setup.Confirm(stdin, stdout, "This will "+what+". Continue?", false) {
+				fmt.Fprintln(stdout, "sunstack: nothing updated")
+				return nil
+			}
+		}
+		failed := 0
+		for _, n := range names {
+			r, err := hub.Update(n, target)
+			if err != nil {
+				failed++
+				fmt.Fprintf(stdout, "sunstack: %s: %v\n", n, err)
+				continue
+			}
+			fmt.Fprintf(stdout, "sunstack: %s updated %s -> %s; its connector restarts\n", n, r.From, r.To)
+		}
+		if failed > 0 {
+			return &core.Error{Code: core.ExitFail, Reason: "update_failed", Msg: fmt.Sprintf("%d host(s) not updated", failed)}
+		}
 		return nil
 	case "allow", "deny":
 		a, err := parse(rest[1:], "", "")

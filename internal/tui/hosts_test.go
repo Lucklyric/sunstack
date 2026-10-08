@@ -34,9 +34,9 @@ func orgView() *hub.OrgView {
 		},
 	}
 	return &hub.OrgView{OrgName: "personal", HubName: "hubbox", Outbox: 1, Hosts: []*hub.HostView{
-		{ID: "aaaaaaaaaaaaaaaa", Name: "hubbox", Hub: true, State: "live", ContactAge: 2 * time.Second, CanSend: true},
-		{ID: "bbbbbbbbbbbbbbbb", Name: "laptop", You: true, State: "live", CanSend: true},
-		{ID: "cccccccccccccccc", Name: "server", State: "stale", ContactAge: 45 * time.Second, Waiting: 2, Org: server, HasSnap: true, SnapAge: time.Minute, Fingerprint: "ABCD-EFGH-JKLM-NPQR", KeyChanged: true},
+		{ID: "aaaaaaaaaaaaaaaa", Name: "hubbox", Hub: true, State: "live", ContactAge: 2 * time.Second, CanSend: true, Version: "0.10.0"},
+		{ID: "bbbbbbbbbbbbbbbb", Name: "laptop", You: true, State: "live", CanSend: true, Version: "0.10.0"},
+		{ID: "cccccccccccccccc", Name: "server", State: "stale", ContactAge: 45 * time.Second, Waiting: 2, Org: server, HasSnap: true, SnapAge: time.Minute, Fingerprint: "ABCD-EFGH-JKLM-NPQR", KeyChanged: true, Version: "0.9.4"},
 		{ID: "dddddddddddddddd", Name: "newbox", State: "not synced yet"},
 	}}
 }
@@ -209,5 +209,61 @@ func TestSharedTeamsMerge(t *testing.T) {
 	}
 	if n != 1 {
 		t.Errorf("b does not switch back to by team: alpha %d times", n)
+	}
+}
+
+// The Hosts tab shows each host's version, marks one behind the newest
+// release, and u / U ask it to update (§20.6).
+func TestHostsVersionsAndUpdate(t *testing.T) {
+	m := hostsModel(t, 200)
+	m.latest = "0.10.0"
+	m.key("h")
+	v := ansi.Strip(m.View())
+	requireAll(t, v, "0.10.0", "0.9.4 · update to 0.10.0")
+	var asked []string
+	m.updateHost = func(name, target string) string { asked = append(asked, name+"@"+target); return name + " updated" }
+	m.updateHere = func() string { return "this host updated" }
+	// u on the server asks first.
+	for m.hosts.Hosts[m.hostSel].Name != "server" {
+		m.key("right")
+	}
+	m.key("u")
+	requireAll(t, ansi.Strip(m.View()), "Update sunstack on server to 0.10.0")
+	if cmd := m.key("y"); cmd != nil {
+		m.Update(cmd())
+	}
+	if len(asked) != 1 || asked[0] != "server@0.10.0" {
+		t.Errorf("u asked %v", asked)
+	}
+	// U asks every host behind: only server (newbox reports no version).
+	asked = nil
+	m.key("U")
+	requireAll(t, ansi.Strip(m.View()), "server, newbox")
+	if cmd := m.key("y"); cmd != nil {
+		m.Update(cmd())
+	}
+	if strings.Join(asked, ",") != "server@0.10.0,newbox@0.10.0" {
+		t.Errorf("U asked %v", asked)
+	}
+	// The Org tab marks the host behind.
+	m.view = viewOrg
+	marked := false
+	for _, n := range m.treeNodes() {
+		marked = marked || n.label == "server (stale, 45s) · update 0.9.4"
+	}
+	if !marked {
+		t.Error("the Org tab does not mark the host behind")
+	}
+	m.view = viewHosts
+	// u on this host updates here.
+	for !m.hosts.Hosts[m.hostSel].You {
+		m.key("right")
+	}
+	m.key("u")
+	if cmd := m.key("y"); cmd != nil {
+		m.Update(cmd())
+	}
+	if !strings.Contains(m.note, "this host updated") {
+		t.Errorf("u here: note %q", m.note)
 	}
 }

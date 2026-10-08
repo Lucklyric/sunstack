@@ -123,3 +123,14 @@ func TestUserOnlyCommandsAsk(t *testing.T) {
 		}
 	}
 }
+
+func TestOlder(t *testing.T) {
+	for _, c := range []struct {
+		a, b string
+		want bool
+	}{{"0.9.4", "0.10.0", true}, {"0.10.0", "0.9.4", false}, {"0.9.4", "0.9.4", false}, {"v0.9.3", "0.9.4", true}, {"dev", "0.9.4", false}, {"0.9.4", "dev", false}} {
+		if got := Older(c.a, c.b); got != c.want {
+			t.Errorf("Older(%s, %s) = %v", c.a, c.b, got)
+		}
+	}
+}

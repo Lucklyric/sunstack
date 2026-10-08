@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // org allow and deny are the user's: refused from an agent session, and
@@ -135,4 +136,60 @@ func TestRemoteSpawn(t *testing.T) {
 		args = append(args, e.Cwd+" "+strings.Join(e.Args, " "))
 	}
 	requireContains(t, strings.Join(args, "|"), "say hello", "/web")
+}
+
+// Remote update (§20.6): the asked host updates, answers with its version,
+// then ends its connector; the restarted connector sends the reply.
+func TestRemoteUpdate(t *testing.T) {
+	hubHost, addr, hosts := newOrg(t, "laptop")
+	laptop := hosts[0]
+	laptop.env = append(laptop.env, "SUNSTACK_SERVICE=1", "SUNSTACK_UPDATE_CMD=echo updated", "SUNSTACK_NO_UPDATE_CHECK=1")
+	hubHost.env = append(hubHost.env, "SUNSTACK_NO_UPDATE_CHECK=1")
+	laptop.join(t, hubHost, addr)
+	laptop.connector(t)
+	soon(t, "both hosts pinned", func() bool {
+		return strings.Contains(hubHost.run(t, "org", "keys").out, "laptop") && strings.Contains(laptop.run(t, "org", "keys").out, "hub-host")
+	})
+	// The roster carries each host's version.
+	soon(t, "versions in the roster", func() bool {
+		return strings.Count(hubHost.run(t, "hub", "hosts").out, "version unknown") == 0
+	})
+
+	r := hubHost.run(t, "org", "update", "laptop", "--yes")
+	expect(t, r, 1, "update without a grant")
+	requireContains(t, r.out, "not allowed")
+
+	expect(t, laptop.run(t, "org", "allow", "hub-host", "update"), 0, "allow update")
+	done := make(chan result, 1)
+	go func() { done <- hubHost.run(t, "org", "update", "laptop", "--yes") }()
+	// The laptop's connector ends after queuing its reply; start it again,
+	// as the service manager would.
+	soon(t, "the update ran", func() bool {
+		// The refused request before the grant is done too: wait for both.
+		j := readFileOr(laptop.file("remote/requests.json"))
+		return strings.Count(j, `"status": "done"`)+strings.Count(j, `"status":"done"`) == 2
+	})
+	time.Sleep(time.Second)
+	_, logs := laptop.connector(t)
+	select {
+	case r = <-done:
+	case <-time.After(90 * time.Second):
+		t.Fatalf("no update reply; laptop connector: %s\noutbox: %v\nsent: %v", logs(), readFileOr(laptop.file("remote/requests.json")), entries(laptop.file("outbox")))
+	}
+	expect(t, r, 0, "update")
+	requireContains(t, r.out, "laptop updated", "its connector restarts")
+}
+
+func readFileOr(path string) string {
+	b, _ := os.ReadFile(path)
+	return string(b)
+}
+
+func entries(dir string) []string {
+	var out []string
+	es, _ := os.ReadDir(dir)
+	for _, e := range es {
+		out = append(out, e.Name())
+	}
+	return out
 }

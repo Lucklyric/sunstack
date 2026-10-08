@@ -195,7 +195,7 @@ func (sv *Server) auth(next func(http.ResponseWriter, *http.Request, *Host)) htt
 				return nil
 			})
 		}
-		sv.s.touch(h.ID)
+		sv.s.touch(h.ID, r.Header.Get("X-Sunstack-Version"))
 		next(w, r, h)
 	}
 }

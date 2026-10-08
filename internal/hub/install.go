@@ -54,7 +54,9 @@ func Install(out io.Writer) error {
 	}
 	// The service starts with a bare PATH; keep this one so tmux and
 	// the CLIs are found.
-	env := map[string]string{"PATH": os.Getenv("PATH")}
+	// SUNSTACK_SERVICE says a service manager restarts the connector, so a
+	// remote update may end it (§20.6).
+	env := map[string]string{"PATH": os.Getenv("PATH"), "SUNSTACK_SERVICE": "1"}
 	if h := os.Getenv("SUNSTACK_HOME"); h != "" {
 		env["SUNSTACK_HOME"] = h
 	}

@@ -23,6 +23,7 @@ type HostView struct {
 	HasSnap     bool
 	Org         *core.Org // its last snapshot; nil for this host and a host never synced
 	Fingerprint string    // of the key this host trusts for it (§19.4)
+	Version     string    // the sunstack it last reported; this host's own for this host
 	KeyChanged  bool      // the roster shows another key; its mail is refused until org trust
 }
 
@@ -70,7 +71,10 @@ func LoadView(now time.Time) *OrgView {
 		since = 0
 	}
 	for _, h := range r.Hosts {
-		hv := &HostView{ID: h.ID, Name: h.Name, Hub: h.Hub, You: h.ID == me, CanSend: h.CanSend, Waiting: h.Waiting, State: "not synced yet"}
+		hv := &HostView{ID: h.ID, Name: h.Name, Hub: h.Hub, You: h.ID == me, CanSend: h.CanSend, Waiting: h.Waiting, State: "not synced yet", Version: h.Version}
+		if hv.You {
+			hv.Version = Version
+		}
 		if h.Hub {
 			v.HubName = h.Name
 		}

@@ -115,6 +115,7 @@ type Host struct {
 	Contact string     `json:"contact,omitempty"` // last time the hub heard from it (hub clock)
 	Waiting int        `json:"waiting"`           // mail waiting for it on the hub
 	Hub     bool       `json:"hub,omitempty"`
+	Version string     `json:"version,omitempty"` // the sunstack it last reported (§20.6)
 	// Kept on the hub only, never sent: the token's hash and the tailnet
 	// address the host joined from.
 	TokenHash string `json:"token_hash,omitempty"`
@@ -199,16 +200,29 @@ func (s store) liveRoster() (*Roster, error) {
 		h = h.public()
 		r.Hosts[i] = h
 		if b, err := os.ReadFile(s.seenFile(h.ID)); err == nil {
-			h.Contact = strings.TrimSpace(string(b))
+			// The contact time, then the version it reported.
+			f := strings.Fields(string(b))
+			if len(f) > 0 {
+				h.Contact = f[0]
+			}
+			if len(f) > 1 {
+				h.Version = f[1]
+			}
 		}
 		h.Waiting = len(jsonFiles(s.mailDir(h.ID)))
 	}
 	return r, nil
 }
 
-func (s store) touch(id string) {
-	_ = writeFile(s.seenFile(id), []byte(stamp(time.Now())+"\n"), 0o600)
+func (s store) touch(id, version string) {
+	line := stamp(time.Now())
+	if versionRe.MatchString(version) {
+		line += " " + version
+	}
+	_ = writeFile(s.seenFile(id), []byte(line+"\n"), 0o600)
 }
+
+var versionRe = regexp.MustCompile(`^[0-9A-Za-z.+-]{1,40}$`)
 
 // Snap is a host's snapshot as the hub stores and forwards it.
 type Snap struct {

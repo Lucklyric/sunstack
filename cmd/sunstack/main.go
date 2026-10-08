@@ -128,6 +128,8 @@ Hosts (an org: several hosts connected through one hub, over Tailscale):
   sunstack org trust <host>                       accept a host's changed key, after comparing fingerprints
   sunstack org allow [<host> peek|spawn|update…]   let a host peek, spawn or update here (none by default); no host: list
   sunstack org deny <host> peek|spawn|update…      take that back
+  sunstack org update <host>|--all [--yes]        update sunstack on another host that allows it (org allow), or on every
+                                                  host that is behind; it restarts the host's connector
   sunstack send <host>:<team>/<agent>[_task]|<host>:<session-id> "<text>"
                                                   a message to another host, through the hub
   sunstack hub init <org name>                    make this host the hub of a new org
@@ -1236,7 +1238,7 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 		return nil
 
 	case "org":
-		if len(rest) > 0 && (rest[0] == "join" || rest[0] == "leave" || rest[0] == "keys" || rest[0] == "trust" || rest[0] == "allow" || rest[0] == "deny") {
+		if len(rest) > 0 && (rest[0] == "join" || rest[0] == "leave" || rest[0] == "keys" || rest[0] == "trust" || rest[0] == "allow" || rest[0] == "deny" || rest[0] == "update") {
 			return orgMembership(rest, stdin, stdout)
 		}
 		a, err := parse(rest, "by", "attention json refresh")

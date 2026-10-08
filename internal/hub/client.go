@@ -44,6 +44,7 @@ func (cl *client) request(method, path string, body []byte, timeout time.Duratio
 		return nil, err
 	}
 	req.Header.Set("Authorization", "Bearer "+cl.c.Token)
+	req.Header.Set("X-Sunstack-Version", Version)
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := httpClient(timeout).Do(req)
 	if err != nil {

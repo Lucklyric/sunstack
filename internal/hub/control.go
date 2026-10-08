@@ -194,8 +194,9 @@ var (
 
 // Handlers run requests on this host; they return the reply's result.
 var handlers = map[string]func(from, id string, args json.RawMessage) (any, error){
-	"peek":  peekHandler,
-	"spawn": spawnHandler,
+	"peek":   peekHandler,
+	"spawn":  spawnHandler,
+	"update": updateHandler,
 }
 
 // takeRequest records a request, then queues it for the worker. A request
@@ -252,6 +253,7 @@ func worker() {
 			res, err = h(jb.from.Name, jb.mail.ID, jb.args)
 		}
 		reply(jb.mail, jb.from, jb.kind, res, err)
+		afterReply()
 	}
 }
 

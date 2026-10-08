@@ -17,6 +17,7 @@ import (
 
 	"github.com/Lucklyric/sunstack/internal/core"
 	"github.com/Lucklyric/sunstack/internal/hub"
+	"github.com/Lucklyric/sunstack/internal/setup"
 )
 
 const refresh = 2 * time.Second
@@ -87,6 +88,10 @@ type model struct {
 	hostSel    int
 	loadView   func(time.Time) *hub.OrgView
 	remoteSend func(to, text string) string
+	latest     string                           // the newest release, from the daily check (§20.6)
+	updateHost func(name, target string) string // asks another host to update
+	updateHere func() string                    // updates this host and restarts its connector
+	pending    tea.Cmd                          // what a confirmed action runs next
 	refreshHub tea.Cmd
 }
 
@@ -106,6 +111,10 @@ func Run(p *core.Project, org bool) error {
 	m := startModel(p, org)
 	m.cwd, _ = os.Getwd()
 	m.reload()
+	// The newest release: the last check now, a fresh one for next time
+	// (at most daily, §20.6).
+	m.latest = setup.CachedLatest()
+	go setup.RefreshLatest()
 	_, err := tea.NewProgram(m, tea.WithAltScreen()).Run()
 	return err
 }
@@ -114,7 +123,8 @@ func Run(p *core.Project, org bool) error {
 // it opens on the team picker, or with org on the host view.
 func newModel(p *core.Project, org bool) *model {
 	m := &model{p: p, folded: map[string]bool{}, sendTo: realSend, kill: realKill, isFree: realIsFree, reopen: realReopen, peek: realPeek,
-		loadView: hub.LoadView, remoteSend: realRemoteSend, refreshHub: realRefresh}
+		loadView: hub.LoadView, remoteSend: realRemoteSend, refreshHub: realRefresh,
+		updateHost: realUpdateHost, updateHere: realUpdateHere}
 	switch {
 	case org:
 		m.view, m.orgBusy = viewOrg, true
@@ -224,7 +234,9 @@ func (m *model) key(k string) tea.Cmd {
 		if k == "y" && do != nil {
 			do()
 		}
-		return nil
+		cmd := m.pending
+		m.pending = nil
+		return cmd
 	}
 	if k == "?" {
 		m.help = true
@@ -468,7 +480,7 @@ func (m *model) View() string {
 			help = cDim.Render("↑↓ move · ←→ fold · enter go to pane · m message · / filter · f show · b by team/host · R reopen · K close · ? keys · q quit")
 		}
 	case m.view == viewHosts:
-		help = cDim.Render("←→↑↓ choose a host · enter its sessions · r refresh · h back · ? keys · q quit")
+		help = cDim.Render("←→↑↓ choose a host · enter its sessions · u update it · U update all behind · r refresh · h back · ? keys · q quit")
 	}
 	if m.note != "" {
 		help = cWarn.Render(m.note) + "  " + help

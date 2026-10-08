@@ -13,6 +13,7 @@ import (
 
 	"github.com/Lucklyric/sunstack/internal/core"
 	"github.com/Lucklyric/sunstack/internal/hub"
+	"github.com/Lucklyric/sunstack/internal/setup"
 )
 
 // The Org tab is a tree: what needs the user, then each team with its
@@ -199,7 +200,11 @@ func (m *model) hostHeading(out []treeNode, h *hub.HostView, rows []treeNode) []
 		return out
 	}
 	hk := "host:" + h.ID
-	out = append(out, treeNode{kind: "host", key: hk, label: h.Label(), fold: len(rows) > 0, host: h, org: h.Org})
+	label := h.Label()
+	if m.latest != "" && h.Version != "" && setup.Older(h.Version, m.latest) {
+		label += " · update " + h.Version
+	}
+	out = append(out, treeNode{kind: "host", key: hk, label: label, fold: len(rows) > 0, host: h, org: h.Org})
 	if !m.folded[hk] {
 		out = append(out, rows...)
 	}
