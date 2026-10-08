@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -41,6 +42,15 @@ type HostInfo struct {
 func MachineName() string {
 	if n := os.Getenv("SUNSTACK_MACHINE_NAME"); n != "" {
 		return n
+	}
+	// On macOS the host name follows the network when HostName is not set
+	// (it can read "Mac"); LocalHostName stays put.
+	if runtime.GOOS == "darwin" {
+		if out, err := exec.Command("scutil", "--get", "LocalHostName").Output(); err == nil {
+			if n := strings.TrimSpace(string(out)); n != "" {
+				return n
+			}
+		}
 	}
 	name, _ := os.Hostname()
 	if i := strings.IndexByte(name, '.'); i > 0 {
