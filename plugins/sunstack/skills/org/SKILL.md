@@ -1,6 +1,6 @@
 ---
 name: org
-description: Show the user's whole Sunstack org on this host and the other hosts of its org, every team, agent and running Claude Code or Codex session (with or without a Sunstack identity), in four views, what needs the user, work by team, people, and hosts, and inspect or summarize any session or team on request. Use when the user says "sunstack org", "/sunstack:org", "what needs me", "what is running on this machine", "show all my sessions", "what is every team doing across teams", "summarize that session", "peek at <session>", "sunstack teams", or asks for a team's event log, inbox or effective pillars. To start or close sessions, use the spawn skill.
+description: Show the user's whole Sunstack org on this host and the other hosts of its org, every team, agent and running Claude Code or Codex session (with or without a Sunstack identity), in four views, what needs the user, work by team, people, and hosts, and inspect or summarize any session or team on request. Use when the user says "sunstack org", "/sunstack:org", "what needs me", "what is running on this machine", "show all my sessions", "what is every team doing across teams", "summarize that session", "peek at <session>", "sunstack teams", "work on another host", "should I use SSH", or asks for a team's event log, inbox or effective pillars. To start or close sessions, use the spawn skill.
 ---
 
 # Sunstack: org
@@ -97,3 +97,26 @@ first, hand over to the next skill.
   opens on the host view. It reopens on the last tab and team used. In an org, `h` opens the
   Hosts tab: the hosts drawn around the hub, each with its link state, teams and sessions;
   `enter` shows that host's sessions in the Org tab.
+
+## 4. Work on another host: sunstack first, SSH for host admin
+
+Before acting on another host, read its state from sunstack: `sunstack org --by host` for its
+teams and sessions, `sunstack hub hosts` on the hub for its version and machine name. Then pick
+the channel from the task:
+
+- **Sunstack** for everything it covers: seeing the host's teams and sessions, and messaging an
+  agent or session there. The user also runs peek, spawn and update on that host once it allows
+  them (`sunstack org allow` there). These need no SSH, stay within the grants the other host
+  set, and leave a record.
+- **SSH** only for host administration sunstack does not do, such as installing or updating
+  other tools, configuration, checking out a repo, copying files, services or debugging. Use it
+  when the user asks for that work or approves it, through the user's own SSH host alias.
+- **Never route around sunstack.** When sunstack refuses an action (`user_only`, a missing
+  grant, a read-only host), tell the user and let them run it or grant it. Do not do the same
+  thing over SSH.
+- Over SSH, run that host's own `sunstack` for its view instead of reading its files directly.
+  Never print secrets. Copy secret files only with the user's approval, and never show their
+  contents.
+- An SSH login cannot read the macOS login keychain, so sign-in checks (Claude, Codex, MCP
+  servers) can read as signed out over SSH. Confirm them from a tmux session on that host, or
+  peek a session's screen.
