@@ -31,6 +31,13 @@ type orgHost struct {
 // each with its own home. addr is where the hub listens.
 func newOrg(t *testing.T, names ...string) (hub *orgHost, addr string, hosts []*orgHost) {
 	t.Helper()
+	return newOrgEnv(t, nil, names...)
+}
+
+// newOrgEnv is newOrg with extra environment for the hub's own host, set
+// before its connector starts.
+func newOrgEnv(t *testing.T, hubEnv []string, names ...string) (hub *orgHost, addr string, hosts []*orgHost) {
+	t.Helper()
 	if runtime.GOOS == "windows" {
 		t.Skip("a hub on Windows is not supported")
 	}
@@ -45,6 +52,7 @@ func newOrg(t *testing.T, names ...string) (hub *orgHost, addr string, hosts []*
 		}}
 	}
 	hub = mk("hub-host")
+	hub.env = append(hub.env, hubEnv...)
 	expect(t, hub.run(t, "hub", "init", "testorg"), 0, "hub init")
 	if len(names) == 0 {
 		return hub, "", nil // the caller starts the hub

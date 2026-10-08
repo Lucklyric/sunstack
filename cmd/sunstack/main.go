@@ -101,6 +101,8 @@ Org (every team and Claude Code or Codex session on this host):
                                                   --by host: every session including free ones; other hosts
                                                   of the org follow (--refresh fetches them from the hub first)
   sunstack peek <id_task|pane-id> [--lines N]     the end of a session's tmux pane, e.g. %12 (read only)
+  sunstack peek <host>:<team>/<agent>[_task]|<host>:<session-id> [--lines N]
+                                                  the same on another host that allows it (org allow), at most 50 lines
   sunstack spawn --free [--tool claude|codex] [--name LABEL] [--note "..."] [--dir DIR | --beside SESSION] [--over-cap]
                                                   start a plain session that holds no agent, in the team's tmux session (window
                                                   free), in DIR, or in the folder of another session; sunstack kill LABEL closes it
@@ -1303,6 +1305,21 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 			if n, err = strconv.Atoi(v); err != nil || n < 1 || n > 500 {
 				return &core.Error{Code: core.ExitUsage, Reason: "usage", Msg: "--lines must be 1 to 500"}
 			}
+		}
+		if hostName, addr, ok := hub.SplitAddress(a.pos[0]); ok {
+			// Another host's session (§20.5): the user's request only.
+			if err := core.UserOnly("sunstack peek <host>:"); err != nil {
+				return err
+			}
+			if n > core.PeekLimit {
+				return &core.Error{Code: core.ExitUsage, Reason: "usage", Msg: "a peek on another host is 1 to 50 lines"}
+			}
+			r, err := hub.Peek(hostName, addr, n)
+			if err != nil {
+				return err
+			}
+			fmt.Fprintf(stdout, "── %s on %s, %s ──\n%s", r.Label, hostName, r.At, r.Text)
+			return nil
 		}
 		p, _ := core.FindProject(a.flags["root"])
 		out, err := p.Peek(a.pos[0], tmuxSocket(), n)

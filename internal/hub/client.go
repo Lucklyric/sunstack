@@ -215,19 +215,38 @@ type Sent struct {
 // (§18.8, §19.4). to is "<host>:<address>"; from is "user" or
 // "<team>/<agent>".
 func Queue(to, from, typ, body, replyTo string) (*Sent, error) {
-	c, err := LoadConfig()
-	if err != nil {
-		return nil, failErr("org", "%v", err)
-	}
-	if c == nil {
-		return nil, failErr("no_org", "this host is in no org, so it cannot send to another host (sunstack org join <hub> --code <code>)")
-	}
 	hostName, addr, ok := SplitAddress(to)
 	if !ok {
 		return nil, usageErr("address another host as <host>:<team>/<agent>[_task] or <host>:<session ID>")
 	}
 	if !ValidAddress(addr) {
 		return nil, usageErr("on another host, address <team>/<agent>[_task] or a session ID, not %q: a bare agent is ambiguous there and pane IDs are reused", addr)
+	}
+	if typ == "" {
+		typ = "fyi"
+	}
+	l := &Letter{From: from, To: addr, Type: typ, ReplyTo: replyTo, Body: body}
+	if err := checkLetter(l); err != nil {
+		return nil, usageErr("%v", err)
+	}
+	if typ == "task" {
+		if err := core.CheckBrief(body); err != nil {
+			return nil, err
+		}
+	}
+	return queueLetter(hostName, l, true)
+}
+
+// queueLetter seals a letter for the host called hostName and puts it in
+// the outbox. keep says whether the outbox keeps the letter in the clear; a
+// control reply is kept only sealed (§20.5).
+func queueLetter(hostName string, l *Letter, keep bool) (*Sent, error) {
+	c, err := LoadConfig()
+	if err != nil {
+		return nil, failErr("org", "%v", err)
+	}
+	if c == nil {
+		return nil, failErr("no_org", "this host is in no org, so it cannot send to another host (sunstack org join <hub> --code <code>)")
 	}
 	r := cachedHosts()
 	var h *Host
@@ -239,7 +258,7 @@ func Queue(to, from, typ, body, replyTo string) (*Sent, error) {
 	}
 	me := core.ThisHost()
 	if h.ID == me.ID {
-		return nil, usageErr("%s is this host; send to %s", hostName, addr)
+		return nil, usageErr("%s is this host", hostName)
 	}
 	pin := loadPins()[h.ID]
 	switch {
@@ -248,30 +267,24 @@ func Queue(to, from, typ, body, replyTo string) (*Sent, error) {
 	case pin.Changed != nil:
 		return nil, failErr("key_changed", "%s's key changed; compare fingerprints (sunstack org keys) and run sunstack org trust %s", h.Name, h.Name)
 	}
-	if typ == "" {
-		typ = "fyi"
-	}
-	l := &Letter{From: from, To: addr, Type: typ, ReplyTo: replyTo, At: stamp(time.Now()), Body: body}
-	if err := checkLetter(l); err != nil {
-		return nil, usageErr("%v", err)
-	}
-	if typ == "task" {
-		if err := core.CheckBrief(body); err != nil {
-			return nil, err
-		}
-	}
+	l.At = stamp(time.Now())
 	keys, err := LoadKeys()
 	if err != nil {
 		return nil, err
 	}
-	m := Mail{ID: core.NewMessageID(from), FromHost: me.ID, ToHost: h.ID}
+	m := Mail{ID: core.NewMessageID(l.From), FromHost: me.ID, ToHost: h.ID}
 	if err := seal(keys, pin.Keys, &m, l); err != nil {
 		return nil, err
 	}
 	if b, _ := json.Marshal(m); len(b) > MaxFrame {
 		return nil, usageErr("the message is larger than 256 KB")
 	}
-	s := &Sent{Mail: m, Letter: *l, ToName: h.Name, Status: "queued", At: l.At}
+	s := &Sent{Mail: m, ToName: h.Name, Status: "queued", At: l.At}
+	if keep {
+		s.Letter = *l
+	} else {
+		s.Letter = Letter{From: l.From, To: l.To, Type: l.Type, ReplyTo: l.ReplyTo, At: l.At}
+	}
 	if err := writeJSON(filepath.Join(outboxDir(), m.ID+".json"), s, 0o600); err != nil {
 		return nil, err
 	}
@@ -391,6 +404,16 @@ func Deliver(m *Mail) (status, reason string, final bool) {
 	l, err := open(keys, pin.Keys, m)
 	if err != nil {
 		return "refused", err.Error(), true
+	}
+	if isControl(l.Type) {
+		// §20.3: never put in an inbox.
+		if err := checkControl(l); err != nil {
+			return "refused", err.Error(), true
+		}
+		if isReply(l.Type) {
+			return takeReply(m, l)
+		}
+		return takeRequest(m, pin, l)
 	}
 	if err := checkLetter(l); err != nil {
 		return "refused", err.Error(), true

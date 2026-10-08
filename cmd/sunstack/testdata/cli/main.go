@@ -72,7 +72,7 @@ func main() {
 		}
 		// Only inspect foreground processes on a terminal of our private server.
 		if len(args) == 4 && args[0] == "-o" && args[1] == "stat=,comm=" && args[2] == "-t" {
-			sockets := []string{strings.Split(os.Getenv("TMUX"), ",")[0], os.Getenv("SUNSTACK_TEST_DEFAULT_SOCKET")}
+			sockets := []string{strings.Split(os.Getenv("TMUX"), ",")[0], os.Getenv("SUNSTACK_TEST_DEFAULT_SOCKET"), os.Getenv("SUNSTACK_TMUX_SOCKET")}
 			for _, sock := range sockets {
 				if !privateSocket(sock) {
 					continue

@@ -284,3 +284,53 @@ func TestGrants(t *testing.T) {
 		t.Errorf("an empty grant was kept: %s", GrantsText())
 	}
 }
+
+// Control requests (§20.3): an expired request and a reply nobody asked for
+// are refused, and a request seen again is never run twice.
+func TestControlRequests(t *testing.T) {
+	t.Setenv("SUNSTACK_HOME", t.TempDir())
+	k, _ := LoadKeys()
+	must := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	must(pinRoster(&Roster{Hosts: []*Host{{ID: "aaaaaaaaaaaaaaaa", Name: "laptop", Keys: k.Public()}}}))
+	pin := loadPins()["aaaaaaaaaaaaaaaa"]
+	body := func(exp time.Time) string {
+		b, _ := json.Marshal(Control{Expires: stamp(exp), Args: json.RawMessage(`{"target":"shop/builder.alice","lines":5}`)})
+		return string(b)
+	}
+	m := &Mail{ID: core.NewMessageID("user"), FromHost: "aaaaaaaaaaaaaaaa"}
+	l := &Letter{From: "user", To: "host", Type: "peek", Body: body(time.Now().Add(-time.Hour))}
+	if st, reason, _ := takeRequest(m, pin, l); st != "refused" || !strings.Contains(reason, "expired") {
+		t.Errorf("expired request: %s %s", st, reason)
+	}
+	r := &Letter{From: "user", To: "host", Type: "peek-reply", ReplyTo: core.NewMessageID("user"), Body: "{}"}
+	if st, _, _ := takeReply(m, r); st != "refused" {
+		t.Error("a reply to no open request was taken")
+	}
+
+	ran := make(chan string, 4)
+	handlers["peek"] = func(_ string, _ json.RawMessage) (any, error) { ran <- "peek"; return nil, nil }
+	defer func() { handlers["peek"] = peekHandler }()
+	_, err := Allow("laptop", []string{"peek"})
+	must(err)
+	l.Body = body(time.Now().Add(time.Minute))
+	for i := 0; i < 2; i++ {
+		if st, _, _ := takeRequest(m, pin, l); st != "delivered" {
+			t.Fatalf("request %d: %s", i, st)
+		}
+	}
+	select {
+	case <-ran:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the request never ran")
+	}
+	select {
+	case <-ran:
+		t.Error("a request seen twice ran twice")
+	case <-time.After(500 * time.Millisecond):
+	}
+}
