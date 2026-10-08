@@ -105,6 +105,11 @@ func NewServer() (*Server, error) {
 	return &Server{c: c, s: s}, nil
 }
 
+// Announce records where the hub listens, for the hub's own connection.
+func (sv *Server) Announce(l net.Listener) error {
+	return writeFile(sv.s.addrFile(), []byte(l.Addr().String()+"\n"), 0o600)
+}
+
 // Handler is the hub's HTTP routes.
 func (sv *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
@@ -547,9 +552,8 @@ func (sv *Server) watch(w http.ResponseWriter, r *http.Request, me *Host) {
 }
 
 // Serve runs the hub's listener until it fails; the hub's connector starts
-// it beside its own connection.
+// it beside its own connection, after Announce.
 func (sv *Server) Serve(l net.Listener) error {
-	_ = writeFile(sv.s.addrFile(), []byte(l.Addr().String()+"\n"), 0o600)
 	srv := &http.Server{Handler: sv.Handler(), ReadHeaderTimeout: 10 * time.Second}
 	return srv.Serve(l)
 }

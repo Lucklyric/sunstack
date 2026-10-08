@@ -59,6 +59,10 @@ func Connect(logw io.Writer) error {
 		if err != nil {
 			return failErr("listen", "the hub cannot listen: %v", err)
 		}
+		// The address is written before the connection below reads it.
+		if err := sv.Announce(l); err != nil {
+			return err
+		}
 		fmt.Fprintf(logw, "%s hub listening on %s\n", stamp(time.Now()), l.Addr())
 		go func() {
 			if err := sv.Serve(l); err != nil {

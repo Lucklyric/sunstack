@@ -46,6 +46,9 @@ func newOrg(t *testing.T, names ...string) (hub *orgHost, addr string, hosts []*
 	}
 	hub = mk("hub-host")
 	expect(t, hub.run(t, "hub", "init", "testorg"), 0, "hub init")
+	if len(names) == 0 {
+		return hub, "", nil // the caller starts the hub
+	}
 	hub.connector(t)
 	soon(t, "the hub listener", func() bool {
 		m, _ := filepath.Glob(filepath.Join(hub.home, ".sunstack", "hub", "*", "listen.addr"))
@@ -520,4 +523,16 @@ func TestHubViews(t *testing.T) {
 		t.Error("org --json carries another host's teams; it is what this host pushes")
 	}
 	requireContains(t, a.run(t, "org", "--by", "host").out, "Host server")
+}
+
+// The hub's own connection starts only once its listener is ready, so its
+// log shows no failed first attempt (v0.9.2).
+func TestHubStartsWithoutRetry(t *testing.T) {
+	hub, _, _ := newOrg(t)
+	stop, log := hub.connector(t)
+	defer stop()
+	time.Sleep(1500 * time.Millisecond)
+	if l := log(); strings.Contains(l, "connection ended") || !strings.Contains(l, "hub listening on") {
+		t.Errorf("hub log:\n%s", l)
+	}
 }
