@@ -504,6 +504,10 @@ func tmuxPanes() map[string]paneInfo {
 		return out
 	}
 	sockets := []string{""}
+	if sock, override := DefaultSocket(); override {
+		// Tests name their stand-in default server (§20.1).
+		sockets[0] = sock
+	}
 	if t := os.Getenv("TMUX"); t != "" {
 		sockets = append(sockets, strings.SplitN(t, ",", 2)[0])
 	}

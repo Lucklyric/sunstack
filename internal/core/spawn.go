@@ -19,7 +19,8 @@ type SpawnOptions struct {
 	Socket      string // tmux server of the caller, from $TMUX
 	Server      string // that server's PID
 	Note        string // what the new session should do first, in words
-	Window      bool   // open a new tmux window instead of a pane beside the caller
+	Place       string // team (default), here or window (§20.1)
+	Window      bool   // open a new tmux window instead of a pane beside the caller (--window: place window)
 	Caller      string // the caller's pane, from $TMUX_PANE
 	Brief       string // a task brief, put in the new session's inbox (checked by the caller)
 	OverCap     bool   // start it even when the team is at max_sessions
@@ -31,6 +32,8 @@ type SpawnOptions struct {
 // seen running in the pane a few seconds after launch.
 type SpawnResult struct {
 	ID, Name, Pane, Token, Tool string
+	Place                       string // team, here or window
+	Home                        string // the team's home and window, for place team: ss-alpha-a1b2:pm.lead
 	Running, Window             bool
 }
 
@@ -85,8 +88,24 @@ func (p *Project) Spawn(o SpawnOptions) (*SpawnResult, error) {
 			o.Tool = "claude"
 		}
 	}
+	place := o.Place
+	switch {
+	case o.Window:
+		place = "window"
+	case place == "":
+		place = "team"
+	case place != "team" && place != "here" && place != "window":
+		return nil, fail(ExitUsage, "usage", "--place must be team, here or window")
+	}
 	if o.Socket == "" {
-		return nil, fail(ExitFail, "no_tmux", "spawn opens a tmux window, so run it inside tmux; otherwise start %s yourself and take on the agent there", o.Tool)
+		// Outside tmux there is no pane to split or window to join.
+		place = "team"
+	}
+	if place == "here" && o.Caller == "" {
+		place = "window"
+	}
+	if _, err := exec.LookPath("tmux"); err != nil {
+		return nil, fail(ExitFail, "no_tmux", "spawn opens a tmux pane, and tmux is not on PATH; start %s yourself and take on the agent there", o.Tool)
 	}
 	if _, err := exec.LookPath(o.Tool); err != nil {
 		return nil, fail(ExitFail, "no_cli", "%s is not on PATH", o.Tool)
@@ -95,26 +114,32 @@ func (p *Project) Spawn(o SpawnOptions) (*SpawnResult, error) {
 	if claims, _ := p.Claims(id); labelTaken(claims, id, name, nil) {
 		return nil, taskTaken(id, name)
 	}
-	window := o.Window || o.Caller == ""
-	var args []string
-	if window {
-		args = []string{"new-window", "-d", "-P", "-F", "#{pane_id}", "-n", name, "-c", p.Root, "-e", "PATH=" + os.Getenv("PATH")}
-	} else {
+	var pane, homeAt string
+	switch place {
+	case "team":
+		h, err := p.home(id)
+		if err != nil {
+			return nil, err
+		}
+		pane, homeAt = h.pane, h.at
+		o.Socket, o.Server = h.socket, h.server
+	case "window":
+		out, err := exec.Command("tmux", TmuxArgs(o.Socket, "new-window", "-d", "-P", "-F", "#{pane_id}", "-n", name, "-c", p.Root, "-e", "PATH="+os.Getenv("PATH"))...).Output()
+		if pane = strings.TrimSpace(string(out)); err != nil || pane == "" {
+			return nil, fail(ExitFail, "tmux", "could not open a tmux window: %v", err)
+		}
+	default:
 		// Side by side when the caller's pane is wide enough, else stacked.
 		split := "-v"
 		if w, _ := exec.Command("tmux", TmuxArgs(o.Socket, "display-message", "-p", "-t", o.Caller, "#{pane_width}")...).Output(); atoiOr(strings.TrimSpace(string(w)), 0) >= 160 {
 			split = "-h"
 		}
-		args = []string{"split-window", "-d", split, "-t", o.Caller, "-P", "-F", "#{pane_id}", "-c", p.Root, "-e", "PATH=" + os.Getenv("PATH")}
-	}
-	out, err := exec.Command("tmux", TmuxArgs(o.Socket, args...)...).Output()
-	pane := strings.TrimSpace(string(out))
-	if err != nil || pane == "" {
-		if !window {
-			return nil, fail(ExitFail, "no_space", "could not split this pane (%v); it may be too small, so rerun with --window", err)
+		out, err := exec.Command("tmux", TmuxArgs(o.Socket, "split-window", "-d", split, "-t", o.Caller, "-P", "-F", "#{pane_id}", "-c", p.Root, "-e", "PATH="+os.Getenv("PATH"))...).Output()
+		if pane = strings.TrimSpace(string(out)); err != nil || pane == "" {
+			return nil, fail(ExitFail, "no_space", "could not split this pane (%v); it may be too small, so rerun with --place window", err)
 		}
-		return nil, fail(ExitFail, "tmux", "could not open a tmux window: %v", err)
 	}
+	window := place == "window"
 	closePane := func() { exec.Command("tmux", TmuxArgs(o.Socket, "kill-pane", "-t", pane)...).Run() }
 	// Mark the pane, so kill can tell it from the user's own panes.
 	exec.Command("tmux", TmuxArgs(o.Socket, "set-option", "-p", "-t", pane, "@sunstack", p.Root+"|"+id)...).Run()
@@ -186,7 +211,7 @@ func (p *Project) Spawn(o SpawnOptions) (*SpawnResult, error) {
 		time.Sleep(250 * time.Millisecond)
 		running = paneRunsTool(o.Socket, pane, o.Tool)
 	}
-	return &SpawnResult{ID: id, Name: name, Pane: pane, Token: l.Token, Tool: o.Tool, Running: running, Window: window}, nil
+	return &SpawnResult{ID: id, Name: name, Pane: pane, Token: l.Token, Tool: o.Tool, Place: place, Home: homeAt, Running: running, Window: window}, nil
 }
 
 func atoiOr(s string, def int) int {

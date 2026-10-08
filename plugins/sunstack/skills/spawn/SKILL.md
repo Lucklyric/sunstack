@@ -29,16 +29,16 @@ resume it. `sunstack team` shows the same per agent.
 1. Choose the agent (rank as in the as skill's "Pick the agent"), the tool (default: the
    agent's `tool:` in its `AGENT.md`, else the one this session runs), a task label (up to 10 characters), and a one-line first
    instruction (no single quotes), for example "handle message <id>" or "work on KR2".
-2. Choose where: by default a pane beside this one, in the current window. Suggest a new
-   window (`--window`) only with a reason, and say it in the plan:
-   - the current window already has three or more panes, so another would be too small;
-   - several sessions are being started at once;
-   - long background work the user does not need to watch;
-   - the user asked for a separate window.
+2. Choose where: by default the team's home, a tmux session named `ss-<team>-<id>` on the
+   user's default tmux server, with one window per agent. The user's screen does not change,
+   and `sunstack attach <session>` picks the session up later. Offer another place only with a
+   reason, and say it in the plan:
+   - `--place here`, a pane beside this one, when the user wants to watch it now;
+   - `--place window`, a new window in this tmux session, when the user asked for one.
    If the new session is for a piece of work with a result, write a task brief (the message
    skill's template: Goal, Scope, Done when, Verify, Report) to a file and pass it with
    `--brief`; the session finds it in its inbox as its first task.
-3. Show the plan (agent, tool, task, first instruction, brief, pane or window) and ask:
+3. Show the plan (agent, tool, task, first instruction, brief, place) and ask:
    start / edit / cancel.
 4. On yes:
 
@@ -46,8 +46,9 @@ resume it. `sunstack team` shows the same per agent.
    sunstack spawn "<id>" --tool <claude|codex> --task "<task>" --note "<first instruction>"
    ```
 
-   Add `--window` for a new window, and `--brief "<brief file>"` for a task brief. It splits this pane (side by side when wide, else
-   stacked) in the project root, claims the agent for the new session, and starts the CLI
+   Add `--place here` or `--place window` for another place, and `--brief "<brief file>"` for a
+   task brief. It opens a pane in the team's home (or the place asked for) in the project root,
+   prints where, claims the agent for the new session, and starts the CLI
    with a first prompt that takes on the identity. The new session may stop at its first-run
    prompts (folder trust, sign-in); tell the user which pane to look at.
    - A `warning:` line means the CLI was not seen running a few seconds after launch: it may
@@ -61,8 +62,11 @@ resume it. `sunstack team` shows the same per agent.
    - **2 `missing_brief`**: the brief lacks the labels named; fill them in. Nothing was opened.
    - **1 `halted`**: the team is halted (the error gives the reason). Tell the user; only
      they end it with `sunstack halt --off`.
-   - **1 `no_space`**: this pane is too small to split; offer `--window` instead.
-   - **1 `no_tmux`**: give the manual steps above.
+   - **1 `no_space`**: with `--place here`, this pane is too small to split; offer the default
+     place or `--place window` instead.
+   - **1 `home_taken`**: a tmux session with the home's name exists but sunstack did not make
+     it; ask the user to rename or close it, or use `--place here` or `--place window`.
+   - **1 `no_tmux`**: tmux is not installed; give the manual steps above.
    - **1 / 2 other**: show the error.
 
 To give it work, send a message (message skill) to the new session name.

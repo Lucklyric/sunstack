@@ -179,7 +179,8 @@ func TestHalt(t *testing.T) {
 	if strings.Contains(string(b), "halt:") || !strings.Contains(string(b), "O1 Ship the export") {
 		t.Errorf("halt --off:\n%s", b)
 	}
-	requireContains(t, sh(t, p, env, "spawn", "builder.bob").stderr, "no_tmux")
+	// Past the halt check: refused only because the label is taken.
+	requireContains(t, sh(t, p, env, "spawn", "builder.bob").stderr, "task_taken")
 	expect(t, sh(t, p, env, "halt", "--off"), 0, "halt --off twice is fine")
 }
 

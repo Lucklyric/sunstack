@@ -113,7 +113,7 @@ func privateTmux(t *testing.T, cwd string, env []string) *tmuxFixture {
 		t.Fatalf("tmux metadata: %q", out)
 	}
 	s := &tmuxFixture{fields[0], fields[1], fields[2], env}
-	s.env = append(append([]string{}, env...), "TMUX="+s.socket+","+s.pid+",0", "TMUX_PANE="+s.pane)
+	s.env = append(append([]string{}, env...), "TMUX="+s.socket+","+s.pid+",0", "TMUX_PANE="+s.pane, "SUNSTACK_TMUX_SOCKET="+s.socket)
 	// Prevent user shell startup files from influencing spawned panes.
 	s.tmux(t, "set-option", "-g", "default-shell", "/bin/sh")
 	s.tmux(t, "set-option", "-g", "default-command", "/bin/sh")
@@ -311,7 +311,7 @@ func TestSpawnPaneLifecycle(t *testing.T) {
 		t.Run(fmt.Sprintf("window=%t", window), func(t *testing.T) {
 			p := fixture(t)
 			s := privateTmux(t, p, isolatedEnv(t))
-			args := []string{"spawn", "reviewer", "--task", "tests", "--tool", "claude", "--note", "check this fixture"}
+			args := []string{"spawn", "reviewer", "--task", "tests", "--tool", "claude", "--note", "check this fixture", "--place", "here"}
 			if window {
 				args = append(args, "--window")
 			}
@@ -568,7 +568,7 @@ func checkClaimOtherServer(t *testing.T, legacy bool) {
 	sid := "00000000-0000-4000-8000-000000000020"
 	entry := privateSession(t, b, sid, p)
 	claudeList(t, env, entry)
-	scanEnv := append(append([]string{}, a.env...), "SUNSTACK_TEST_DEFAULT_SOCKET="+b.socket, "SUNSTACK_TEST_PROCESS_TTYS="+envValue(b.env, "SUNSTACK_TEST_PROCESS_TTYS"))
+	scanEnv := append(append([]string{}, a.env...), "SUNSTACK_TEST_DEFAULT_SOCKET="+b.socket, "SUNSTACK_TMUX_SOCKET="+b.socket, "SUNSTACK_TEST_PROCESS_TTYS="+envValue(b.env, "SUNSTACK_TEST_PROCESS_TTYS"))
 	s := orgSession(readOrg(t, p, scanEnv), sid)
 	if s == nil || s.Agent != "" || s.Pane != b.pane {
 		t.Fatalf("server B session should be free: %+v", s)
@@ -607,7 +607,7 @@ func TestPaneRecipientStaysOnCallerServer(t *testing.T) {
 	eb := privateSession(t, b, sidB, p)
 	mapping, _ := json.Marshal(map[string]string{strconv.Itoa(ea["pid"].(int)): a.tmux(t, "display-message", "-p", "-t", a.pane, "#{pane_tty}"), strconv.Itoa(eb["pid"].(int)): b.tmux(t, "display-message", "-p", "-t", b.pane, "#{pane_tty}")})
 	claudeList(t, a.env, ea, eb)
-	env := append(append([]string{}, a.env...), "SUNSTACK_TEST_DEFAULT_SOCKET="+b.socket, "SUNSTACK_TEST_PROCESS_TTYS="+string(mapping))
+	env := append(append([]string{}, a.env...), "SUNSTACK_TEST_DEFAULT_SOCKET="+b.socket, "SUNSTACK_TMUX_SOCKET="+b.socket, "SUNSTACK_TEST_PROCESS_TTYS="+string(mapping))
 	r := sh(t, p, env, "send", a.pane, "only server A", "--no-nudge")
 	expect(t, r, 0, "send pane")
 	home := envValue(env, "SUNSTACK_HOME")
@@ -618,7 +618,7 @@ func TestPaneRecipientStaysOnCallerServer(t *testing.T) {
 		t.Errorf("other server got message: %v", files)
 	}
 	// Also test B as caller, sharing the exact same host scan and inbox.
-	env = append(env, "TMUX="+b.socket+","+b.pid+",0", "TMUX_PANE="+b.pane, "SUNSTACK_TEST_DEFAULT_SOCKET="+a.socket)
+	env = append(env, "TMUX="+b.socket+","+b.pid+",0", "TMUX_PANE="+b.pane, "SUNSTACK_TEST_DEFAULT_SOCKET="+a.socket, "SUNSTACK_TMUX_SOCKET="+a.socket)
 	expect(t, sh(t, p, env, "send", b.pane, "only server B", "--no-nudge"), 0, "send pane from B")
 	if files, _ := filepath.Glob(filepath.Join(home, "inbox", sidB, "*.md")); len(files) != 1 {
 		t.Errorf("B caller inbox %v", files)
@@ -811,4 +811,68 @@ func TestOldTeamMigrationSequence(t *testing.T) {
 	if string(proto) == string(oldProto) {
 		t.Error("all migration did not refresh protocol")
 	}
+}
+
+// Without --place, a session goes to its team's home on the default tmux
+// server: one tmux session per team, one window per agent (§20.1).
+func TestSpawnTeamHome(t *testing.T) {
+	p := fixture(t)
+	must(t, os.WriteFile(filepath.Join(p, "sunstack", "TEAM"), []byte("id: a1b2000000000000\nname: alpha.team\n"), 0o644))
+	home := privateTmux(t, p, isolatedEnv(t))   // stands in for the default server
+	caller := privateTmux(t, p, isolatedEnv(t)) // the caller's own server
+	env := append(append([]string{}, caller.env...), "SUNSTACK_TMUX_SOCKET="+home.socket)
+	where := func(pane string) string {
+		return home.tmux(t, "display-message", "-p", "-t", pane, "#{session_name}\t#{window_name}\t#{window_id}")
+	}
+
+	r := sh(t, p, env, "spawn", "reviewer", "--task", "one", "--tool", "claude")
+	expect(t, r, 0, "spawn into the home")
+	requireContains(t, r.out, "ss-alpha-team-a1b2")
+	one := field(paneRe, r.out)
+	w1 := strings.Split(where(one), "\t")
+	if w1[0] != "ss-alpha-team-a1b2" || w1[1] != "reviewer" {
+		t.Fatalf("spawned into %v", w1)
+	}
+	if o := home.tmux(t, "show-options", "-v", "-t", "ss-alpha-team-a1b2", "@sunstack_home"); o != "a1b2000000000000" {
+		t.Errorf("home owner %q", o)
+	}
+	if n := len(strings.Fields(caller.tmux(t, "list-panes", "-a", "-F", "#{pane_id}"))); n != 1 {
+		t.Errorf("the caller's server got %d panes", n)
+	}
+
+	// A second task of the agent splits its window; another agent gets its own.
+	r = sh(t, p, env, "spawn", "reviewer", "--task", "two", "--tool", "claude")
+	expect(t, r, 0, "second task")
+	if w := strings.Split(where(field(paneRe, r.out)), "\t"); w[2] != w1[2] {
+		t.Errorf("second task in %v, want window %s", w, w1[2])
+	}
+	r = sh(t, p, env, "spawn", "builder.alice", "--tool", "codex")
+	expect(t, r, 0, "another agent")
+	if w := strings.Split(where(field(paneRe, r.out)), "\t"); w[0] != "ss-alpha-team-a1b2" || w[1] != "builder.alice" {
+		t.Errorf("builder.alice in %v", w)
+	}
+
+	// Outside tmux it still goes home.
+	var plain []string
+	for _, e := range env {
+		if !strings.HasPrefix(e, "TMUX=") && !strings.HasPrefix(e, "TMUX_PANE=") {
+			plain = append(plain, e)
+		}
+	}
+	r = sh(t, p, plain, "spawn", "builder.bob", "--tool", "claude")
+	expect(t, r, 0, "spawn outside tmux")
+	if w := strings.Split(where(field(paneRe, r.out)), "\t"); w[1] != "builder.bob" {
+		t.Errorf("builder.bob in %v", w)
+	}
+
+	// The claim names the home's server, so kill finds the pane.
+	expect(t, sh(t, p, env, "kill", "reviewer_two", "--yes"), 0, "kill a session in its home")
+
+	// A tmux session with a home's name that sunstack did not make is refused.
+	q := fixture(t)
+	must(t, os.WriteFile(filepath.Join(q, "sunstack", "TEAM"), []byte("id: c3d4000000000000\nname: beta\n"), 0o644))
+	home.tmux(t, "new-session", "-d", "-s", "ss-beta-c3d4")
+	r = sh(t, q, env, "spawn", "reviewer", "--tool", "claude")
+	expect(t, r, 1, "unowned home")
+	requireContains(t, r.stderr, "home_taken")
 }

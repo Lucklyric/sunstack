@@ -82,7 +82,10 @@ func cleanEnv() []string {
 		}
 		env = append(env, e)
 	}
-	return env
+	// Spawn's homes live on the default tmux server (§20.1). Point it at a
+	// path with no server, so no test reaches the user's; privateTmux
+	// points it at its own server.
+	return append(env, "SUNSTACK_TMUX_SOCKET="+filepath.Join(os.TempDir(), "sunstack-test-no-default-tmux"))
 }
 
 func expect(t *testing.T, r result, code int, label string) {
@@ -872,7 +875,9 @@ func TestMessages(t *testing.T) {
 	expect(t, sh(t, p, nil, "kill", "builder.alice_docs"), 1, "kill needs a known tmux pane")
 	expect(t, sh(t, p, nil, "kill", "builder.alice"), 1, "kill resolves the one session")
 	expect(t, sh(t, p, nil, "dismiss", "builder.alice_docs", "--force"), 2, "dismiss has no --force; kill does that")
-	expect(t, sh(t, p, nil, "spawn", "reviewer"), 1, "spawn needs tmux")
+	// Outside tmux spawn goes to the team's home (§20.1); here the label is
+	// taken before any tmux server is needed.
+	expect(t, sh(t, p, nil, "spawn", "reviewer"), 4, "spawn checks the label first")
 	if r := sh(t, p, nil, "sessions"); !strings.Contains(r.out, "builder.alice_docs") || !strings.Contains(r.out, "reviewer") {
 		t.Errorf("sessions: %s", r.out)
 	}

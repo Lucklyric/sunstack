@@ -1034,7 +1034,7 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 		return nil
 
 	case "spawn":
-		a, err := parse(rest, "root tool task note brief", "window over-cap")
+		a, err := parse(rest, "root tool task note brief place", "window over-cap")
 		if err == nil {
 			err = a.atMost(1, "spawn")
 		}
@@ -1061,14 +1061,17 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 		callerTool, callerSession := detectTool()
 		r, err := p.Spawn(core.SpawnOptions{Arg: a.pos[0], Tool: a.flags["tool"], DefaultTool: callerTool,
 			FromSession: callerSession, Via: p.CallerLabel(callerTool, callerSession, os.Getenv("TMUX_PANE"), tmuxSocket()), Task: a.flags["task"], Socket: tmuxSocket(), Server: tmuxServer(), Note: a.flags["note"],
-			Window: a.has("window"), Caller: os.Getenv("TMUX_PANE"), Brief: brief, OverCap: a.has("over-cap")})
+			Place: a.flags["place"], Window: a.has("window"), Caller: os.Getenv("TMUX_PANE"), Brief: brief, OverCap: a.has("over-cap")})
 		if err != nil {
 			return err
 		}
 		_ = p.Register()
 		where := "a pane beside this one"
-		if r.Window {
+		switch r.Place {
+		case "window":
 			where = "a new tmux window"
+		case "team":
+			where = "the team's tmux session " + r.Home + " (sunstack attach " + r.Name + ")"
 		}
 		fmt.Fprintf(stdout, "sunstack: started %s (%s) in %s, pane %s\n", r.Name, r.Tool, where, r.Pane)
 		if !r.Running {
