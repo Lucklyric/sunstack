@@ -90,6 +90,8 @@ Team (run these yourself):
   sunstack library show <title>                   print a template's AGENT.md
   sunstack library save <id> [--as TITLE] [--force]  save an agent's AGENT.md as a personal template
   sunstack team                                   who is on the team, who holds whom, where
+  sunstack ssh                                    shared SSH connections: which aliases share one, open or closed, last check
+  sunstack ssh scan | map <host> <alias> | check <alias|host>   read ~/.ssh/config, name an org host's alias, try a login (yours only)
   sunstack teams [--scan DIR] [--prune] [--json]  teams indexed on this host (~/.sunstack/teams.json)
   sunstack migrate [--host | --scan DIR] [--apply safe|all] [--json]
                                                   what this team (or every indexed team) needs from an older
@@ -1457,6 +1459,9 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 			return err
 		}
 		return attach(at, stdout)
+
+	case "ssh":
+		return runSSH(rest, stdout)
 
 	case "teams":
 		a, err := parse(rest, "scan", "prune json")

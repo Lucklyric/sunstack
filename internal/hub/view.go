@@ -25,6 +25,7 @@ type HostView struct {
 	Fingerprint string    // of the key this host trusts for it (§19.4)
 	Version     string    // the sunstack it last reported; this host's own for this host
 	Machine     string    // its machine's host name, when it reported one
+	SSH         string    // this host's SSH view of it (core.SSHLine), set when the view is built
 	KeyChanged  bool      // the roster shows another key; its mail is refused until org trust
 }
 
@@ -73,6 +74,9 @@ func LoadView(now time.Time) *OrgView {
 	}
 	for _, h := range r.Hosts {
 		hv := &HostView{ID: h.ID, Name: h.Name, Hub: h.Hub, You: h.ID == me, CanSend: h.CanSend, Waiting: h.Waiting, State: "not synced yet", Version: h.Version, Machine: h.Machine}
+		if !hv.You {
+			hv.SSH = core.SSHLine(h.ID)
+		}
 		if hv.You {
 			hv.Version, hv.Machine = Version, core.MachineName()
 		}
@@ -257,6 +261,9 @@ func (v *OrgView) Text(view string, local *core.Org) string {
 		}
 		n++
 		fmt.Fprintf(&b, "\n== %s ==\n", h.Label())
+		if h.SSH != "" {
+			fmt.Fprintln(&b, h.SSH)
+		}
 		if h.Org == nil {
 			b.WriteString("  no snapshot yet\n")
 			continue
@@ -315,4 +322,27 @@ func sessionsOnly(t *core.OrgTeam) *core.OrgTeam {
 		return nil
 	}
 	return &c
+}
+
+// HostID resolves an org host by its name or machine name, from the cached
+// roster.
+func HostID(name string) (id, orgName string, ok bool) {
+	if r := cachedHosts(); r != nil {
+		if h := r.byName(name); h != nil {
+			return h.ID, h.Name, true
+		}
+	}
+	return "", "", false
+}
+
+// HostName is an org host's name by its ID, or the ID when unknown.
+func HostName(id string) string {
+	if r := cachedHosts(); r != nil {
+		for _, h := range r.Hosts {
+			if h.ID == id {
+				return h.Name
+			}
+		}
+	}
+	return id
 }

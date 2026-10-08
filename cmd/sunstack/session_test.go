@@ -37,7 +37,7 @@ func installTestTools(dir string) {
 	if err != nil {
 		panic(err)
 	}
-	for _, name := range []string{"codex", "tmux", "ps", "lsof"} {
+	for _, name := range []string{"codex", "tmux", "ps", "lsof", "ssh"} {
 		if err := os.WriteFile(filepath.Join(testTools, name+ext), b, 0o755); err != nil {
 			panic(err)
 		}

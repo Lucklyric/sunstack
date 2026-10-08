@@ -58,6 +58,44 @@ func main() {
 		}
 		run(os.Getenv("SUNSTACK_TEST_REAL_TMUX"), args...)
 		return
+	case "ssh":
+		// Records every call. -G prints what SUNSTACK_TEST_SSH_G holds for the
+		// alias; -O check answers for sockets listed in SUNSTACK_TEST_SSH_OPEN;
+		// a login follows SUNSTACK_TEST_SSH_LOGIN (empty: ok).
+		if ev := os.Getenv("SUNSTACK_TEST_EVENTS"); ev != "" {
+			f, _ := os.OpenFile(filepath.Join(ev, "ssh.log"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+			fmt.Fprintln(f, strings.Join(args, " "))
+			f.Close()
+		}
+		last := args[len(args)-1]
+		switch {
+		case len(args) > 0 && args[0] == "-G":
+			var g map[string]string
+			json.Unmarshal([]byte(os.Getenv("SUNSTACK_TEST_SSH_G")), &g)
+			fmt.Printf("hostname %s\n%s\n", last, g[last])
+			return
+		case len(args) >= 3 && args[len(args)-3] == "-O" && args[len(args)-2] == "check":
+			for _, a := range args {
+				if p, ok := strings.CutPrefix(a, "ControlPath="); ok {
+					for _, open := range strings.Split(os.Getenv("SUNSTACK_TEST_SSH_OPEN"), ",") {
+						if open != "" && open == p {
+							fmt.Fprintln(os.Stderr, "Master running")
+							return
+						}
+					}
+				}
+			}
+			fmt.Fprintln(os.Stderr, "Control socket connect: No such file or directory")
+			os.Exit(255)
+		}
+		switch os.Getenv("SUNSTACK_TEST_SSH_LOGIN") {
+		case "denied":
+			fmt.Fprintln(os.Stderr, "user@host: Permission denied (publickey).")
+			os.Exit(255)
+		case "hang":
+			select {}
+		}
+		return
 	case "ps":
 		if pid := os.Getenv("SUNSTACK_TEST_SCAN_PID"); pid != "" {
 			if len(args) == 2 && args[0] == "-axo" {

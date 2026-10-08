@@ -309,6 +309,11 @@ func hostDetails(h *hub.HostView, w int, local *core.Org) []string {
 		send = "can send"
 	}
 	out = append(out, field("messages", send))
+	if !h.You {
+		if l := h.SSH; l != "" {
+			out = append(out, field("ssh", strings.TrimPrefix(l, "ssh ")))
+		}
+	}
 	if h.Fingerprint != "" {
 		out = append(out, field("key", h.Fingerprint))
 	}

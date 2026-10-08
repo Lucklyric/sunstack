@@ -101,8 +101,9 @@ first, hand over to the next skill.
 ## 4. Work on another host: sunstack first, SSH for host admin
 
 Before acting on another host, read its state from sunstack: `sunstack org --by host` for its
-teams and sessions, `sunstack hub hosts` on the hub for its version and machine name. Then pick
-the channel from the task:
+teams and sessions, `sunstack hub hosts` on the hub for its version and machine name, and
+`sunstack ssh` for which SSH aliases share a connection that is open now and can be reused
+(`ssh <alias>` then logs in without a new sign-in). Then pick the channel from the task:
 
 - **Sunstack** for everything it covers: seeing the host's teams and sessions, and messaging an
   agent or session there. The user also runs peek, spawn and update on that host once it allows
