@@ -72,6 +72,7 @@ type model struct {
 	folded      map[string]bool // tree nodes the user folded
 	filter      string
 	filterMode  int    // index into filterModes
+	byHost      bool   // the Org tab lists hosts, then their teams (b)
 	inputPrompt string // a line being typed: a filter or a message
 	inputText   string
 	inputDone   func(string)
@@ -462,6 +463,9 @@ func (m *model) View() string {
 		help = cDim.Render("↑↓ select · r refresh · tab switch · t teams · esc back · ? help · q quit")
 	case m.view == viewOrg:
 		help = cDim.Render("↑↓ move · ←→ fold · enter go to pane · m message · / filter · f show · R reopen · K close · ? keys · q quit")
+		if m.hosts != nil && !m.teamScope() {
+			help = cDim.Render("↑↓ move · ←→ fold · enter go to pane · m message · / filter · f show · b by team/host · R reopen · K close · ? keys · q quit")
+		}
 	case m.view == viewHosts:
 		help = cDim.Render("←→↑↓ choose a host · enter its sessions · r refresh · h back · ? keys · q quit")
 	}

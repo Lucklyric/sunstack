@@ -301,6 +301,7 @@ func (m *model) helpView() string {
 		"pgup/pgdn  scroll the right pane",
 		"Team and Org tabs: ←→ fold · enter go to pane · m message",
 		"  / filter by name · f show all, needs you, busy, outside tmux",
+		"  b in an org: by team (each team once, then each host) or by host",
 		"  R reopen a session in tmux · K close an agent's session (both ask)",
 		"l  log · i  inbox (team tab)",
 		"g  go to the selected agent's pane",

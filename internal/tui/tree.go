@@ -128,26 +128,80 @@ func (m *model) treeNodes() []treeNode {
 		}
 		out = append(out, treeNode{kind: "needs", key: "needs", label: fmt.Sprintf("Needs you (%d)", n), org: o})
 	}
-	out = append(out, m.orgRows(o, "", 0, nil, splits)...)
-	// The other hosts of the org, from their last snapshots (§18.7): only
-	// what this host does not have, as shared teams sit above.
+	if m.hosts == nil {
+		// In no org: this host's teams and sessions.
+		return append(out, m.orgRows(o, "", 0, nil, nil)...)
+	}
+	if m.byHost {
+		return append(out, m.byHostRows(splits)...)
+	}
+	// By team (§18.7): every team once, with the sessions of every host,
+	// then one heading per host for its sessions outside teams.
+	out = append(out, m.teamRows(o, "", 0, nil, splits, "")...)
 	for _, sp := range splits {
-		h := sp.h
+		if sp.own != nil {
+			out = append(out, m.teamRows(sp.own, "host:"+sp.h.ID+"/", 0, sp.h, nil, "  (only on "+sp.h.Name+")")...)
+		}
+	}
+	for _, h := range m.hostOrder() {
 		hk := "host:" + h.ID
 		var rows []treeNode
-		if sp.own != nil {
-			rows = m.orgRows(sp.own, hk+"/", 1, h, nil)
-			if len(rows) == 0 && !m.filtering() {
-				rows = []treeNode{{kind: "info", key: hk + "/info", depth: 1, label: "nothing only on this host", host: h, org: h.Org}}
-			}
+		switch {
+		case h.You:
+			rows = m.outsideRows(o, hk+"/", 1, nil)
+		case h.Org != nil:
+			rows = m.outsideRows(h.Org, hk+"/", 1, h)
 		}
-		if m.filtering() && len(rows) == 0 {
-			continue
+		if len(rows) == 0 && (h.You || h.Org != nil) && !m.filtering() {
+			rows = []treeNode{{kind: "info", key: hk + "/info", depth: 1, label: "no sessions outside teams", host: h, org: h.Org}}
 		}
-		out = append(out, treeNode{kind: "host", key: hk, label: h.Label(), fold: len(rows) > 0, host: h, org: h.Org})
-		if !m.folded[hk] {
-			out = append(out, rows...)
+		out = m.hostHeading(out, h, rows)
+	}
+	return out
+}
+
+// byHostRows are every host, this one first, each with all its own teams
+// and sessions; a team both hosts have shows under each, with that host's
+// sessions.
+func (m *model) byHostRows(splits []hostSplit) []treeNode {
+	var out []treeNode
+	if me := m.hostOrder()[0]; me.You {
+		out = m.hostHeading(out, me, m.orgRows(m.org, "host:"+me.ID+"/", 1, nil, nil))
+	}
+	for _, sp := range splits {
+		var rows []treeNode
+		if sp.h.Org != nil {
+			rows = m.orgRows(sp.h.Org, "host:"+sp.h.ID+"/", 1, sp.h, nil)
 		}
+		out = m.hostHeading(out, sp.h, rows)
+	}
+	return out
+}
+
+// hostOrder is the org's hosts with this one first, then as the view
+// lists them (the hub, then by name).
+func (m *model) hostOrder() []*hub.HostView {
+	var me, rest []*hub.HostView
+	for _, h := range m.hosts.Hosts {
+		if h.You {
+			me = append(me, h)
+		} else {
+			rest = append(rest, h)
+		}
+	}
+	return append(me, rest...)
+}
+
+// hostHeading adds a host's heading and, unless folded, its rows. While
+// filtering, a host with nothing that matches is left out.
+func (m *model) hostHeading(out []treeNode, h *hub.HostView, rows []treeNode) []treeNode {
+	if m.filtering() && len(rows) == 0 {
+		return out
+	}
+	hk := "host:" + h.ID
+	out = append(out, treeNode{kind: "host", key: hk, label: h.Label(), fold: len(rows) > 0, host: h, org: h.Org})
+	if !m.folded[hk] {
+		out = append(out, rows...)
 	}
 	return out
 }
@@ -191,9 +245,24 @@ func remoteSession(key string, d int, s *core.HostSession, sp hostSplit) treeNod
 
 // orgRows are the rows of one host's snapshot: its teams, then sessions
 // outside teams. Another host's rows carry it, and sit one level deeper.
-// splits, given for this host's rows, adds the other hosts' sessions in the
-// teams both have.
+// orgRows are the rows of one host's snapshot: its teams, then its sessions
+// outside teams under one heading.
 func (m *model) orgRows(o *core.Org, prefix string, d int, h *hub.HostView, splits []hostSplit) []treeNode {
+	out := m.teamRows(o, prefix, d, h, splits, "")
+	if outside := m.outsideRows(o, prefix, d+1, h); len(outside) > 0 {
+		ok := prefix + "outside"
+		out = append(out, treeNode{kind: "outside", key: ok, depth: d, label: "outside teams", fold: true, org: o, host: h})
+		if !m.folded[ok] {
+			out = append(out, outside...)
+		}
+	}
+	return out
+}
+
+// teamRows are a snapshot's teams; splits, given for this host's teams,
+// adds the other hosts' sessions in the teams both have. tag follows each
+// team's name.
+func (m *model) teamRows(o *core.Org, prefix string, d int, h *hub.HostView, splits []hostSplit, tag string) []treeNode {
 	var out []treeNode
 	open := func(key string) bool { return !m.folded[key] }
 	for _, t := range o.Teams {
@@ -276,33 +345,32 @@ func (m *model) orgRows(o *core.Org, prefix string, d int, h *hub.HostView, spli
 		if m.filtering() && len(rows) == 0 {
 			continue
 		}
-		out = append(out, treeNode{kind: "team", key: tk, depth: d, label: t.Name, fold: len(rows) > 0, team: t, org: o, host: h})
+		out = append(out, treeNode{kind: "team", key: tk, depth: d, label: t.Name + tag, fold: len(rows) > 0, team: t, org: o, host: h})
 		if open(tk) {
 			out = append(out, rows...)
 		}
 	}
-	var outside []treeNode
+	return out
+}
+
+// outsideRows are a snapshot's sessions outside teams, by folder group, the
+// groups at depth d.
+func (m *model) outsideRows(o *core.Org, prefix string, d int, h *hub.HostView) []treeNode {
+	var out []treeNode
 	for _, g := range o.Free {
 		gk := prefix + "group:" + g.Group
 		var ss []treeNode
 		for _, s := range g.Sessions {
 			if m.keep(s, "", "") {
-				ss = append(ss, treeNode{kind: "session", key: gk + "/" + sessionName(s), depth: d + 2, label: sessionName(s), sess: s, org: o, host: h})
+				ss = append(ss, treeNode{kind: "session", key: gk + "/" + sessionName(s), depth: d + 1, label: sessionName(s), sess: s, org: o, host: h})
 			}
 		}
 		if len(ss) == 0 {
 			continue
 		}
-		outside = append(outside, treeNode{kind: "group", key: gk, depth: d + 1, label: path.Base(strings.TrimSuffix(g.Group, ".git")), fold: true, group: g, org: o, host: h})
-		if open(gk) {
-			outside = append(outside, ss...)
-		}
-	}
-	if len(outside) > 0 {
-		ok := prefix + "outside"
-		out = append(out, treeNode{kind: "outside", key: ok, depth: d, label: "outside teams", fold: true, org: o, host: h})
-		if open(ok) {
-			out = append(out, outside...)
+		out = append(out, treeNode{kind: "group", key: gk, depth: d, label: path.Base(strings.TrimSuffix(g.Group, ".git")), fold: true, group: g, org: o, host: h})
+		if !m.folded[gk] {
+			out = append(out, ss...)
 		}
 	}
 	return out
@@ -721,6 +789,11 @@ func (m *model) treeKey(k string) bool {
 		m.inputDone = func(text string) { m.filter, *sel = text, 0 }
 	case "f":
 		m.filterMode, *sel = (m.filterMode+1)%len(filterModes), 0
+	case "b":
+		if m.hosts == nil || m.teamScope() {
+			return false
+		}
+		m.byHost, *sel = !m.byHost, 0
 	case "esc":
 		if !m.filtering() {
 			return false

@@ -126,7 +126,8 @@ func TestRemoteSessionsInTheTree(t *testing.T) {
 	if sentTo != "server:00000000000000aa/builder.alice_api" || sentText != "hi" {
 		t.Errorf("message went to %q with %q", sentTo, sentText)
 	}
-	// Folding a host hides its rows.
+	// By host (b), folding a host hides its rows.
+	m.key("b")
 	selectRow(t, m, "server (stale")
 	m.key("left")
 	if strings.Contains(ansi.Strip(m.View()), "builder.alice_api") {
@@ -151,7 +152,12 @@ func TestSharedTeamsMerge(t *testing.T) {
 	got := strings.Join(rows, "|")
 	// Under alpha: pm.lead's local then remote session, then this host's
 	// marketing.social, then the agent only the server runs.
-	for _, want := range []string{"alpha|pm.lead|pm.lead_cloud|pm.lead_gpu @server|marketing.social|ops.night|ops.night @server", "server (stale, 45s)|shop|builder.alice|builder.alice_api"} {
+	for _, want := range []string{
+		"alpha|pm.lead|pm.lead_cloud|pm.lead_gpu @server|marketing.social|ops.night|ops.night @server",
+		"shop  (only on server)|builder.alice|builder.alice_api",
+		// Then every host, this one too, with its sessions outside teams.
+		"laptop (this host)|vault|todo|tnnls|hubbox (live, 2s)|server (stale, 45s)|no sessions outside teams|newbox (not synced yet)",
+	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("rows %q lack %q", got, want)
 		}
@@ -179,8 +185,29 @@ func TestSharedTeamsMerge(t *testing.T) {
 	selectRow(t, m, "Needs you")
 	requireAll(t, ansi.Strip(m.View()), "todo is waiting for you", "deploy waits for you (on server)", "Q1 waits for you (on server)")
 
-	// A host that shares every team says so instead of repeating them.
-	m.hosts.Hosts[2].Org.Teams = m.hosts.Hosts[2].Org.Teams[1:]
-	m.hosts.Hosts[2].Org.Attention = nil
-	requireAll(t, ansi.Strip(m.View()), "nothing only on this host")
+	// By host (b): each host with all its own teams, alpha under both.
+	m.key("b")
+	rows = nil
+	for _, n := range m.treeNodes() {
+		rows = append(rows, n.label)
+	}
+	got = strings.Join(rows, "|")
+	for _, want := range []string{
+		"laptop (this host)|alpha|pm.lead|pm.lead_cloud|marketing.social|free sessions (1)|scratch|outside teams|vault",
+		"server (stale, 45s)|shop|builder.alice|builder.alice_api|alpha|pm.lead|pm.lead_gpu|marketing.social|ops.night|ops.night",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("by host: rows %q lack %q", got, want)
+		}
+	}
+	m.key("b")
+	n := 0
+	for _, r := range m.treeNodes() {
+		if r.label == "alpha" {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Errorf("b does not switch back to by team: alpha %d times", n)
+	}
 }
