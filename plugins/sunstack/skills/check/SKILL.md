@@ -1,6 +1,6 @@
 ---
 name: check
-description: Handle the Sunstack messages waiting for this session's agent, or for this session itself when it works as no agent: read them, take one so no other session of the same agent works on it, act on it within the pillars and board, reply, and ack it. Use when a prompt starts with "/sunstack:check" or "$sunstack:check" (a nudge from another agent), when a Sunstack hook says messages are waiting, or when the user says "sunstack check" or "check my Sunstack inbox". Only when Sunstack is installed.
+description: 'Handle the Sunstack messages waiting for this session''s agent, or for this session itself when it works as no agent: read them, take one so no other session of the same agent works on it, act on it within the pillars and board, reply, and ack it. Use when a prompt starts with "/sunstack:check" or "$sunstack:check" (a nudge from another agent), when a Sunstack hook says messages are waiting, or when the user says "sunstack check" or "check my Sunstack inbox". Only when Sunstack is installed.'
 ---
 
 # Sunstack: check
