@@ -269,7 +269,7 @@ func (p *Project) Peek(t, socket string, n int) (string, error) {
 	if screen == "" {
 		return "", fail(ExitFail, "no_pane", "could not read tmux pane %s", pane)
 	}
-	return strings.Join(screenTail(screen, n), "\n") + "\n", nil
+	return maskTokens(strings.Join(screenTail(screen, n), "\n")) + "\n", nil
 }
 
 // target resolves an ID or a session name to exactly one live session.

@@ -55,7 +55,7 @@ func TestRemotePeek(t *testing.T) {
 	sid := "00000000-0000-4000-8000-000000000031"
 	claim := append(append(append([]string{}, hubHost.env...), s.env...), "CLAUDECODE=1", "CLAUDE_CODE_SESSION_ID="+sid)
 	expect(t, sh(t, p, claim, "as", "builder.alice"), 0, "claim in the pane")
-	s.tmux(t, "send-keys", "-t", s.pane, "-l", "PEEK-MARKER-7")
+	s.tmux(t, "send-keys", "-t", s.pane, "-l", "PEEK-MARKER-7 --token 0123456789abcdef")
 	soon(t, "both hosts pinned", func() bool {
 		return strings.Contains(laptop.run(t, "org", "keys").out, "hub-host") && strings.Contains(hubHost.run(t, "org", "keys").out, "laptop")
 	})
@@ -68,7 +68,14 @@ func TestRemotePeek(t *testing.T) {
 	expect(t, hubHost.run(t, "org", "allow", "laptop", "peek"), 0, "allow peek")
 	r = laptop.run(t, "peek", "hub-host:shop/builder.alice", "--lines", "5")
 	expect(t, r, 0, "peek")
-	requireContains(t, r.out, "builder.alice on hub-host", "PEEK-MARKER-7")
+	requireContains(t, r.out, "builder.alice on hub-host", "PEEK-MARKER-7", "--token ****")
+	// A spawned session's first prompt holds its claim token; peek masks it.
+	if strings.Contains(r.out, "0123456789abcdef") {
+		t.Errorf("remote peek shows the token: %s", r.out)
+	}
+	if l := sh(t, p, s.env, "peek", s.pane); strings.Contains(l.out, "0123456789abcdef") || !strings.Contains(l.out, "--token ****") {
+		t.Errorf("local peek: %s", l.out)
+	}
 
 	// Refused: pane IDs across hosts, too many lines, an agent session.
 	expect(t, laptop.run(t, "peek", "hub-host:%1"), 1, "pane ID across hosts")

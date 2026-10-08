@@ -95,7 +95,7 @@ func PeekFor(addr string, n int) (label, text string, err error) {
 	if screen == "" {
 		return "", "", fail(ExitFail, "no_pane", "could not read the pane of %s", label)
 	}
-	text = strings.Join(screenTail(screen, n), "\n") + "\n"
+	text = maskTokens(strings.Join(screenTail(screen, n), "\n")) + "\n"
 	if len(text) > PeekBytes {
 		text = text[len(text)-PeekBytes:]
 	}

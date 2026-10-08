@@ -492,6 +492,13 @@ func ReadyForInput(tool, screen string) bool {
 	return ok
 }
 
+// paneTokenRe finds a claim token on a pane: a spawned session's first prompt
+// holds "--token <hex>".
+var paneTokenRe = regexp.MustCompile(`(--token[ =])[0-9A-Za-z]+`)
+
+// maskTokens hides claim tokens in pane text before peek shows it.
+func maskTokens(s string) string { return paneTokenRe.ReplaceAllString(s, "${1}****") }
+
 func paneScreen(socket, pane string) string {
 	out, err := exec.Command("tmux", TmuxArgs(socket, "capture-pane", "-p", "-J", "-t", pane)...).Output()
 	if err != nil {
