@@ -160,6 +160,35 @@ func orgMembership(rest []string, stdin io.Reader, stdout io.Writer) error {
 		}
 		fmt.Fprint(stdout, t)
 		return nil
+	case "allow", "deny":
+		a, err := parse(rest[1:], "", "")
+		if err != nil {
+			return err
+		}
+		if err := core.UserOnly("sunstack org " + rest[0]); err != nil {
+			return err
+		}
+		if rest[0] == "allow" && len(a.pos) == 0 {
+			fmt.Fprint(stdout, hub.GrantsText())
+			return nil
+		}
+		if len(a.pos) < 2 {
+			return missing("host name, then peek, spawn or update")
+		}
+		if rest[0] == "deny" {
+			if err := hub.Deny(a.pos[0], a.pos[1:]); err != nil {
+				return err
+			}
+			fmt.Fprintf(stdout, "sunstack: %s may no longer %s here\n", a.pos[0], strings.Join(a.pos[1:], " or "))
+			return nil
+		}
+		g, err := hub.Allow(a.pos[0], a.pos[1:])
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(stdout, "sunstack: %s (key %s) may now %s here. Check the key on %s with sunstack org keys. This allows:\n%s",
+			g.Name, g.Fingerprint, strings.Join(g.Kinds, ", "), g.Name, hub.GrantWarning(g.Kinds))
+		return nil
 	case "trust":
 		a, err := parse(rest[1:], "", "")
 		if err == nil {

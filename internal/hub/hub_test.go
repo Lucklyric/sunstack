@@ -223,3 +223,64 @@ func TestSplitSharedTeams(t *testing.T) {
 		t.Errorf("org text:\n%s", text)
 	}
 }
+
+// A grant names a host by ID and the key it had when granted: a changed
+// key, or another host given the same name, never inherits it (§20.7).
+func TestGrants(t *testing.T) {
+	t.Setenv("SUNSTACK_HOME", t.TempDir())
+	k1, _ := LoadKeys()
+	t.Setenv("SUNSTACK_HOME", t.TempDir())
+	k2, _ := LoadKeys()
+	t.Setenv("SUNSTACK_HOME", t.TempDir())
+	r := &Roster{Hosts: []*Host{{ID: "aaaaaaaaaaaaaaaa", Name: "laptop", Keys: k1.Public()}, {ID: "bbbbbbbbbbbbbbbb", Name: "server", Keys: k2.Public()}}}
+	must := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	must(pinRoster(r))
+	g, err := Allow("Laptop", []string{"spawn", "peek"})
+	must(err)
+	if g.HostID != "aaaaaaaaaaaaaaaa" || g.Fingerprint != k1.Public().Fingerprint() {
+		t.Fatalf("grant %+v", g)
+	}
+	if !Allowed("aaaaaaaaaaaaaaaa", "spawn") || !Allowed("aaaaaaaaaaaaaaaa", "peek") || Allowed("aaaaaaaaaaaaaaaa", "update") || Allowed("bbbbbbbbbbbbbbbb", "spawn") {
+		t.Error("grants do not match what was allowed")
+	}
+	if _, err := Allow("laptop", []string{"shell"}); err == nil {
+		t.Error("an unknown kind was granted")
+	}
+	if _, err := Allow("nobody", []string{"peek"}); err == nil {
+		t.Error("an unknown host was granted")
+	}
+	// Another host renamed to laptop does not inherit the grant.
+	r.Hosts[0].Name, r.Hosts[1].Name = "old-laptop", "laptop"
+	must(pinRoster(r))
+	if Allowed("bbbbbbbbbbbbbbbb", "spawn") || !Allowed("aaaaaaaaaaaaaaaa", "spawn") {
+		t.Error("a grant followed the name")
+	}
+	// A changed key voids it, and trusting the new key does not bring it back.
+	r.Hosts[0].Keys = k2.Public()
+	must(pinRoster(r))
+	if Allowed("aaaaaaaaaaaaaaaa", "spawn") {
+		t.Error("a host whose key changed is still allowed")
+	}
+	if _, err := Trust("old-laptop"); err != nil {
+		t.Fatal(err)
+	}
+	if Allowed("aaaaaaaaaaaaaaaa", "spawn") {
+		t.Error("trusting the new key restored the grant")
+	}
+	if err := Deny("laptop", []string{"peek"}); err == nil {
+		t.Error("deny by the name another host now has removed old-laptop's grant")
+	}
+	must(Deny("old-laptop", []string{"peek"}))
+	if txt := GrantsText(); !strings.Contains(txt, "old-laptop: spawn") || !strings.Contains(txt, "void") {
+		t.Errorf("grants text: %s", txt)
+	}
+	must(Deny("old-laptop", []string{"spawn"}))
+	if !strings.Contains(GrantsText(), "No host may") {
+		t.Errorf("an empty grant was kept: %s", GrantsText())
+	}
+}
