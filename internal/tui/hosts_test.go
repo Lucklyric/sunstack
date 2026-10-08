@@ -241,14 +241,14 @@ func TestHostsVersionsAndUpdate(t *testing.T) {
 	if len(asked) != 1 || asked[0] != "server@0.10.0" {
 		t.Errorf("u asked %v", asked)
 	}
-	// U asks every host behind: only server (newbox reports no version).
+	// U asks every host behind; newbox never synced, so it is skipped.
 	asked = nil
 	m.key("U")
-	requireAll(t, ansi.Strip(m.View()), "server, newbox")
+	requireAll(t, ansi.Strip(m.View()), "on server (skipping newbox (not synced yet))")
 	if cmd := m.key("y"); cmd != nil {
 		m.Update(cmd())
 	}
-	if strings.Join(asked, ",") != "server@0.10.0,newbox@0.10.0" {
+	if strings.Join(asked, ",") != "server@0.10.0" {
 		t.Errorf("U asked %v", asked)
 	}
 	// The Org tab marks the host behind.

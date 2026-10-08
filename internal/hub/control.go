@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -76,6 +77,13 @@ func Request(hostName, kind string, args any, ttl time.Duration) (string, error)
 	if !slices.Contains(ControlKinds, kind) {
 		return "", usageErr("unknown request %s", kind)
 	}
+	// Its reply goes through the hub's can_send check (§20.3).
+	if r := cachedHosts(); r != nil {
+		if h := r.byName(hostName); h != nil && !h.CanSend {
+			return "", failErr("read_only", "%s is read-only in the org, so it cannot answer requests; on the hub, revoke it and invite it again without --read-only", h.Name)
+		}
+	}
+	cleanAsked()
 	b, err := json.Marshal(args)
 	if err != nil {
 		return "", err
@@ -129,7 +137,11 @@ func Await(id string, timeout time.Duration) (*Control, error) {
 		var s Sent
 		if readJSON(filepath.Join(sentDir(), id+".json"), &s) == nil && s.Status == "refused" {
 			os.Remove(filepath.Join(askedDir(), id+".json"))
-			return nil, failErr("refused", "%s refused it: %s (a host before v0.10 cannot take requests; update it by hand once)", a.Host, s.Reason)
+			hint := ""
+			if strings.Contains(s.Reason, "type") {
+				hint = " (a host before v0.10 cannot take requests; update it by hand once)"
+			}
+			return nil, failErr("refused", "%s refused it: %s%s", a.Host, s.Reason, hint)
 		}
 		if time.Now().After(deadline) {
 			return nil, failErr("timeout", "no reply from %s yet (request %s); its connector may be down", a.Host, id)
@@ -380,5 +392,28 @@ func RecoverRequests() {
 			msg = "this host restarted while running it; the result is uncertain (a session it started carries @sunstack_request " + id + "); it is not run again"
 		}
 		reply(&Mail{ID: id}, pin, e.Kind, nil, errors.New(msg))
+	}
+}
+
+// cleanAsked forgets requests past their expiry and deletes, unopened,
+// replies no open request waits for (§20.5).
+func cleanAsked() {
+	open := map[string]bool{}
+	for _, p := range jsonFiles(askedDir()) {
+		var a asked
+		if readJSON(p, &a) != nil {
+			os.Remove(p)
+			continue
+		}
+		if t, ok := parseStamp(a.Expires); ok && time.Now().After(t.Add(skew)) {
+			os.Remove(p)
+			continue
+		}
+		open[a.ID] = true
+	}
+	for _, p := range jsonFiles(repliesDir()) {
+		if !open[strings.TrimSuffix(filepath.Base(p), ".json")] {
+			os.Remove(p)
+		}
 	}
 }

@@ -169,8 +169,18 @@ func TestRemoteUpdate(t *testing.T) {
 		j := readFileOr(laptop.file("remote/requests.json"))
 		return strings.Count(j, `"status": "done"`)+strings.Count(j, `"status":"done"`) == 2
 	})
-	time.Sleep(time.Second)
-	_, logs := laptop.connector(t)
+	// Until the old connector has exited, a new one finds it busy.
+	var logs func() string
+	soon(t, "a new connector", func() bool {
+		var stop func()
+		stop, logs = laptop.connector(t)
+		time.Sleep(500 * time.Millisecond)
+		if strings.Contains(logs(), "busy") {
+			stop()
+			return false
+		}
+		return true
+	})
 	select {
 	case r = <-done:
 	case <-time.After(90 * time.Second):

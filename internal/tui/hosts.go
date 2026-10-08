@@ -126,15 +126,18 @@ func versionText(h *hub.HostView, latest string) string {
 }
 
 // behind are the other hosts older than latest, or that never reported a
-// version.
-func behind(v *hub.OrgView, latest string) []string {
-	var out []string
+// version; a host never synced or offline cannot answer, so it is skipped.
+func behind(v *hub.OrgView, latest string) (names, skipped []string) {
 	for _, h := range v.Hosts {
-		if !h.You && (h.Version == "" || setup.Older(h.Version, latest)) {
-			out = append(out, h.Name)
+		switch {
+		case h.You || (h.Version != "" && !setup.Older(h.Version, latest)):
+		case h.State == "not synced yet" || h.State == "offline":
+			skipped = append(skipped, h.Name+" ("+h.State+")")
+		default:
+			names = append(names, h.Name)
 		}
 	}
-	return out
+	return names, skipped
 }
 
 // linkCol is the column of a box's link mark: the middle of its border.
@@ -493,12 +496,16 @@ func (m *model) hostsKey(k string) (bool, tea.Cmd) {
 		if target == "" {
 			target = hub.Version
 		}
-		names := behind(m.hosts, target)
+		names, skipped := behind(m.hosts, target)
 		if len(names) == 0 {
-			m.note = "every host runs " + target + " or newer"
+			m.note = "every host that can answer runs " + target + " or newer"
 			return true, nil
 		}
-		m.confirm = "Update sunstack to " + target + " on " + strings.Join(names, ", ") + " and restart their connectors? y to update, any other key to cancel"
+		skip := ""
+		if len(skipped) > 0 {
+			skip = " (skipping " + strings.Join(skipped, ", ") + ")"
+		}
+		m.confirm = "Update sunstack to " + target + " on " + strings.Join(names, ", ") + skip + " and restart their connectors? y to update, any other key to cancel"
 		m.confirmDo = func() {
 			m.note = "asking " + strings.Join(names, ", ") + " to update…"
 			m.pending = func() tea.Msg {

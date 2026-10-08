@@ -191,7 +191,11 @@ func orgMembership(rest []string, stdin io.Reader, stdout io.Writer) error {
 				return &core.Error{Code: core.ExitFail, Reason: "no_org", Msg: "this host is in no org"}
 			}
 			for _, h := range v.Hosts {
-				if !h.You && (h.Version == "" || setup.Older(h.Version, target)) {
+				switch {
+				case h.You || (h.Version != "" && !setup.Older(h.Version, target)):
+				case h.State == "not synced yet" || h.State == "offline":
+					fmt.Fprintf(stdout, "sunstack: skipping %s (%s)\n", h.Name, h.State)
+				default:
 					names = append(names, h.Name)
 				}
 			}
