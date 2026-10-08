@@ -158,3 +158,68 @@ func TestPinsAndTrust(t *testing.T) {
 		t.Error("trust with no change succeeded")
 	}
 }
+
+// Teams whose files sync between hosts (git) are one team: another host's
+// copy is split off, and a warning both hosts report is shown once.
+func TestSplitSharedTeams(t *testing.T) {
+	local := &core.Org{
+		Attention: []string{"alpha: KR5 needs KR1", "alpha: todo waits for you"},
+		Teams:     []*core.OrgTeam{{ID: "00000000000000a1", Name: "alpha", Agents: []*core.OrgAgent{{ID: "pm.lead"}}}},
+	}
+	remote := &core.Org{
+		Host:      core.HostInfo{Name: "server"},
+		Attention: []string{"alpha: KR5 needs KR1", "alpha: deploy waits for you", "shop: Q1 waits for you"},
+		Teams: []*core.OrgTeam{
+			{ID: "00000000000000a1", Name: "alpha", Agents: []*core.OrgAgent{
+				{ID: "pm.lead"},
+				{ID: "ops.night", Sessions: []*core.HostSession{{Tool: "codex", Status: "busy", Agent: "ops.night", Label: "ops.night@server"}}},
+			}},
+			{ID: "00000000000000aa", Name: "shop"},
+			{ID: "/srv/beta", Name: "beta"}, // no TEAM file: its ID is its root, never shared
+		},
+		Free: []*core.FreeGroup{{Group: "g", Sessions: []*core.HostSession{{Tool: "claude"}}}},
+	}
+	own, shared := Split(remote, local)
+	if len(shared) != 1 || shared[0].Name != "alpha" {
+		t.Fatalf("shared %+v", shared)
+	}
+	var names []string
+	for _, tm := range own.Teams {
+		names = append(names, tm.Name)
+	}
+	if strings.Join(names, ",") != "shop,beta" || len(own.Free) != 1 || own.Host.Name != "server" {
+		t.Errorf("own teams %v, free %d", names, len(own.Free))
+	}
+	if strings.Join(own.Attention, "|") != "alpha: deploy waits for you|shop: Q1 waits for you" {
+		t.Errorf("own attention %q", own.Attention)
+	}
+	if len(remote.Teams) != 3 || len(remote.Attention) != 3 {
+		t.Error("Split changed the snapshot")
+	}
+	if own, shared := Split(remote, nil); len(shared) != 0 || len(own.Teams) != 3 {
+		t.Error("without a local scan nothing is shared")
+	}
+
+	// sunstack org: a shared team appears under the other host only with
+	// its sessions there, and the warning both report is not repeated.
+	v := &OrgView{OrgName: "personal", HubName: "server", Hosts: []*HostView{
+		{ID: "x1", Name: "server", Hub: true, State: "live", Org: remote, HasSnap: true},
+		{ID: "x2", Name: "laptop", You: true, State: "live"},
+	}}
+	text := v.Text("", local)
+	for _, want := range []string{"ops.night", "shop", "also on this host: alpha", "deploy waits for you"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("org text lacks %q:\n%s", want, text)
+		}
+	}
+	if strings.Contains(text, "KR5 needs KR1") || strings.Contains(text, "pm.lead") {
+		t.Errorf("org text repeats this host's team:\n%s", text)
+	}
+	// A host whose teams are all here says only that.
+	remote.Teams, remote.Free, remote.Attention = remote.Teams[:1], nil, nil
+	remote.Teams[0].Agents = remote.Teams[0].Agents[:1]
+	text = v.Text("", local)
+	if !strings.Contains(text, "no sessions; its teams are also on this host: alpha") || strings.Contains(text, "No teams") {
+		t.Errorf("org text:\n%s", text)
+	}
+}

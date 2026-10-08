@@ -118,61 +118,152 @@ func (m *model) treeNodes() []treeNode {
 		return nil
 	}
 	var out []treeNode
+	splits := m.splits()
 	if !m.filtering() {
-		out = append(out, treeNode{kind: "needs", key: "needs", label: fmt.Sprintf("Needs you (%d)", len(o.Attention)), org: o})
+		n := len(o.Attention)
+		for _, sp := range splits {
+			if sp.own != nil {
+				n += len(sp.own.Attention)
+			}
+		}
+		out = append(out, treeNode{kind: "needs", key: "needs", label: fmt.Sprintf("Needs you (%d)", n), org: o})
 	}
-	out = append(out, m.orgRows(o, "", 0, nil)...)
-	// The other hosts of the org, from their last snapshots (§18.7).
-	if m.hosts != nil {
-		for _, h := range m.hosts.Hosts {
-			if h.You {
-				continue
+	out = append(out, m.orgRows(o, "", 0, nil, splits)...)
+	// The other hosts of the org, from their last snapshots (§18.7): only
+	// what this host does not have, as shared teams sit above.
+	for _, sp := range splits {
+		h := sp.h
+		hk := "host:" + h.ID
+		var rows []treeNode
+		if sp.own != nil {
+			rows = m.orgRows(sp.own, hk+"/", 1, h, nil)
+			if len(rows) == 0 && !m.filtering() {
+				rows = []treeNode{{kind: "info", key: hk + "/info", depth: 1, label: "nothing only on this host", host: h, org: h.Org}}
 			}
-			hk := "host:" + h.ID
-			var rows []treeNode
-			if h.Org != nil {
-				rows = m.orgRows(h.Org, hk+"/", 1, h)
-			}
-			if m.filtering() && len(rows) == 0 {
-				continue
-			}
-			out = append(out, treeNode{kind: "host", key: hk, label: h.Label(), fold: len(rows) > 0, host: h, org: h.Org})
-			if !m.folded[hk] {
-				out = append(out, rows...)
-			}
+		}
+		if m.filtering() && len(rows) == 0 {
+			continue
+		}
+		out = append(out, treeNode{kind: "host", key: hk, label: h.Label(), fold: len(rows) > 0, host: h, org: h.Org})
+		if !m.folded[hk] {
+			out = append(out, rows...)
 		}
 	}
 	return out
 }
 
+// hostSplit is another host's snapshot split against this host's scan:
+// own is what only it has, shared the teams both have (hub.Split).
+type hostSplit struct {
+	h      *hub.HostView
+	own    *core.Org // nil for a host never synced
+	shared map[string]*core.OrgTeam
+}
+
+// splits are the other hosts of the org, in the order the view lists them.
+func (m *model) splits() []hostSplit {
+	if m.hosts == nil {
+		return nil
+	}
+	var out []hostSplit
+	for _, h := range m.hosts.Hosts {
+		if h.You {
+			continue
+		}
+		sp := hostSplit{h: h, shared: map[string]*core.OrgTeam{}}
+		if h.Org != nil {
+			var shared []*core.OrgTeam
+			sp.own, shared = hub.Split(h.Org, m.org)
+			for _, t := range shared {
+				sp.shared[t.ID] = t
+			}
+		}
+		out = append(out, sp)
+	}
+	return out
+}
+
+// remoteSession is a node for a session another host runs in a team this
+// host also has: tagged with the host, acted on like the host's own rows.
+func remoteSession(key string, d int, s *core.HostSession, sp hostSplit) treeNode {
+	return treeNode{kind: "session", key: key + "/" + sessionName(s) + "@" + sp.h.ID, depth: d, label: sessionName(s) + " @" + sp.h.Name, sess: s, org: sp.h.Org, host: sp.h}
+}
+
 // orgRows are the rows of one host's snapshot: its teams, then sessions
 // outside teams. Another host's rows carry it, and sit one level deeper.
-func (m *model) orgRows(o *core.Org, prefix string, d int, h *hub.HostView) []treeNode {
+// splits, given for this host's rows, adds the other hosts' sessions in the
+// teams both have.
+func (m *model) orgRows(o *core.Org, prefix string, d int, h *hub.HostView, splits []hostSplit) []treeNode {
 	var out []treeNode
 	open := func(key string) bool { return !m.folded[key] }
 	for _, t := range o.Teams {
 		var rows []treeNode
 		tk := prefix + "team:" + t.Root
-		for _, a := range t.Agents {
+		agentRows := func(a *core.OrgAgent, ah *hub.HostView) {
 			ak := tk + "/" + a.ID
 			var ss []treeNode
-			for _, s := range a.Sessions {
-				if m.keep(s, t.Name, a.ID) {
-					ss = append(ss, treeNode{kind: "session", key: ak + "/" + sessionName(s), depth: d + 2, label: sessionName(s), sess: s, org: o, host: h})
+			if ah == nil {
+				for _, s := range a.Sessions {
+					if m.keep(s, t.Name, a.ID) {
+						ss = append(ss, treeNode{kind: "session", key: ak + "/" + sessionName(s), depth: d + 2, label: sessionName(s), sess: s, org: o, host: h})
+					}
 				}
 			}
-			if m.filtering() && len(ss) == 0 {
-				continue
+			for _, sp := range splits {
+				if rt := sp.shared[t.ID]; rt != nil && (ah == nil || ah == sp.h) {
+					for _, ra := range rt.Agents {
+						if ra.ID != a.ID {
+							continue
+						}
+						for _, s := range ra.Sessions {
+							if m.keep(s, t.Name, a.ID) {
+								ss = append(ss, remoteSession(ak, d+2, s, sp))
+							}
+						}
+					}
+				}
 			}
-			rows = append(rows, treeNode{kind: "agent", key: ak, depth: d + 1, label: a.ID, fold: len(ss) > 0, team: t, agent: a, org: o, host: h})
+			if (m.filtering() || ah != nil) && len(ss) == 0 {
+				return
+			}
+			n := treeNode{kind: "agent", key: ak, depth: d + 1, label: a.ID, fold: len(ss) > 0, team: t, agent: a, org: o, host: h}
+			if ah != nil {
+				n.org, n.host = ah.Org, ah
+			}
+			rows = append(rows, n)
 			if open(ak) {
 				rows = append(rows, ss...)
+			}
+		}
+		local := map[string]bool{}
+		for _, a := range t.Agents {
+			local[a.ID] = true
+			agentRows(a, nil)
+		}
+		// Agents only another host has (new, not yet synced here).
+		for _, sp := range splits {
+			if rt := sp.shared[t.ID]; rt != nil {
+				for _, ra := range rt.Agents {
+					if !local[ra.ID] {
+						local[ra.ID] = true
+						agentRows(ra, sp.h)
+					}
+				}
 			}
 		}
 		var free []treeNode
 		for _, s := range t.Free {
 			if m.keep(s, t.Name, "") {
 				free = append(free, treeNode{kind: "session", key: tk + "/free/" + sessionName(s), depth: d + 2, label: sessionName(s), sess: s, org: o, host: h})
+			}
+		}
+		for _, sp := range splits {
+			if rt := sp.shared[t.ID]; rt != nil {
+				for _, s := range rt.Free {
+					if m.keep(s, t.Name, "") {
+						free = append(free, remoteSession(tk+"/free", d+2, s, sp))
+					}
+				}
 			}
 		}
 		if len(free) > 0 {
@@ -320,12 +411,10 @@ func (m *model) row(n treeNode, w int) string {
 		case !n.fold:
 			tail = cDim.Render("no session")
 		}
+	case "info":
+		return cDim.Render(line)
 	case "team":
-		o := n.org
-		if o == nil {
-			o = m.org
-		}
-		if c := teamAttention(o, n.team); c > 0 {
+		if c := len(m.teamWarnings(n)); c > 0 {
 			tail = cWarn.Render(fmt.Sprintf("%d for you", c))
 		}
 	case "host":
@@ -339,6 +428,34 @@ func (m *model) row(n treeNode, w int) string {
 		pad = 1
 	}
 	return line + strings.Repeat(" ", pad) + tail
+}
+
+// teamWarnings are the items for the user in a team row's team: on this
+// host's row, its own and, tagged, those only another host reports.
+func (m *model) teamWarnings(n treeNode) []string {
+	o := n.org
+	if o == nil {
+		o = m.org
+	}
+	var out []string
+	pick := func(list []string, tag string) {
+		for _, a := range list {
+			if strings.HasPrefix(a, n.team.Name+":") {
+				out = append(out, strings.TrimPrefix(a, n.team.Name+": ")+tag)
+			}
+		}
+	}
+	if o != nil {
+		pick(o.Attention, "")
+	}
+	if n.host == nil {
+		for _, sp := range m.splits() {
+			if sp.own != nil && sp.shared[n.team.ID] != nil {
+				pick(sp.own.Attention, " (on "+sp.h.Name+")")
+			}
+		}
+	}
+	return out
 }
 
 func teamAttention(o *core.Org, t *core.OrgTeam) int {
@@ -451,6 +568,17 @@ func (m *model) details2(n treeNode, w int) []string {
 			out = append(out, wrap("• "+a, w))
 			shown++
 		}
+		if n.team == nil {
+			for _, sp := range m.splits() {
+				if sp.own == nil {
+					continue
+				}
+				for _, a := range sp.own.Attention {
+					out = append(out, wrap("• "+a+" (on "+sp.h.Name+")", w))
+					shown++
+				}
+			}
+		}
 		if shown == 0 {
 			out = append(out, cDim.Render("nothing"))
 		}
@@ -472,16 +600,8 @@ func (m *model) details2(n treeNode, w int) []string {
 		if len(t.Issues) > 0 {
 			out = append(out, "", fmt.Sprintf("%d board item(s) need attention (Next tab, or sunstack board)", len(t.Issues)))
 		}
-		o := n.org
-		if o == nil {
-			o = m.org
-		}
-		if o != nil {
-			for _, a := range o.Attention {
-				if strings.HasPrefix(a, t.Name+":") {
-					out = append(out, cWarn.Render(wrap("• "+strings.TrimPrefix(a, t.Name+": "), w)))
-				}
-			}
+		for _, a := range m.teamWarnings(n) {
+			out = append(out, cWarn.Render(wrap("• "+a, w)))
 		}
 	case "agent":
 		if n.st != nil {
@@ -501,7 +621,7 @@ func (m *model) details2(n treeNode, w int) []string {
 		if len(a.Sessions) == 0 {
 			out = append(out, "", cDim.Render("no live session (sunstack spawn "+a.ID+" starts one)"))
 		}
-	case "host":
+	case "host", "info":
 		return hostDetails(n.host, w, m.org)
 	case "free", "outside", "group":
 		out = append(out, cHeader.Render(n.label), "", cDim.Render("sessions that hold no agent; select one for its details"))

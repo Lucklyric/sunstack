@@ -17,7 +17,7 @@ func treeOrg() *core.Org {
 		Host:      core.HostInfo{Name: "h"},
 		Attention: []string{"alpha: todo is waiting for you"},
 		Teams: []*core.OrgTeam{{
-			Name: "alpha", Root: "/r/alpha",
+			ID: "00000000000000a1", Name: "alpha", Root: "/r/alpha",
 			Objectives: []core.OrgObjective{{Key: "O1", Text: "Ship it"}},
 			Agents: []*core.OrgAgent{
 				{ID: "pm.lead", Duty: "Plans the work", Now: []string{"KR1 Plan"}, Sessions: []*core.HostSession{

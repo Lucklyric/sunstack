@@ -196,9 +196,43 @@ func OrgCounts(o *core.Org) (teams, sessions, needs int) {
 	return len(o.Teams), sessions, len(o.Attention)
 }
 
+// Split separates another host's snapshot from this host's scan. A team
+// whose files sync between hosts (git) has the same team ID on both: it is
+// one team, returned in shared so its sessions can join this host's copy.
+// own keeps the rest, and drops the warnings this host reports too. A team
+// without a TEAM file is keyed by its root, so it is never shared. The
+// snapshot itself is not changed.
+func Split(remote, local *core.Org) (own *core.Org, shared []*core.OrgTeam) {
+	o := *remote
+	o.Teams, o.Attention = nil, nil
+	here := map[string]bool{}
+	seen := map[string]bool{}
+	if local != nil {
+		for _, t := range local.Teams {
+			here[t.ID] = t.ID != ""
+		}
+		for _, a := range local.Attention {
+			seen[a] = true
+		}
+	}
+	for _, t := range remote.Teams {
+		if here[t.ID] {
+			shared = append(shared, t)
+		} else {
+			o.Teams = append(o.Teams, t)
+		}
+	}
+	for _, a := range remote.Attention {
+		if !seen[a] {
+			o.Attention = append(o.Attention, a)
+		}
+	}
+	return &o, shared
+}
+
 // Text renders the other hosts for `sunstack org`, in the same views as the
-// local host.
-func (v *OrgView) Text(view string) string {
+// local host. A team this host also has shows there only its sessions.
+func (v *OrgView) Text(view string, local *core.Org) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "\nOther hosts (org %s, hub %s)\n", v.OrgName, v.HubName)
 	n := 0
@@ -218,9 +252,30 @@ func (v *OrgView) Text(view string) string {
 		if h.State != "live" {
 			fmt.Fprintf(&b, "  last known state, %s old\n", Age(h.SnapAge))
 		}
-		o := *h.Org
+		own, shared := Split(h.Org, local)
+		o := *own
 		o.Notes = nil
+		var names []string
+		for _, t := range shared {
+			names = append(names, t.Name)
+			if st := sessionsOnly(t); st != nil {
+				o.Teams = append(o.Teams, st)
+			}
+		}
+		o.Host.Name = h.Name // the org's name for it, as in the heading
+		if len(names) > 0 && len(o.Teams) == 0 && len(o.Free) == 0 {
+			// Nothing of its own: no "no teams" line for a host whose
+			// teams are all here.
+			if len(o.Attention) > 0 {
+				b.WriteString(o.Text("attention"))
+			}
+			fmt.Fprintf(&b, "  no sessions; its teams are also on this host: %s\n", strings.Join(names, ", "))
+			continue
+		}
 		b.WriteString(o.Text(view))
+		if len(names) > 0 {
+			fmt.Fprintf(&b, "  also on this host: %s (above, only their sessions on %s)\n", strings.Join(names, ", "), h.Name)
+		}
 	}
 	if n == 0 {
 		b.WriteString("  no other hosts yet\n")
@@ -229,4 +284,20 @@ func (v *OrgView) Text(view string) string {
 		fmt.Fprintf(&b, "\n%d message(s) to other hosts wait in the outbox (the hub was not reached)\n", v.Outbox)
 	}
 	return b.String()
+}
+
+// sessionsOnly is a shared team cut down to its agents with sessions and
+// its free sessions; nil when it has none.
+func sessionsOnly(t *core.OrgTeam) *core.OrgTeam {
+	c := *t
+	c.Agents, c.Objectives, c.Issues = nil, nil, nil
+	for _, a := range t.Agents {
+		if len(a.Sessions) > 0 {
+			c.Agents = append(c.Agents, a)
+		}
+	}
+	if len(c.Agents) == 0 && len(c.Free) == 0 {
+		return nil
+	}
+	return &c
 }

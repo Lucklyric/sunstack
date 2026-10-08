@@ -31,12 +31,18 @@ func stateGlyph(state string) string {
 }
 
 // hostCounts are a host's teams, sessions and items for the user; this
-// host's come from its own scan.
+// host's come from its own scan. Another host counts only the items this
+// host does not report too.
 func hostCounts(h *hub.HostView, local *core.Org) (int, int, int) {
 	if h.You && local != nil {
 		return hub.OrgCounts(local)
 	}
-	return h.Counts()
+	teams, sessions, _ := h.Counts()
+	if h.Org == nil {
+		return teams, sessions, 0
+	}
+	own, _ := hub.Split(h.Org, local)
+	return teams, sessions, len(own.Attention)
 }
 
 func plural(n int, one, many string) string {
@@ -284,6 +290,14 @@ func hostDetails(h *hub.HostView, w int, local *core.Org) []string {
 	if o == nil {
 		return append(out, "", cDim.Render("no snapshot yet"))
 	}
+	attention, shared := o.Attention, map[string]bool{}
+	if !h.You {
+		own, sh := hub.Split(o, local)
+		attention = own.Attention
+		for _, t := range sh {
+			shared[t.ID] = true
+		}
+	}
 	out = append(out, "", cHeader.Render("Teams"))
 	if len(o.Teams) == 0 {
 		out = append(out, cDim.Render("none"))
@@ -305,11 +319,14 @@ func hostDetails(h *hub.HostView, w int, local *core.Org) []string {
 		if len(parts) > 0 {
 			line += " · " + strings.Join(parts, ", ")
 		}
+		if shared[t.ID] {
+			line += " · also on this host"
+		}
 		out = append(out, wrap(line, w))
 	}
-	if len(o.Attention) > 0 {
+	if len(attention) > 0 {
 		out = append(out, "", cHeader.Render("Needs you"))
-		for _, a := range o.Attention {
+		for _, a := range attention {
 			out = append(out, cWarn.Render(wrap("• "+a, w)))
 		}
 	}

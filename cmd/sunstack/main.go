@@ -1204,7 +1204,7 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 		}
 		fmt.Fprint(stdout, o.Text(view))
 		if v := hub.LoadView(time.Now()); v != nil {
-			fmt.Fprint(stdout, v.Text(view))
+			fmt.Fprint(stdout, v.Text(view, o))
 		}
 		return nil
 
