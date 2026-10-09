@@ -1,6 +1,6 @@
 ---
 name: spawn
-description: Start a new Claude Code or Codex session as a Sunstack agent in a tmux pane beside this one (or a new window), list live Sunstack sessions, ask a session to finish (dismiss), or close one at once (kill). Use when the user says "sunstack spawn", "/sunstack:spawn", "start a session for <agent id>", "open another builder session", "which Sunstack sessions are running in this project", "sunstack sessions", "dismiss <agent id>", "kill <session name>", or when a message waits for an agent that has no live session. Only for projects with a Sunstack team (a sunstack/ folder).
+description: Start a new Claude Code or Codex session as a Sunstack agent in the team's tmux session (or beside this pane), or a free session, list live Sunstack sessions, ask a session to finish (dismiss), or close one at once (kill). Use when the user says "sunstack spawn", "/sunstack:spawn", "start a session for <agent id>", "open another builder session", "which Sunstack sessions are running in this project", "sunstack sessions", "dismiss <agent id>", "kill <session name>", or when a message waits for an agent that has no live session. Only for projects with a Sunstack team (a sunstack/ folder).
 ---
 
 # Sunstack: spawn
@@ -10,10 +10,12 @@ description: Start a new Claude Code or Codex session as a Sunstack agent in a t
 - If there is no Sunstack team here (no `sunstack/PROTOCOL.md` in this folder or above), say so in one line and stop; the checkup skill sets one up.
 - Run every `sunstack` command on its own, with nothing chained after it.
 - Starting a session starts a paid model session: confirm with the user every time (agent,
-  tool, task label, first instruction). Closing one needs a confirm too.
-- `spawn` needs this session to run inside tmux. If it does not, give the user the steps to
-  start it themselves: open a terminal in the project, run `claude` or `codex`, then
-  `/sunstack:as <id>` (Codex: `$sunstack:as <id>`).
+  tool, task label, first instruction). Closing one needs a confirm too. The one exception is
+  starting work on another host over SSH when the user's request or your board calls for it
+  (the org skill, section 4).
+- `spawn` needs tmux installed. Outside tmux it always uses the team's home. Without tmux
+  (`no_tmux`), give the user the steps to start it themselves: open a terminal in the project,
+  run `claude` or `codex`, then `/sunstack:as <id>` (Codex: `$sunstack:as <id>`).
 
 ## Where things are
 
