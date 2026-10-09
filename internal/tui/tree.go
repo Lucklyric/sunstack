@@ -763,6 +763,8 @@ func (m *model) treeKey(k string) bool {
 		n = &nodes[*sel]
 	}
 	switch k {
+	case "v":
+		m.treeFiles(n)
 	case "up", "k":
 		*sel = max(0, *sel-1)
 		m.orgScroll = 0

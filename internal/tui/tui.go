@@ -32,6 +32,8 @@ const (
 	viewNext
 	viewPicker
 	viewHosts
+	viewBoard
+	viewTasks
 )
 
 type tick time.Time
@@ -101,6 +103,10 @@ type model struct {
 	spawnLocal  func(n treeNode, tool, note string) string
 	remotePanes map[string]remotePane // by host ID and address
 	refreshHub  tea.Cmd
+
+	viewer *viewer // the file viewer, in front of everything while open (§21.3)
+	board  boardState
+	tasks  tasksState
 }
 
 var (
@@ -123,6 +129,9 @@ func Run(p *core.Project, org bool) error {
 	// (at most daily, §20.6).
 	m.latest = setup.CachedLatest()
 	go setup.RefreshLatest()
+	if !lipgloss.HasDarkBackground() {
+		glamourStyle = "light"
+	}
 	_, err := tea.NewProgram(m, tea.WithAltScreen()).Run()
 	return err
 }
@@ -153,8 +162,13 @@ func (m *model) reload() {
 	if m.p == nil {
 		return
 	}
-	if m.view == viewNext {
+	switch m.view {
+	case viewNext:
 		m.nextItems = m.p.Next("", time.Now())
+	case viewBoard:
+		m.loadBoard()
+	case viewTasks:
+		m.loadTasks()
 	}
 	m.agents = m.p.Status()
 	m.events = m.p.Events("")
@@ -184,6 +198,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.w, m.h = msg.Width, msg.Height
+		m.resizeViewer()
 	case tick:
 		m.reload()
 		if m.scans() && !m.orgBusy && time.Since(m.orgAt) > orgRefresh {
@@ -204,6 +219,9 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.note = "pane read through the hub"
 		}
 	case tea.KeyMsg:
+		if m.viewer != nil && msg.String() != "ctrl+c" {
+			return m, m.viewerKey(msg)
+		}
 		cmd := m.key(msg.String())
 		m.saveState()
 		return m, cmd
@@ -272,6 +290,12 @@ func (m *model) key(k string) tea.Cmd {
 			return cmd
 		}
 	}
+	if m.view == viewBoard && m.p != nil && m.boardKey(k) {
+		return nil
+	}
+	if m.view == viewTasks && m.p != nil && m.tasksKey(k) {
+		return nil
+	}
 	if k == "h" && m.hosts != nil {
 		return m.show(toggle(m.view, viewHosts))
 	}
@@ -287,7 +311,7 @@ func (m *model) key(k string) tea.Cmd {
 			return nil
 		case "o":
 			return m.show(viewOrg)
-		case "l", "i", "g", "c", "n", "tab", "shift+tab":
+		case "l", "i", "g", "c", "n", "B", "T", "v", "tab", "shift+tab":
 			return nil
 		}
 	}
@@ -315,6 +339,19 @@ func (m *model) key(k string) tea.Cmd {
 		return m.show(toggle(m.view, viewOrg))
 	case "n":
 		return m.show(toggle(m.view, viewNext))
+	case "B":
+		return m.show(toggle(m.view, viewBoard))
+	case "T":
+		return m.show(toggle(m.view, viewTasks))
+	case "v":
+		if m.view == viewTeam {
+			nodes := m.treeNodes()
+			if sel := *m.treeSel(); sel < len(nodes) {
+				m.treeFiles(&nodes[sel])
+			} else {
+				m.openViewer(m.p, m.p.TeamViewFiles(), "")
+			}
+		}
 	case "pgdown", "pgup":
 		// Scroll the detail pane of the view in front.
 		step := 10
@@ -347,9 +384,9 @@ func (m *model) key(k string) tea.Cmd {
 // tabs are the views a team shows in its tab bar; Hosts only in an org.
 func (m *model) tabs() []view {
 	if m.hosts != nil {
-		return []view{viewTeam, viewNext, viewOrg, viewHosts}
+		return []view{viewTeam, viewNext, viewBoard, viewTasks, viewOrg, viewHosts}
 	}
-	return []view{viewTeam, viewNext, viewOrg}
+	return []view{viewTeam, viewNext, viewBoard, viewTasks, viewOrg}
 }
 
 func (m *model) tabIndex(v view) int {
@@ -367,6 +404,8 @@ func (m *model) show(v view) tea.Cmd {
 	switch v {
 	case viewNext:
 		m.nextScroll = 0
+		m.reload()
+	case viewBoard, viewTasks:
 		m.reload()
 	}
 	if m.scans() && m.org == nil && !m.orgBusy {
@@ -469,6 +508,9 @@ func (m *model) View() string {
 		counts := m.orgCounts()
 		head = fit(head, max(8, m.w-lipgloss.Width(counts)-2)) + "  " + counts
 	}
+	if m.viewer != nil {
+		return m.viewerView()
+	}
 	var body string
 	switch {
 	case m.help:
@@ -485,6 +527,10 @@ func (m *model) View() string {
 		body = m.orgPane()
 	case m.view == viewHosts:
 		body = m.hostsView()
+	case m.view == viewBoard:
+		body = m.boardView()
+	case m.view == viewTasks:
+		body = m.tasksView()
 	default:
 		body = m.teamView()
 	}
@@ -518,6 +564,10 @@ func (m *model) footer() string {
 		hints = "l log  i inbox  g pane  c copy resume  esc back"
 	case viewHosts:
 		hints = "↑↓ host  enter sessions  u update  c ssh  h back"
+	case viewBoard:
+		hints = "↑↓ select  enter open  f " + boardFilters[(m.board.filter+1)%len(boardFilters)] + "  / filter  v files"
+	case viewTasks:
+		hints = "↑↓ select  v message  a " + map[bool]string{true: "open only", false: "closed too"}[m.tasks.all]
 	}
 	keys := "? help  q quit"
 	line := fit(hints, max(0, m.w-lipgloss.Width(keys)-2)) + "  " + keys

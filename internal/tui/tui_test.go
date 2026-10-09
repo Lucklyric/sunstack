@@ -424,7 +424,7 @@ func TestTabsNextAndHelp(t *testing.T) {
 	m := newModel(p, false)
 	m.w, m.h = 100, 30
 	m.reload()
-	requireAll(t, m.View(), "Team", "Next", "Org")
+	requireAll(t, m.View(), "Team", "Next", "Board", "Tasks", "Org")
 	m.Update(key("n"))
 	if m.view != viewNext {
 		t.Fatal("n opens the next tab")
@@ -433,7 +433,7 @@ func TestTabsNextAndHelp(t *testing.T) {
 	fits(t, v, m.w, "next")
 	// A team with no board: the left lists the item, the right says what to run.
 	requireAll(t, v, "1. [", "do: ", "owner: ")
-	for _, want := range []view{viewOrg, viewTeam, viewNext} {
+	for _, want := range []view{viewBoard, viewTasks, viewOrg, viewTeam, viewNext} {
 		m.Update(key("tab"))
 		if m.view != want {
 			t.Fatalf("tab: got view %d, want %d", m.view, want)

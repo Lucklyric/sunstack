@@ -149,12 +149,12 @@ func (m *model) chrome() int {
 func (m *model) inner() int { return max(4, m.h-m.chrome()-2) }
 
 func (m *model) showTabs() bool {
-	return m.p != nil && (m.view == viewTeam || m.view == viewNext || m.view == viewOrg || m.view == viewHosts || m.view == viewLog || m.view == viewInbox)
+	return m.p != nil && m.view != viewPicker
 }
 
 func (m *model) tabBar() string {
 	var parts []string
-	names := map[view]string{viewTeam: "Team", viewNext: "Next", viewOrg: "Org", viewHosts: "Hosts"}
+	names := map[view]string{viewTeam: "Team", viewNext: "Next", viewBoard: "Board", viewTasks: "Tasks", viewOrg: "Org", viewHosts: "Hosts"}
 	for _, v := range m.tabs() {
 		label := " " + names[v] + " "
 		if m.tabIndex(m.view) == m.tabIndex(v) {
@@ -319,18 +319,18 @@ func (m *model) helpView() string {
 	lines := []string{cHeader.Render("Navigation"),
 		"t  teams: pick a team on this host",
 		"tab / shift+tab  next / previous tab",
-		"n  next: ranked work    o  host view    h  hosts in an org",
+		"n  next    B  board    T  tasks    o  host view    h  hosts",
 		"↑↓ or j/k  select    pgup/pgdn  scroll details",
 		"r  refresh    esc  back    ?  help    q  quit", "",
 		cHeader.Render("Team and Org"),
 		"←→  fold / unfold    enter  open pane or toggle group",
-		"/  filter by name    esc  clear filter",
-		"f  show all, needs you, busy, or outside tmux",
+		"/  filter    f  all, needs you, busy, outside tmux    esc  clear",
 		"b  group by team / host (in an org)",
 		"m  message    s  start a session from the selected row",
 		"p  peek at a remote pane (host must allow peek)",
 		"R  reopen in tmux    K  close session (both ask)",
-		"l  log    i  inbox    g  agent's pane    c  copy resume",
+		"l  log    i  inbox    g  agent's pane    c  copy resume    v  files",
+		"Board: f  all, open, blocked, overdue    Tasks: a  closed too",
 		cHeader.Render("Hosts"),
 		"↑↓←→  select    enter  sessions    u  update host    U  update all behind",
 		"c  check SSH    S  open or close SSH    r  refresh    h  back"}

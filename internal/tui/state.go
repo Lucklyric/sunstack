@@ -17,7 +17,7 @@ type savedState struct {
 	Team string `json:"team"` // the team's root, or "" for the host view
 }
 
-var viewNames = map[view]string{viewTeam: "team", viewLog: "team", viewInbox: "team", viewNext: "next", viewOrg: "org", viewHosts: "hosts"}
+var viewNames = map[view]string{viewTeam: "team", viewLog: "team", viewInbox: "team", viewNext: "next", viewOrg: "org", viewHosts: "hosts", viewBoard: "board", viewTasks: "tasks"}
 
 func statePath() string { return filepath.Join(core.Home(), "tui.json") }
 
@@ -84,6 +84,10 @@ func startModel(p *core.Project, org bool) *model {
 				m.view, m.orgBusy = viewOrg, true
 			case "hosts":
 				m.view = viewHosts
+			case "board":
+				m.view = viewBoard
+			case "tasks":
+				m.view = viewTasks
 			}
 		}
 	}
