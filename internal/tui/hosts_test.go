@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -390,8 +391,11 @@ func TestRemotePeekAndSpawnKeys(t *testing.T) {
 // ones (§23.3).
 func TestHostsSSHKeys(t *testing.T) {
 	m := hostsModel(t, 200)
-	state := `{"aliases":{"srv":{"control_master":"auto","control_path":"` + filepath.Join(t.TempDir(), "no-socket") + `"}},"hosts":{"cccccccccccccccc":"srv"}}`
-	if err := os.WriteFile(filepath.Join(os.Getenv("SUNSTACK_HOME"), "ssh.json"), []byte(state), 0o600); err != nil {
+	state, _ := json.Marshal(core.SSHState{
+		Aliases: map[string]*core.SSHAlias{"srv": {ControlMaster: "auto", ControlPath: filepath.Join(t.TempDir(), "no-socket")}},
+		Hosts:   map[string]string{"cccccccccccccccc": "srv"},
+	})
+	if err := os.WriteFile(filepath.Join(os.Getenv("SUNSTACK_HOME"), "ssh.json"), state, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	m.hosts.Hosts[2].SSH = "ssh srv: no open connection"
