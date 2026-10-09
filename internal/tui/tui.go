@@ -91,7 +91,10 @@ type model struct {
 	latest     string                           // the newest release, from the daily check (§20.6)
 	updateHost func(name, target string) string // asks another host to update
 	updateHere func() string                    // updates this host and restarts its connector
-	pending    tea.Cmd                          // what a confirmed action runs next
+	sshCheck   func(alias string) string        // a fresh SSH login, off the UI loop (§23.3)
+	sshStop    func(alias string) string
+	sshStart   func(alias string) tea.Cmd // hands the terminal to sunstack ssh start
+	pending    tea.Cmd                    // what a confirmed action runs next
 	// Another host's sessions (§20.4, §20.5), through the hub.
 	peekRemote  func(host, target string) (string, error)
 	spawnRemote func(host string, a hub.SpawnArgs) string
@@ -130,6 +133,7 @@ func newModel(p *core.Project, org bool) *model {
 	m := &model{p: p, folded: map[string]bool{}, sendTo: realSend, kill: realKill, isFree: realIsFree, reopen: realReopen, peek: realPeek,
 		loadView: hub.LoadView, remoteSend: realRemoteSend, refreshHub: realRefresh,
 		updateHost: realUpdateHost, updateHere: realUpdateHere,
+		sshCheck: realSSHCheck, sshStop: realSSHStop, sshStart: realSSHStart,
 		peekRemote: realPeekRemote, spawnRemote: realSpawnRemote, spawnLocal: realSpawnLocal, remotePanes: map[string]remotePane{}}
 	switch {
 	case org:
@@ -513,7 +517,7 @@ func (m *model) footer() string {
 	case viewLog, viewInbox:
 		hints = "l log  i inbox  g pane  c copy resume  esc back"
 	case viewHosts:
-		hints = "↑↓ host  enter sessions  u update  h back"
+		hints = "↑↓ host  enter sessions  u update  c ssh  h back"
 	}
 	keys := "? help  q quit"
 	line := fit(hints, max(0, m.w-lipgloss.Width(keys)-2)) + "  " + keys

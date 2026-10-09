@@ -332,7 +332,7 @@ func (m *model) helpView() string {
 		"R  reopen in tmux    K  close session (both ask)",
 		"l  log    i  inbox    g  agent's pane    c  copy resume",
 		cHeader.Render("Hosts"),
-		"↑↓←→  select    enter  sessions    u  update host",
-		"U  update all behind    r  refresh    h  back"}
+		"↑↓←→  select    enter  sessions    u  update host    U  update all behind",
+		"c  check SSH    S  open or close SSH    r  refresh    h  back"}
 	return cBox.Width(m.w - 2).Height(m.inner()).Render(strings.Join(clip(fitAll(lines, m.w-4), m.inner()), "\n"))
 }

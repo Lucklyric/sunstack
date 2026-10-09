@@ -318,8 +318,17 @@ func hostDetails(h *hub.HostView, w int, local *core.Org) []string {
 	}
 	out = append(out, field("messages", send))
 	if !h.You {
+		to := "not set up (sunstack ssh setup " + h.Name + ")"
 		if l := h.SSH; l != "" {
-			out = append(out, field("ssh", strings.TrimPrefix(l, "ssh ")))
+			to = strings.TrimPrefix(l, "ssh ")
+		}
+		out = append(out, field("ssh to", to))
+		if h.HasSnap {
+			from := "not set up"
+			if l := h.SSHBack; l != "" {
+				from = l[strings.Index(l, ": ")+2:]
+			}
+			out = append(out, field("ssh from", from))
 		}
 	}
 	if h.Fingerprint != "" {
@@ -495,6 +504,42 @@ func (m *model) hostsKey(k string) (bool, tea.Cmd) {
 		}
 	case "r":
 		return true, m.refreshHub
+	case "c", "S":
+		h := m.hosts.Hosts[m.hostSel]
+		alias := ""
+		if !h.You {
+			alias = core.LoadSSH().Hosts[h.ID]
+		}
+		switch {
+		case h.You:
+			m.note = "c and S work on another host's SSH"
+			return true, nil
+		case alias == "":
+			m.note = h.Name + " has no SSH alias: sunstack ssh setup " + h.Name + ", then sunstack ssh map " + h.Name + " <alias>"
+			return true, nil
+		}
+		if err := core.UserOnly("SSH from the dashboard"); err != nil {
+			m.note = err.Error()
+			return true, nil
+		}
+		if k == "c" {
+			m.note = "checking ssh " + alias + "…"
+			return true, func() tea.Msg { return hubMsg{"ssh " + alias + ": " + m.sshCheck(alias)} }
+		}
+		path, err := core.SSHMasterPath(alias)
+		if err != nil {
+			m.note = err.Error()
+			return true, nil
+		}
+		if core.MasterOpen(path) {
+			m.confirm = "Close the shared connection " + alias + "? Every shell and tmux attach running through it ends. y to close, any other key to cancel"
+			m.confirmDo = func() {
+				m.pending = func() tea.Msg { return hubMsg{m.sshStop(alias)} }
+			}
+			return true, nil
+		}
+		m.confirm = "Open a shared connection to " + alias + "? The terminal goes to ssh for a passphrase if needed. y to open, any other key to cancel"
+		m.confirmDo = func() { m.pending = m.sshStart(alias) }
 	case "u":
 		h := m.hosts.Hosts[m.hostSel]
 		if h.You {
@@ -543,6 +588,40 @@ func (m *model) hostsKey(k string) (bool, tea.Cmd) {
 		return false, nil
 	}
 	return true, nil
+}
+
+func realSSHCheck(alias string) string {
+	r, err := core.RunSSHCheck(alias)
+	if err != nil {
+		return err.Error()
+	}
+	return r
+}
+
+func realSSHStop(alias string) string {
+	closed, err := core.SSHStop(alias)
+	switch {
+	case err != nil:
+		return err.Error()
+	case closed:
+		return "connection to " + alias + " closed"
+	}
+	return "no open connection to " + alias
+}
+
+// realSSHStart runs sunstack ssh start in the terminal and comes back to
+// the dashboard afterwards, also on cancel or error.
+func realSSHStart(alias string) tea.Cmd {
+	exe, err := os.Executable()
+	if err != nil {
+		return func() tea.Msg { return hubMsg{err.Error()} }
+	}
+	return tea.ExecProcess(exec.Command(exe, "ssh", "start", alias), func(err error) tea.Msg {
+		if err != nil {
+			return hubMsg{"ssh start " + alias + ": " + err.Error()}
+		}
+		return hubMsg{"connection to " + alias + " open"}
+	})
 }
 
 func realUpdateHost(name, target string) string {

@@ -735,6 +735,9 @@ func (m *model) details2(n treeNode, w int) []string {
 		}
 		if n.host != nil {
 			out = append(out, "", cDim.Render("on "+n.host.Name+", as of its last snapshot ("+hub.Age(n.host.SnapAge)+" old)"))
+			if alias := core.LoadSSH().Hosts[n.host.ID]; alias != "" && s.Where != "" {
+				out = append(out, field("attach", core.SSHAttach(alias, strings.SplitN(s.Where, ":", 2)[0])))
+			}
 			if rp, ok := m.remotePanes[n.host.ID+"|"+remoteAddress(s)]; ok {
 				out = append(out, "", cDim.Render("── pane on "+n.host.Name+", "+hub.Age(time.Since(rp.at))+" ago ──"))
 				out = append(out, strings.Split(strings.TrimRight(rp.text, "\n"), "\n")...)

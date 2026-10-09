@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -473,6 +474,22 @@ func StartedBySunstack(alias, path string) bool {
 	}
 	st, err := os.Lstat(path)
 	return err == nil && !st.ModTime().After(at.Add(time.Second))
+}
+
+var shSafe = regexp.MustCompile(`^[A-Za-z0-9._@%+=:,/~-]+$`)
+
+// ShellQuote quotes a value for a POSIX shell command line.
+func ShellQuote(v string) string {
+	if shSafe.MatchString(v) {
+		return v
+	}
+	return "'" + strings.ReplaceAll(v, "'", `'\''`) + "'"
+}
+
+// SSHAttach is the command that attaches to a tmux session on another host
+// through its SSH alias, quoted for the remote shell and for this one.
+func SSHAttach(alias, tmuxSession string) string {
+	return "ssh -t " + ShellQuote(alias) + " " + ShellQuote("tmux attach -t "+ShellQuote("="+tmuxSession))
 }
 
 // SSHAge prints a recorded stamp as an age.

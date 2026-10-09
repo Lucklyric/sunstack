@@ -173,15 +173,7 @@ func sshAlias(name string) string {
 	return name
 }
 
-var shSafe = regexp.MustCompile(`^[A-Za-z0-9._@%+=:,/~-]+$`)
-
-// shQuote quotes a value for a POSIX shell command line.
-func shQuote(v string) string {
-	if shSafe.MatchString(v) {
-		return v
-	}
-	return "'" + strings.ReplaceAll(v, "'", `'\''`) + "'"
-}
+func shQuote(v string) string { return core.ShellQuote(v) }
 
 // sshSetup prints the steps to reach host from this host (§23.2). It changes
 // nothing and runs no ssh, so an agent may run it to show the user.

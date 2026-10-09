@@ -2,6 +2,8 @@ package tui
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -381,4 +383,68 @@ func TestRemotePeekAndSpawnKeys(t *testing.T) {
 	if !strings.Contains(got, "server / free=true beside=00000000-0000-4000-8000-0000000000aa") {
 		t.Errorf("no free session beside the remote one: %q", got)
 	}
+}
+
+// The Hosts tab shows SSH both ways; c checks and S opens the shared
+// connection for a mapped host, and both refuse this host and unmapped
+// ones (§23.3).
+func TestHostsSSHKeys(t *testing.T) {
+	m := hostsModel(t, 200)
+	state := `{"aliases":{"srv":{"control_master":"auto","control_path":"` + filepath.Join(t.TempDir(), "no-socket") + `"}},"hosts":{"cccccccccccccccc":"srv"}}`
+	if err := os.WriteFile(filepath.Join(os.Getenv("SUNSTACK_HOME"), "ssh.json"), []byte(state), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	m.hosts.Hosts[2].SSH = "ssh srv: no open connection"
+	m.hosts.Hosts[2].SSHBack = "ssh from server: last check ok 3m ago, no open connection"
+	var checked, started []string
+	m.sshCheck = func(alias string) string { checked = append(checked, alias); return "ok" }
+	m.sshStart = func(alias string) tea.Cmd {
+		started = append(started, alias)
+		return func() tea.Msg { return hubMsg{"connection to " + alias + " open"} }
+	}
+	m.key("h")
+
+	// This host and an unmapped one are refused.
+	for !m.hosts.Hosts[m.hostSel].You {
+		m.key("right")
+	}
+	m.key("c")
+	requireAll(t, ansi.Strip(m.View()), "another host's SSH")
+	for m.hosts.Hosts[m.hostSel].Name != "hubbox" {
+		m.key("right")
+	}
+	requireAll(t, ansi.Strip(m.View()), "not set up (sunstack ssh setup hubbox)")
+	m.key("S")
+	requireAll(t, ansi.Strip(m.View()), "hubbox has no SSH alias")
+
+	for m.hosts.Hosts[m.hostSel].Name != "server" {
+		m.key("right")
+	}
+	requireAll(t, ansi.Strip(m.View()), "srv: no open connection", "last check ok 3m ago")
+	if cmd := m.key("c"); cmd != nil {
+		m.Update(cmd())
+	}
+	if strings.Join(checked, ",") != "srv" {
+		t.Errorf("c checked %v", checked)
+	}
+	requireAll(t, ansi.Strip(m.View()), "ssh srv: ok")
+
+	m.key("S")
+	requireAll(t, ansi.Strip(m.View()), "Open a shared connection to srv?")
+	if cmd := m.key("y"); cmd != nil {
+		m.Update(cmd())
+	}
+	if strings.Join(started, ",") != "srv" {
+		t.Errorf("S started %v", started)
+	}
+	m.key("S")
+	m.key("n")
+	if len(started) != 1 {
+		t.Error("S started without a yes")
+	}
+
+	// A session on the mapped host shows how to attach over SSH.
+	m.view = viewOrg
+	selectRow(t, m, "builder.alice_api")
+	requireAll(t, ansi.Strip(m.View()), "ssh -t srv 'tmux attach -t =w'")
 }
