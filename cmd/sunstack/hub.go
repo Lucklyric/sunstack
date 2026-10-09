@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -236,12 +237,55 @@ func orgMembership(rest []string, stdin io.Reader, stdout io.Writer) error {
 		}
 		return nil
 	case "allow", "deny":
-		a, err := parse(rest[1:], "", "")
+		a, err := parse(rest[1:], "teams max", "agents")
 		if err != nil {
 			return err
 		}
 		if err := core.UserOnly("sunstack org " + rest[0]); err != nil {
 			return err
+		}
+		if !a.has("agents") && (a.has("teams") || a.has("max")) {
+			return &core.Error{Code: core.ExitUsage, Reason: "usage", Msg: "--teams and --max require --agents"}
+		}
+		if a.has("agents") {
+			if err := a.atMost(2, "org "+rest[0]+" --agents"); err != nil {
+				return err
+			}
+			if len(a.pos) < 2 {
+				return missing("host name, then spawn or peek --agents")
+			}
+			name, kind := a.pos[0], a.pos[1]
+			if rest[0] == "deny" {
+				if a.has("teams") || a.has("max") {
+					return &core.Error{Code: core.ExitUsage, Reason: "usage", Msg: "org deny --agents takes no --teams or --max"}
+				}
+				if err := hub.DenyAgents(name, kind); err != nil {
+					return err
+				}
+				fmt.Fprintf(stdout, "sunstack: agents of %s may no longer %s here\n", name, kind)
+				return nil
+			}
+			max := 2
+			if a.has("max") {
+				if kind != "spawn" {
+					return &core.Error{Code: core.ExitUsage, Reason: "usage", Msg: "--max is only for spawn --agents"}
+				}
+				max, err = strconv.Atoi(a.flags["max"])
+				if err != nil || max < 1 || max > 10 {
+					return &core.Error{Code: core.ExitUsage, Reason: "usage", Msg: "--max must be 1 to 10"}
+				}
+			}
+			var teams []string
+			if a.has("teams") {
+				teams = strings.Split(a.flags["teams"], ",")
+			}
+			g, err := hub.AllowAgents(name, kind, teams, max)
+			if err != nil {
+				return err
+			}
+			fmt.Fprintf(stdout, "sunstack: %s (key %s) may now %s here, teams %s, max %d. Check the key on %s with sunstack org keys. This allows:\n%s",
+				g.Name, g.Fingerprint, strings.Join(g.Kinds, ", "), strings.Join(g.Teams, ", "), g.Max, g.Name, hub.GrantWarning(g.Kinds))
+			return nil
 		}
 		if rest[0] == "allow" && len(a.pos) == 0 {
 			fmt.Fprint(stdout, hub.GrantsText())

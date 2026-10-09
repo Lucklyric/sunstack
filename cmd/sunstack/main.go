@@ -133,6 +133,11 @@ Hosts (an org: several hosts connected through one hub, over Tailscale):
   sunstack org trust <host>                       accept a host's changed key, after comparing fingerprints
   sunstack org allow [<host> peek|spawn|update…]   let a host peek, spawn or update here (none by default); no host: list
   sunstack org deny <host> peek|spawn|update…      take that back
+  sunstack org allow <host> spawn --agents --teams <team>[,<team>…] [--max N]
+                                                let that host's agents start sessions here in these teams; max 1 to 10 (default 2)
+  sunstack org allow <host> peek --agents [--teams <team>[,<team>…]]
+                                                let its agents peek in these teams; without --teams, copy its spawn agent grant's teams
+  sunstack org deny <host> spawn|peek --agents    remove only that agent grant; allow and deny are user-only
   sunstack org update <host>|--all [--yes]        update sunstack on another host that allows it (org allow), or on every
                                                   host that is behind; it restarts the host's connector
   sunstack send <host>:<team>/<agent>[_task]|<host>:<session-id> "<text>"

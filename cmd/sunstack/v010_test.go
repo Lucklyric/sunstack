@@ -1,11 +1,15 @@
 package main
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/Lucklyric/sunstack/internal/hub"
 )
 
 // org allow and deny are the user's: refused from an agent session, and
@@ -37,6 +41,84 @@ func TestOrgAllow(t *testing.T) {
 	expect(t, hubHost.run(t, "org", "allow", "nobody", "peek"), 1, "unknown host")
 	expect(t, hubHost.run(t, "org", "deny", "laptop", "peek", "spawn"), 0, "deny")
 	requireContains(t, hubHost.run(t, "org", "allow").out, "No host may")
+
+	// Agent grants are separate, scoped to stable local team IDs, and
+	// grant management still refuses both CLI and pane agent identities.
+	alpha := hubHost.team(t, "alpha")
+	hubHost.team(t, "beta")
+	legacy := hubHost.team(t, "legacy")
+	must(t, os.Remove(filepath.Join(legacy, "sunstack", "TEAM")))
+	for _, cmd := range []string{"allow", "deny"} {
+		r := agent.run(t, "org", cmd, "laptop", "spawn", "--agents", "--teams", "alpha")
+		expect(t, r, 2, cmd+" agent grants from an agent")
+		requireContains(t, r.stderr, "user_only")
+		expect(t, inPane.run(t, "org", cmd, "laptop", "spawn", "--agents"), 2, cmd+" agent grants from a recorded pane")
+	}
+	for _, args := range [][]string{
+		{"allow", "laptop", "peek", "--agents"},
+		{"allow", "laptop", "spawn", "--agents"},
+		{"allow", "laptop", "spawn", "--agents", "--teams", "legacy"},
+		{"allow", "laptop", "spawn", "--agents", "--teams", "alpha,"},
+	} {
+		r := hubHost.run(t, append([]string{"org"}, args...)...)
+		if r.code == 0 {
+			t.Errorf("invalid agent grant accepted: %v", args)
+		}
+	}
+	for _, max := range []string{"0", "11", "two", ""} {
+		expect(t, hubHost.run(t, "org", "allow", "laptop", "spawn", "--agents", "--teams", "alpha", "--max", max), 2, "invalid max")
+	}
+	for _, args := range [][]string{
+		{"allow", "laptop", "spawn", "--teams", "alpha"},
+		{"allow", "laptop", "spawn", "--max", "2"},
+		{"allow", "laptop", "peek", "--agents", "--teams", "alpha", "--max", "2"},
+		{"allow", "laptop", "spawn", "peek", "--agents", "--teams", "alpha"},
+		{"deny", "laptop", "spawn", "--agents", "--teams", "alpha"},
+		{"deny", "laptop", "spawn", "--agents", "--max", "2"},
+	} {
+		expect(t, hubHost.run(t, append([]string{"org"}, args...)...), 2, "invalid agent grant options")
+	}
+	r = hubHost.run(t, "org", "allow", "laptop", "spawn", "--agents", "--teams", "alpha,beta", "--max", "3")
+	expect(t, r, 0, "allow agent spawn")
+	requireContains(t, r.out, "spawn:agents", "max 3", "as you", "this host's permission rules", "repeated jobs keep costing")
+	grants := func() map[string]*hub.Grant {
+		t.Helper()
+		var gs map[string]*hub.Grant
+		must(t, json.Unmarshal([]byte(readText(t, hubHost.file("remote/allow.json"))), &gs))
+		return gs
+	}
+	id := hostID(t, laptop)
+	gs := grants()
+	if gs[id] != nil || gs[id+":spawn:agents"] == nil {
+		t.Fatalf("agent and user grants not separate: %+v", gs)
+	}
+	alphaID := ""
+	for _, line := range strings.Split(readText(t, filepath.Join(alpha, "sunstack", "TEAM")), "\n") {
+		if strings.HasPrefix(line, "id: ") {
+			alphaID = strings.TrimPrefix(line, "id: ")
+		}
+	}
+	if alphaID == "" || !slices.Contains(gs[id+":spawn:agents"].Teams, alphaID) || slices.Contains(gs[id+":spawn:agents"].Teams, "alpha") {
+		t.Fatalf("agent grant stores names instead of IDs: %+v", gs[id+":spawn:agents"])
+	}
+	r = hubHost.run(t, "org", "allow", "laptop", "peek", "--agents")
+	expect(t, r, 0, "copy spawn teams for peek")
+	requireContains(t, r.out, "every pane in these teams", "your own sessions included")
+	expect(t, hubHost.run(t, "org", "allow", "laptop", "spawn", "--agents", "--teams", "beta"), 0, "replace spawn grant")
+	gs = grants()
+	if gs[id+":spawn:agents"].Max != 2 || slices.Contains(gs[id+":spawn:agents"].Teams, alphaID) || !slices.Contains(gs[id+":peek:agents"].Teams, alphaID) {
+		t.Errorf("regrant did not replace or changed peek copy: %+v", gs)
+	}
+	expect(t, hubHost.run(t, "org", "allow", "laptop", "spawn"), 0, "separate user grant")
+	requireContains(t, hubHost.run(t, "org", "allow").out, "laptop: spawn, key", "laptop: spawn:agents, teams", "laptop: peek:agents, teams", "max 2", "age ")
+	expect(t, hubHost.run(t, "org", "deny", "laptop", "spawn", "--agents"), 0, "deny agent spawn only")
+	gs = grants()
+	if gs[id+":spawn:agents"] != nil || gs[id+":peek:agents"] == nil || gs[id] == nil {
+		t.Errorf("deny removed other grants: %+v", gs)
+	}
+	expect(t, hubHost.run(t, "org", "deny", "laptop", "peek", "--agents"), 0, "deny agent peek")
+	// Explicit peek teams work without a spawn agent grant.
+	expect(t, hubHost.run(t, "org", "allow", "laptop", "peek", "--agents", "--teams", "alpha"), 0, "explicit peek teams")
 }
 
 // Remote peek (§20.5): granted on the host that has the session, asked by
@@ -64,6 +146,12 @@ func TestRemotePeek(t *testing.T) {
 	r := laptop.run(t, "peek", "hub-host:shop/builder.alice", "--lines", "5")
 	expect(t, r, 1, "peek without a grant")
 	requireContains(t, r.stderr, "not allowed", "org allow laptop peek")
+
+	// Even a signed user request cannot use this host's agent grant.
+	expect(t, hubHost.run(t, "org", "allow", "laptop", "peek", "--agents", "--teams", "shop"), 0, "allow agent peek only")
+	r = laptop.run(t, "peek", "hub-host:shop/builder.alice", "--lines", "5")
+	expect(t, r, 1, "user peek with only an agent grant")
+	requireContains(t, r.stderr, "not allowed")
 
 	expect(t, hubHost.run(t, "org", "allow", "laptop", "peek"), 0, "allow peek")
 	r = laptop.run(t, "peek", "hub-host:shop/builder.alice", "--lines", "5")
