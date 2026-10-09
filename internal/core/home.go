@@ -161,7 +161,18 @@ type AttachPlace struct {
 // session's ID or label from the scan.
 func FindAttach(p *Project, t string) (*AttachPlace, error) {
 	at := &AttachPlace{Label: t}
+	scope := ""
+	if p != nil {
+		scope = p.HomeScope()
+	}
+	// A free session by its label (§20.2): it holds no claim, and before its
+	// first prompt it has no session ID either.
+	pane, sock, label, ferr := FindFree(t, scope)
 	switch {
+	case ferr == nil:
+		at.Socket, at.Pane, at.Label = sock, pane, label
+	case strings.Contains(ferr.Error(), "free sessions are called"):
+		return nil, ferr
 	case p != nil && !IsSessionID(t) && !strings.HasPrefix(t, "%"):
 		id, c, err := p.target(t)
 		if err != nil {

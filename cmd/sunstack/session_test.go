@@ -905,6 +905,18 @@ func TestAttach(t *testing.T) {
 	}
 	expect(t, sh(t, p, env, "attach", "reviewer"), 2, "ambiguous name")
 	expect(t, sh(t, p, env, "attach", "nobody"), 1, "unknown name")
+
+	// A free session by its label, before its first prompt gives it a
+	// session ID (found in the live check).
+	r = sh(t, p, env, "spawn", "--free", "--tool", "codex", "--name", "scratch", "--yes")
+	expect(t, r, 0, "spawn free")
+	free := field(paneRe, r.out)
+	r = sh(t, p, env, "attach", "scratch")
+	expect(t, r, 0, "attach a free session by label")
+	requireContains(t, r.out, "tmux -S "+home.socket+" attach -t ss-alpha-a1b2")
+	if got := home.tmux(t, "display-message", "-p", "-t", free, "#{pane_active}"); got != "1" {
+		t.Errorf("attach did not select the free pane: active %q", got)
+	}
 }
 
 // spawn --free starts a plain Claude or Codex session that holds no agent:
