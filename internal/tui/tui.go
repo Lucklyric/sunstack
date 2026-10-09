@@ -460,9 +460,10 @@ func (m *model) View() string {
 	} else {
 		where = "host " + core.ThisHost().Name
 	}
-	head := cTitle.Render("sunstack") + cDim.Render(fmt.Sprintf("  %s  ·  %s", where, m.updated.Format("15:04:05")))
+	head := cTitle.Render("sunstack") + "  " + cDim.Render(where)
 	if m.view == viewOrg && m.org != nil {
-		head += cDim.Render("  ·  ") + m.orgCounts()
+		counts := m.orgCounts()
+		head = fit(head, max(8, m.w-lipgloss.Width(counts)-2)) + "  " + counts
 	}
 	var body string
 	switch {
@@ -483,40 +484,57 @@ func (m *model) View() string {
 	default:
 		body = m.teamView()
 	}
-	help := cDim.Render("↑↓ select · o org · l log · i inbox · g go to pane · c copy resume · r refresh · esc back · q quit")
-	switch {
-	case m.view == viewPicker:
-		help = cDim.Render("↑↓ select · enter open · o host view · s find teams · n set up · ? help · q quit")
-	case m.view == viewNext:
-		help = cDim.Render("↑↓ select · r refresh · tab switch · t teams · esc back · ? help · q quit")
-	case m.view == viewOrg:
-		help = cDim.Render("↑↓ move · ←→ fold · enter go to pane · m message · / filter · f show · R reopen · K close · ? keys · q quit")
-		if m.hosts != nil && !m.teamScope() {
-			help = cDim.Render("↑↓ move · ←→ fold · enter go to pane · m message · s start · p peek remote · / filter · f show · b by team/host · R reopen · K close · ? keys · q quit")
-		}
-	case m.view == viewHosts:
-		help = cDim.Render("←→↑↓ choose a host · enter its sessions · u update it · U update all behind · r refresh · h back · ? keys · q quit")
-	}
-	if m.note != "" {
-		help = cWarn.Render(m.note) + "  " + help
-	}
 	parts := []string{fit(head, m.w)}
 	if m.showTabs() {
 		parts = append(parts, m.tabBar())
 	}
-	return lipgloss.JoinVertical(lipgloss.Left, append(parts, body, fit(help, m.w))...)
+	return lipgloss.JoinVertical(lipgloss.Left, append(parts, body, m.footer())...)
+}
+
+func (m *model) footer() string {
+	switch {
+	case m.help:
+		return cDim.Render("Any key closes help")
+	case m.inputPrompt != "":
+		line := m.inputPrompt + ": " + m.inputText + "█"
+		if n := lipgloss.Width(line) - m.w; n > 0 {
+			line = ansi.TruncateLeft(line, n+1, "…")
+		}
+		return cWarn.Render(line) + "\n" + cDim.Render("enter apply  esc cancel")
+	case m.confirm != "":
+		return cWarn.Render(wrap(m.confirm, m.w))
+	}
+	hints := "↑↓ select  ←→ fold  enter open  / filter  f show"
+	switch m.view {
+	case viewPicker:
+		hints = "↑↓ select  enter open  o host view  s find teams  n set up"
+	case viewNext:
+		hints = "↑↓ select  pgup/pgdn details  r refresh  esc back"
+	case viewLog, viewInbox:
+		hints = "l log  i inbox  g pane  c copy resume  esc back"
+	case viewHosts:
+		hints = "↑↓ host  enter sessions  u update  h back"
+	}
+	keys := "? help  q quit"
+	line := fit(hints, max(0, m.w-lipgloss.Width(keys)-2)) + "  " + keys
+	if m.note != "" {
+		line = cWarn.Render(fit(m.note, m.w)) + "\n" + cDim.Render(line)
+	} else {
+		line = cDim.Render(line)
+	}
+	return line
 }
 
 func (m *model) teamView() string {
 	if len(m.agents) == 0 {
-		return cBox.Width(m.w - 2).Render("No agents yet. Run sunstack hire <title> [name], or ask an agent to recruit one.")
+		return cBox.Width(m.w - 2).Render(wrap("No agents yet. Run sunstack hire <title> [name], or ask an agent to recruit one.", m.w-4))
 	}
 	// Bottom boxes first, so the two top boxes get exactly the rest.
 	events := m.events
 	if len(events) > 5 {
 		events = events[len(events)-5:]
 	}
-	bottom := []string{cBox.Width(m.w - 4).Render(cHeader.Render("Events") + "\n" + strings.Join(fitAll(orNone(events), m.w-6), "\n"))}
+	bottom := []string{cBox.Width(m.w - 2).Render(cHeader.Render("Events") + "\n" + strings.Join(fitAll(orEmpty(events, "No events yet."), m.w-4), "\n"))}
 	var warn []string
 	for _, c := range m.warnings {
 		warn = append(warn, cWarn.Render("⚠ ")+c.Msg)
@@ -525,7 +543,7 @@ func (m *model) teamView() string {
 		warn = append(warn[:3], cDim.Render(fmt.Sprintf("… %d more (sunstack health)", len(m.warnings)-3)))
 	}
 	if len(warn) > 0 {
-		bottom = append(bottom, cBox.Width(m.w-4).Render(strings.Join(fitAll(warn, m.w-6), "\n")))
+		bottom = append(bottom, cBox.Width(m.w-2).Render(strings.Join(fitAll(warn, m.w-4), "\n")))
 	}
 	used := m.chrome() // title, tab bar and help lines
 	for _, b := range bottom {
@@ -539,7 +557,7 @@ func (m *model) teamView() string {
 // agentDetails is the right pane for an agent on the Team tab: its sessions,
 // pillars, proposals and board.
 func (m *model) agentDetails(a *core.AgentStatus, width int) []string {
-	out := []string{cHeader.Render(a.ID), wrap(a.Duty, width-2), ""}
+	out := []string{wrap(cHeader.Render(a.ID), width-2), wrap(a.Duty, width-2), ""}
 	for i, c := range a.Claims {
 		out = append(out, fmt.Sprintf("session %s: %s on %s, last contact %s", c.Label(a.ID), c.Tool, c.Host, c.LastContact))
 		if a.Where[i] != "" {
@@ -586,10 +604,10 @@ func (m *model) logView() string {
 	}
 	lines := m.p.Events(id)
 	h := m.inner()
-	if len(lines) > h {
-		lines = lines[len(lines)-h:]
+	if len(lines) > h-1 {
+		lines = lines[len(lines)-h+1:]
 	}
-	return cBox.Width(m.w - 4).Height(h).Render(cHeader.Render("Events · "+label) + "\n" + strings.Join(fitAll(orNone(lines), m.w-6), "\n"))
+	return cBox.Width(m.w - 2).Height(h).Render(fit(cHeader.Render("Events: "+label), m.w-4) + "\n" + strings.Join(fitAll(orEmpty(lines, "No events yet."), m.w-4), "\n"))
 }
 
 func (m *model) inboxView() string {
@@ -601,7 +619,7 @@ func (m *model) inboxView() string {
 	for _, e := range m.p.Inbox(a.ID) {
 		lines = append(lines, fmt.Sprintf("%s  %-8s from %-16s %s", e.At, e.Type, e.From, e.File))
 	}
-	return cBox.Width(m.w - 4).Height(m.inner()).Render(cHeader.Render("Inbox · "+a.ID) + "\n" + strings.Join(fitAll(orNone(lines), m.w-6), "\n"))
+	return cBox.Width(m.w - 2).Height(m.inner()).Render(fit(cHeader.Render("Inbox: "+a.ID), m.w-4) + "\n" + strings.Join(clip(fitAll(orEmpty(lines, "No messages waiting."), m.w-4), m.inner()-1), "\n"))
 }
 
 func sectionLines(doc []byte, name string) []string {
@@ -627,9 +645,9 @@ func clip(lines []string, n int) []string {
 	return lines
 }
 
-func orNone(lines []string) []string {
+func orEmpty(lines []string, message string) []string {
 	if len(lines) == 0 {
-		return []string{cDim.Render("(none yet)")}
+		return []string{cDim.Render(message)}
 	}
 	return lines
 }
@@ -646,7 +664,10 @@ func orgCmd() tea.Cmd { return func() tea.Msg { return orgMsg{core.BuildOrg()} }
 // fit cuts a line to w display columns, so a box never wraps it: wide
 // characters count twice, and color codes not at all.
 func fit(s string, w int) string {
-	if w <= 1 || lipgloss.Width(s) <= w {
+	if w <= 0 {
+		return ""
+	}
+	if lipgloss.Width(s) <= w {
 		return s
 	}
 	return ansi.Truncate(s, w, "…")

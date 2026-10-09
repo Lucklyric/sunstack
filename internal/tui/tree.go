@@ -203,7 +203,7 @@ func (m *model) hostHeading(out []treeNode, h *hub.HostView, rows []treeNode) []
 	hk := "host:" + h.ID
 	label := h.Label()
 	if m.latest != "" && h.Version != "" && setup.Older(h.Version, m.latest) {
-		label += " · update " + h.Version
+		label += "  update " + h.Version
 	}
 	out = append(out, treeNode{kind: "host", key: hk, label: label, fold: len(rows) > 0, host: h, org: h.Org})
 	if !m.folded[hk] {
@@ -486,7 +486,7 @@ func (m *model) row(n treeNode, w int) string {
 			tail = cDim.Render("no session")
 		}
 	case "info":
-		return cDim.Render(line)
+		return cDim.Render(fit(line, w))
 	case "team":
 		if c := len(m.teamWarnings(n)); c > 0 {
 			tail = cWarn.Render(fmt.Sprintf("%d for you", c))
@@ -494,14 +494,17 @@ func (m *model) row(n treeNode, w int) string {
 	case "host":
 		tail = stateGlyph(n.host.State)
 	}
+	return rowText(line, tail, w)
+}
+
+// rowText preserves the status at the right edge when a label is long.
+func rowText(label, tail string, w int) string {
 	if tail == "" {
-		return line
+		return fit(label, w)
 	}
-	pad := w - lipgloss.Width(line) - lipgloss.Width(tail)
-	if pad < 1 {
-		pad = 1
-	}
-	return line + strings.Repeat(" ", pad) + tail
+	tail = fit(tail, max(0, w-4))
+	label = fit(label, max(0, w-lipgloss.Width(tail)-1))
+	return label + strings.Repeat(" ", max(1, w-lipgloss.Width(label)-lipgloss.Width(tail))) + tail
 }
 
 // teamWarnings are the items for the user in a team row's team: on this
@@ -566,27 +569,21 @@ func (m *model) treeBox(h int) string {
 		title = "Team"
 	}
 	if m.filter != "" {
-		title += " · filter: " + m.filter
+		title += "  filter: " + m.filter
 	}
 	if m.filterMode != 0 {
-		title += " · show: " + filterModes[m.filterMode]
+		title += "  show: " + filterModes[m.filterMode]
 	}
 	var left []string
 	for _, n := range nodes {
 		left = append(left, m.row(n, leftW-2))
 	}
 	if len(nodes) == 0 {
-		left = append(left, cDim.Render("nothing matches (esc clears)"))
+		left = append(left, cDim.Render("No matching sessions."), cDim.Render("Esc clears filters."))
 	}
 	var right []string
 	if len(nodes) > 0 {
 		right = m.details2(nodes[*sel], m.w-leftW-6)
-	}
-	if m.inputPrompt != "" {
-		right = append(right, "", cWarn.Render(m.inputPrompt+": ")+m.inputText+"█", cDim.Render("enter sends · esc cancels"))
-	}
-	if m.confirm != "" {
-		right = append(right, "", cWarn.Render(m.confirm))
 	}
 	return m.panesH(title, left, *sel, right, m.orgScroll, h)
 }
@@ -626,7 +623,7 @@ func placeText(s *core.HostSession) string {
 
 // details2 is the right pane for a tree node.
 func (m *model) details2(n treeNode, w int) []string {
-	field := func(k, v string) string { return cDim.Render(fmt.Sprintf("%-7s", k)) + " " + wrap(v, w-8) }
+	field := func(k, v string) string { return detailField(k, v, 7, w) }
 	var out []string
 	switch n.kind {
 	case "needs":
@@ -654,14 +651,14 @@ func (m *model) details2(n treeNode, w int) []string {
 			}
 		}
 		if shown == 0 {
-			out = append(out, cDim.Render("nothing"))
+			out = append(out, cDim.Render("Nothing needs you right now."))
 		}
 		for _, note := range m.org.Notes {
 			out = append(out, "", cWarn.Render(wrap("note: "+note, w)))
 		}
 	case "team":
 		t := n.team
-		out = append(out, cHeader.Render(t.Name), cDim.Render(t.Root), "", cHeader.Render("Objectives"))
+		out = append(out, wrap(cHeader.Render(t.Name), w), cDim.Render(wrap(t.Root, w)), "", cHeader.Render("Objectives"))
 		if len(t.Objectives) == 0 {
 			out = append(out, cDim.Render("none yet"))
 		}
@@ -704,16 +701,17 @@ func (m *model) details2(n treeNode, w int) []string {
 		}
 	case "session":
 		s := n.sess
-		out = append(out, glyph(s)+" "+cHeader.Render(sessionName(s))+"  "+s.Status+" · "+s.Tool, placeText(s))
-		where := []string{}
+		out = append(out, wrap(cHeader.Render(sessionName(s)), w), glyph(s)+" "+s.Status+"  "+s.Tool, field("where", placeText(s)))
 		if s.TeamName != "" {
-			where = append(where, "team "+s.TeamName)
+			out = append(out, field("team", s.TeamName))
 		}
 		if s.Agent != "" {
-			where = append(where, "agent "+s.Agent)
+			out = append(out, field("agent", s.Agent))
 		}
-		where = append(where, "reach "+s.Reach)
-		out = append(out, cDim.Render(strings.Join(where, " · ")), "")
+		if s.Reach != "" {
+			out = append(out, field("reach", s.Reach))
+		}
+		out = append(out, "")
 		if s.Doing != "" {
 			out = append(out, field("doing", s.Doing))
 		}
@@ -741,14 +739,14 @@ func (m *model) details2(n treeNode, w int) []string {
 				out = append(out, "", cDim.Render("── pane on "+n.host.Name+", "+hub.Age(time.Since(rp.at))+" ago ──"))
 				out = append(out, strings.Split(strings.TrimRight(rp.text, "\n"), "\n")...)
 			}
-			out = append(out, "", cDim.Render("m message · p peek · s start a session beside it (through the hub) · other actions only on "+n.host.Name))
+			out = append(out, "", cDim.Render(wrap("m message  p peek  s start beside it through the hub. Other actions only on "+n.host.Name+".", w)))
 			break
 		}
 		if tail := m.peek(s); tail != "" {
 			out = append(out, "", cDim.Render("── pane ──"))
 			out = append(out, strings.Split(strings.TrimRight(tail, "\n"), "\n")...)
 		}
-		out = append(out, "", cDim.Render("enter go to pane · m message · R reopen in tmux · K close"))
+		out = append(out, "", cDim.Render(wrap("enter go to pane  m message  R reopen  K close", w)))
 	}
 	return out
 }
@@ -999,7 +997,7 @@ func (m *model) orgCounts() string {
 	if len(m.org.Teams) == 1 {
 		teams = "1 team"
 	}
-	out := cDim.Render(fmt.Sprintf("%s · %d sessions · ", teams, sessions))
+	out := cDim.Render(fmt.Sprintf("%s  %s  ", teams, plural(sessions, "session", "sessions")))
 	if n := len(m.org.Attention); n > 0 {
 		return out + cWarn.Render(fmt.Sprintf("%d for you", n))
 	}

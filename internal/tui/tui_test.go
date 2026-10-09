@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -11,7 +12,28 @@ import (
 	"github.com/Lucklyric/sunstack/internal/core"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 )
+
+func TestMain(m *testing.M) {
+	dir, err := os.MkdirTemp("", "sunstack-tui-test")
+	if err != nil {
+		panic(err)
+	}
+	for k, v := range map[string]string{
+		"HOME": dir, "USERPROFILE": dir, "SUNSTACK_HOME": filepath.Join(dir, "home"),
+		"SUNSTACK_CLAUDE_AGENTS": filepath.Join(dir, "agents.json"), "SUNSTACK_CODEX_SCAN": "off",
+		"SUNSTACK_TMUX_SOCKET": filepath.Join(dir, "no-tmux.sock"), "TMUX": "", "TMUX_PANE": "",
+	} {
+		os.Setenv(k, v)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "agents.json"), []byte("[]"), 0o600); err != nil {
+		panic(err)
+	}
+	code := m.Run()
+	os.RemoveAll(dir)
+	os.Exit(code)
+}
 
 // A long agent row, long events and wide characters stay on one line each,
 // inside the screen, so the boxes keep their shape.
@@ -77,6 +99,133 @@ func TestFitCountsWideCharacters(t *testing.T) {
 	}
 	if fit("short", 20) != "short" {
 		t.Error("a short line is kept")
+	}
+	if fit("long", 0) != "" || fit("long", 1) != "…" {
+		t.Error("zero and one-column limits must fit")
+	}
+}
+
+func TestCompactScreens(t *testing.T) {
+	p := newTeam(t, t.TempDir(), "builder.a")
+	for _, w := range []int{60, 80, 100, 160, 200} {
+		m := hostsModel(t, w)
+		m.p, m.h = p, 24
+		m.reload()
+		for _, v := range []view{viewTeam, viewNext, viewOrg, viewHosts, viewLog, viewInbox, viewPicker} {
+			m.view = v
+			for _, help := range []bool{false, true} {
+				m.help = help
+				screen := m.View()
+				label := fmt.Sprintf("view %d, help %t, width %d", v, help, w)
+				fits(t, screen, w, label)
+				if n := lipgloss.Height(screen); n > m.h {
+					t.Errorf("%s: %d lines on a %d-line screen", label, n, m.h)
+				}
+				if !help {
+					requireAll(t, screen, "? help", "q quit")
+				}
+			}
+		}
+	}
+}
+
+func TestHelpFitsAt80Columns(t *testing.T) {
+	m := hostsModel(t, 80)
+	m.p = newTeam(t, t.TempDir(), "builder.a")
+	m.h, m.help = 24, true
+	requireAll(t, m.View(), "shift+tab", "pgup/pgdn", "copy resume", "U  update all behind", "q  quit", "Any key closes help")
+}
+
+func TestBusyLogAndInboxFit(t *testing.T) {
+	p := newTeam(t, t.TempDir(), "builder.a")
+	dir := filepath.Join(p.Root, "sunstack", "_local")
+	for _, sub := range []string{"log", "inbox/builder.a"} {
+		if err := os.MkdirAll(filepath.Join(dir, sub), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var events []string
+	for i := 0; i < 50; i++ {
+		events = append(events, fmt.Sprintf("builder.a event-%02d", i))
+		if err := os.WriteFile(filepath.Join(dir, "inbox", "builder.a", fmt.Sprintf("message-%02d.md", i)), []byte("---\nfrom: user\ntype: fyi\n---\nHello.\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(p.EventsPath(), []byte(strings.Join(events, "\n")), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	m := newModel(p, false)
+	m.w, m.h = 80, 24
+	m.reload()
+	for _, v := range []view{viewLog, viewInbox} {
+		m.view = v
+		screen := m.View()
+		fits(t, screen, m.w, "busy log/inbox")
+		if lipgloss.Height(screen) > m.h {
+			t.Errorf("view %d pushed the footer below the terminal", v)
+		}
+		requireAll(t, screen, "? help", "q quit")
+	}
+	m.view = viewLog
+	requireAll(t, m.View(), "event-49")
+}
+
+func TestFooterFeedbackAndPromptsStayVisible(t *testing.T) {
+	m := treeModel(t)
+	m.w, m.h = 80, 24
+	m.note = strings.Repeat("Operation completed. ", 10)
+	screen := m.View()
+	requireAll(t, screen, "Operation completed.", "? help", "q quit")
+	if lipgloss.Height(screen) > m.h {
+		t.Fatal("feedback pushed the footer below the terminal")
+	}
+	m.note, m.orgScroll = "", 1000
+	m.inputPrompt, m.inputText = "message to todo", "hello"
+	requireAll(t, m.View(), "message to todo: hello█", "enter apply", "esc cancel")
+	m.inputText = strings.Repeat("问", 100)
+	fits(t, m.View(), m.w, "long input")
+	requireAll(t, m.View(), "█", "esc cancel")
+	m.inputPrompt, m.inputText = "", ""
+	m.confirm = "Close the selected session? y to close, any other key to cancel"
+	requireAll(t, m.View(), "Close the selected session?", "any other key to cancel")
+}
+
+func TestListHeadingAndSelectionStayVisible(t *testing.T) {
+	m := treeModel(t)
+	m.w, m.h = 80, 24
+	var rows []string
+	for i := 0; i < 50; i++ {
+		rows = append(rows, fmt.Sprintf("session-%02d", i))
+	}
+	screen := m.panes("Sessions", rows, 49, nil, 0)
+	requireAll(t, screen, "Sessions (", "session-49", "/50)")
+	if strings.Contains(screen, "session-00") {
+		t.Error("list did not scroll to the selected row")
+	}
+	fits(t, screen, m.w, "scrolled list")
+}
+
+func TestDetailsWrapAndShowPageHint(t *testing.T) {
+	field := ansi.Strip(detailField("prompt", strings.Repeat("wide 问 text ", 10), 7, 30))
+	lines := strings.Split(field, "\n")
+	if len(lines) < 2 {
+		t.Fatal("the long field did not wrap")
+	}
+	for _, line := range lines[1:] {
+		if !strings.HasPrefix(line, "        ") {
+			t.Errorf("continuation is not aligned: %q", line)
+		}
+	}
+	fits(t, field, 30, "wrapped field")
+	var right []string
+	for i := 0; i < 30; i++ {
+		right = append(right, fmt.Sprintf("detail-%02d", i))
+	}
+	requireAll(t, detailView(right, 36, 0, 10), "detail-00", "pgup/pgdn", "1–9 of 30")
+	last := detailView(right, 36, 1000, 10)
+	requireAll(t, last, "detail-29", "22–30 of 30")
+	if strings.Contains(last, "detail-00") || lipgloss.Height(last) != 10 {
+		t.Error("details did not clamp to the last page")
 	}
 }
 

@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/Lucklyric/sunstack/internal/core"
+	"github.com/charmbracelet/x/ansi"
 )
 
 // treeOrg is a host with one team (an agent with a busy session, a free
@@ -77,6 +78,19 @@ func TestTreeShowsHostTeamAgentSession(t *testing.T) {
 	// A team's details.
 	selectRow(t, m, "alpha")
 	requireAll(t, m.View(), "O1 Ship it")
+}
+
+func TestLongTreeNamesKeepStatus(t *testing.T) {
+	m := treeModel(t)
+	for _, status := range []string{"busy", "waiting", "blocked", "idle", "pane gone", "not seen"} {
+		s := &core.HostSession{Status: status, Tool: "claude"}
+		n := treeNode{kind: "session", depth: 2, label: strings.Repeat("很长的名字", 10), sess: s}
+		row := ansi.Strip(m.row(n, 38))
+		fits(t, row, 38, status)
+		if !strings.Contains(row, "…") || !strings.HasSuffix(row, status) {
+			t.Errorf("long name hid the status: %q", row)
+		}
+	}
 }
 
 func TestTreeFoldsAndFilters(t *testing.T) {

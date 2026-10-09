@@ -138,10 +138,11 @@ func (m *model) setUp() {
 // chrome is how many lines sit outside the body: the title, the tab bar and
 // the help line.
 func (m *model) chrome() int {
+	h := 1 + lipgloss.Height(m.footer())
 	if m.showTabs() {
-		return 3
+		h++
 	}
-	return 2
+	return h
 }
 
 // inner is the content height of a body box.
@@ -163,7 +164,7 @@ func (m *model) tabBar() string {
 		}
 		parts = append(parts, label)
 	}
-	return fit(strings.Join(parts, " ")+cDim.Render("   tab to switch · t teams · ? help"), m.w)
+	return fit(strings.Join(parts, " ")+cDim.Render("   tab switch  t teams"), m.w)
 }
 
 // panes draws a selectable list on the left and the selected item's details
@@ -176,27 +177,50 @@ func (m *model) panes(title string, left []string, sel int, right []string, scro
 func (m *model) panesH(title string, left []string, sel int, right []string, scroll int, h int) string {
 	leftW := min(46, m.w/2)
 	rightW := m.w - leftW - 4
-	rows := []string{cHeader.Render(title)}
-	for i, l := range left {
-		l = fit(l, leftW-2)
+	start := max(0, sel-h+2)
+	end := min(len(left), start+h-1)
+	if len(left) > h-1 {
+		title += fmt.Sprintf(" (%d–%d/%d)", start+1, end, len(left))
+	}
+	rows := []string{fit(cHeader.Render(title), leftW-2)}
+	for i := start; i < end; i++ {
+		l := fit(left[i], leftW-2)
 		if i == sel {
-			l = cSel.Render(l)
+			l = cSel.Render(l + strings.Repeat(" ", max(0, leftW-2-lipgloss.Width(l))))
 		}
 		rows = append(rows, l)
 	}
-	start := 0
-	if sel+2 > h {
-		start = sel + 2 - h
-	}
-	rows = rows[min(start, len(rows)):]
+	l := cBox.Width(leftW).Height(h).Render(strings.Join(rows, "\n"))
+	r := cBox.Width(rightW).Height(h).Render(detailView(right, rightW-2, scroll, h))
+	return lipgloss.JoinHorizontal(lipgloss.Top, l, r)
+}
+
+func detailView(right []string, w, scroll, h int) string {
 	var detail []string
 	for _, r := range right {
 		detail = append(detail, strings.Split(r, "\n")...)
 	}
-	detail = detail[min(scroll, max(0, len(detail)-1)):]
-	l := cBox.Width(leftW).Height(h).Render(strings.Join(clip(rows, h), "\n"))
-	r := cBox.Width(rightW).Height(h).Render(strings.Join(clip(fitAll(detail, rightW-2), h), "\n"))
-	return lipgloss.JoinHorizontal(lipgloss.Top, l, r)
+	if len(detail) <= h {
+		return strings.Join(fitAll(detail, w), "\n")
+	}
+	count := max(1, h-1)
+	start := min(max(0, scroll), max(0, len(detail)-count))
+	end := min(len(detail), start+count)
+	lines := fitAll(detail[start:end], w)
+	lines = append(lines, fit(cDim.Render(fmt.Sprintf("pgup/pgdn  %d–%d of %d", start+1, end, len(detail))), w))
+	return strings.Join(lines, "\n")
+}
+
+func detailField(label, value string, labelW, w int) string {
+	lines := strings.Split(wrap(value, max(1, w-labelW-1)), "\n")
+	for i := range lines {
+		prefix := strings.Repeat(" ", labelW+1)
+		if i == 0 {
+			prefix = cDim.Render(fmt.Sprintf("%-*s", labelW, label)) + " "
+		}
+		lines[i] = prefix + lines[i]
+	}
+	return strings.Join(lines, "\n")
 }
 
 func (m *model) pickerView() string {
@@ -204,9 +228,10 @@ func (m *model) pickerView() string {
 	for _, t := range m.teams {
 		needs := ""
 		if t.Needs > 0 {
-			needs = " · " + cWarn.Render(fmt.Sprintf("%d for you", t.Needs))
+			needs = "  " + cWarn.Render(fmt.Sprintf("%d for you", t.Needs))
 		}
-		left = append(left, fmt.Sprintf("%-22s %d live%s", t.Name, t.Sessions, needs))
+		tail := fmt.Sprintf("%d live%s", t.Sessions, needs)
+		left = append(left, rowText(t.Name, tail, min(46, m.w/2)-2))
 	}
 	if len(m.teams) == 0 {
 		left = append(left, cDim.Render("no teams yet"))
@@ -228,7 +253,7 @@ func (m *model) pickerView() string {
 	switch {
 	case m.pickSel < len(m.teams):
 		t := m.teams[m.pickSel]
-		right = append(right, cHeader.Render(t.Name), cDim.Render(t.Root), "",
+		right = append(right, wrap(cHeader.Render(t.Name), rightW), cDim.Render(wrap(t.Root, rightW)), "",
 			fmt.Sprintf("sessions: %d", t.Sessions),
 			fmt.Sprintf("needs you: %d", t.Needs),
 			"agents: "+strings.Join(t.Agents, ", "), "", cHeader.Render("Objectives"))
@@ -291,27 +316,23 @@ func tierName(k string) string {
 func (m *model) orgPane() string { return m.treeView() }
 
 func (m *model) helpView() string {
-	lines := []string{cHeader.Render("Keys"), "",
+	lines := []string{cHeader.Render("Navigation"),
 		"t  teams: pick a team on this host",
-		"tab  next tab (Team, Next, Org, and Hosts in an org)",
-		"n  next: what to do now, ranked",
-		"o  host view: every team and session",
-		"h  hosts: the org's hosts around its hub (in an org)",
-		"↑↓  select in the left list",
-		"pgup/pgdn  scroll the right pane",
-		"Team and Org tabs: ←→ fold · enter go to pane · m message",
-		"  / filter by name · f show all, needs you, busy, outside tmux",
-		"  b in an org: by team (each team once, then each host) or by host",
-		"  s start a session from the row: an agent, a free session in a team, or one beside a session",
-		"    (on another host's row, through the hub; that host must allow it: sunstack org allow)",
-		"  p on another host's session: read its pane through the hub (sunstack org allow … peek there)",
-		"  R reopen a session in tmux · K close an agent's session (both ask)",
-		"l  log · i  inbox (team tab)",
-		"g  go to the selected agent's pane",
-		"c  copy its resume command",
-		"r  refresh",
-		"esc  back",
-		"?  this help",
-		"q  quit", "", cDim.Render("any key closes this")}
-	return cBox.Width(m.w - 4).Height(m.inner()).Render(strings.Join(clip(fitAll(lines, m.w-6), m.inner()), "\n"))
+		"tab / shift+tab  next / previous tab",
+		"n  next: ranked work    o  host view    h  hosts in an org",
+		"↑↓ or j/k  select    pgup/pgdn  scroll details",
+		"r  refresh    esc  back    ?  help    q  quit", "",
+		cHeader.Render("Team and Org"),
+		"←→  fold / unfold    enter  open pane or toggle group",
+		"/  filter by name    esc  clear filter",
+		"f  show all, needs you, busy, or outside tmux",
+		"b  group by team / host (in an org)",
+		"m  message    s  start a session from the selected row",
+		"p  peek at a remote pane (host must allow peek)",
+		"R  reopen in tmux    K  close session (both ask)",
+		"l  log    i  inbox    g  agent's pane    c  copy resume",
+		cHeader.Render("Hosts"),
+		"↑↓←→  select    enter  sessions    u  update host",
+		"U  update all behind    r  refresh    h  back"}
+	return cBox.Width(m.w - 2).Height(m.inner()).Render(strings.Join(clip(fitAll(lines, m.w-4), m.inner()), "\n"))
 }

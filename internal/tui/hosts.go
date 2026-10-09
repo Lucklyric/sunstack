@@ -9,6 +9,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/Lucklyric/sunstack/internal/core"
 	"github.com/Lucklyric/sunstack/internal/hub"
@@ -60,7 +61,7 @@ func linkText(h *hub.HostView, outbox int) string {
 	if h.You {
 		t := "this host"
 		if outbox > 0 {
-			t += fmt.Sprintf(" · outbox %d", outbox)
+			t += fmt.Sprintf("  outbox %d", outbox)
 		}
 		return t
 	}
@@ -69,7 +70,7 @@ func linkText(h *hub.HostView, outbox int) string {
 	}
 	t := stateGlyph(h.State) + " " + h.State + " " + hub.Age(h.ContactAge)
 	if h.Waiting > 0 {
-		t += fmt.Sprintf(" · %d waiting", h.Waiting)
+		t += fmt.Sprintf("  %d waiting", h.Waiting)
 	}
 	return t
 }
@@ -84,9 +85,9 @@ func hostBox(h *hub.HostView, local *core.Org, outbox int, latest string, select
 		name += "  (you)"
 	}
 	teams, sessions, needs := hostCounts(h, local)
-	counts := plural(teams, "team", "teams") + " · " + plural(sessions, "session", "sessions")
+	counts := plural(teams, "team", "teams") + "  " + plural(sessions, "session", "sessions")
 	if needs > 0 {
-		counts += " · " + cWarn.Render(fmt.Sprintf("%d for you", needs))
+		counts += "  " + cWarn.Render(fmt.Sprintf("%d for you", needs))
 	}
 	// Every box has the version line, empty when unknown, so the star's
 	// boxes line up.
@@ -120,7 +121,7 @@ func versionText(h *hub.HostView, latest string) string {
 	case h.Version == "":
 		return ""
 	case latest != "" && setup.Older(h.Version, latest):
-		return h.Version + " · " + cWarn.Render("update to "+latest)
+		return h.Version + "  " + cWarn.Render("update to "+latest)
 	}
 	return cDim.Render(h.Version)
 }
@@ -172,33 +173,40 @@ func graph(v *hub.OrgView, sel int, width int, local *core.Org, latest string) [
 		total += lipgloss.Width(boxes[k][0])
 	}
 	topW := lipgloss.Width(top[0])
-	if len(kids) == 0 {
+	if len(kids) == 0 && topW <= width {
 		return top
 	}
-	if total > width {
-		// Narrow: the hub, then one line per host.
-		out := append([]string{}, hostBox(v.Hosts[hubAt], local, v.Outbox, latest, sel == hubAt, false, false)...)
-		for k, i := range kids {
+	if total > width || topW > width {
+		// Narrow: every host has a name/state row and a counts row.
+		var out []string
+		order := append([]int{hubAt}, kids...)
+		for k, i := range order {
 			h := v.Hosts[i]
 			branch := "├─ "
-			if k == len(kids)-1 {
+			if k == 0 {
+				branch = "◆ "
+			} else if k == len(order)-1 {
 				branch = "└─ "
 			}
-			teams, sessions, _ := hostCounts(h, local)
-			line := cDim.Render(branch) + h.Name
+			teams, sessions, needs := hostCounts(h, local)
+			name := branch + h.Name
+			state := stateGlyph(h.State) + " " + h.State
 			if h.You {
-				line += " (you)"
+				name += " (you)"
+				state = "this host"
 			}
-			line += "  " + linkText(h, v.Outbox) + cDim.Render(fmt.Sprintf(" · %s · %s", plural(teams, "team", "teams"), plural(sessions, "session", "sessions")))
-			if vt := versionText(h, latest); vt != "" {
-				line += cDim.Render(" · ") + vt
-			}
+			line := rowText(name, state, width-2)
 			if sel == i {
-				line = cAccent.Render("▸ ") + line
+				line = cSel.Render("▸ " + line)
 			} else {
 				line = "  " + line
 			}
 			out = append(out, line)
+			counts := plural(teams, "team", "teams") + "  " + plural(sessions, "session", "sessions")
+			if needs > 0 {
+				counts += "  " + cWarn.Render(fmt.Sprintf("%d for you", needs))
+			}
+			out = append(out, fit("     "+counts, width))
 		}
 		return out
 	}
@@ -284,7 +292,7 @@ func hostDetails(h *hub.HostView, w int, local *core.Org) []string {
 	if h == nil {
 		return nil
 	}
-	field := func(k, v string) string { return cDim.Render(fmt.Sprintf("%-9s", k)) + " " + wrap(v, w-10) }
+	field := func(k, v string) string { return detailField(k, v, 9, w) }
 	title := h.Title()
 	if h.Hub {
 		title += " (hub)"
@@ -292,7 +300,7 @@ func hostDetails(h *hub.HostView, w int, local *core.Org) []string {
 	if h.You {
 		title += " (this host)"
 	}
-	out := []string{cHeader.Render(title), ""}
+	out := []string{wrap(cHeader.Render(title), w), ""}
 	if h.You {
 		out = append(out, field("link", "this host"))
 	} else {
@@ -357,10 +365,10 @@ func hostDetails(h *hub.HostView, w int, local *core.Org) []string {
 		}
 		line := t.Name + "  " + plural(len(t.Agents), "agent", "agents")
 		if len(parts) > 0 {
-			line += " · " + strings.Join(parts, ", ")
+			line += "  " + strings.Join(parts, ", ")
 		}
 		if shared[t.ID] {
-			line += " · also on this host"
+			line += "  also on this host"
 		}
 		out = append(out, wrap(line, w))
 	}
@@ -423,41 +431,51 @@ func realRefresh() tea.Msg {
 // the right.
 func (m *model) hostsView() string {
 	v := m.hosts
-	if v == nil {
-		return cBox.Width(m.w - 4).Render("This host is in no org. sunstack org join <hub> connects it (design §18).")
+	if v == nil || len(v.Hosts) == 0 {
+		return cBox.Width(m.w - 2).Height(m.inner()).Render(wrap("No hosts available. Run sunstack org join <hub> to connect this host.", m.w-4))
 	}
 	m.hostSel = min(max(0, m.hostSel), len(v.Hosts)-1)
-	leftW := max(40, m.w*3/5)
+	leftW := min(46, m.w/2)
+	if m.w >= 120 {
+		leftW = m.w * 3 / 5
+	}
 	rightW := m.w - leftW - 4
 	h := m.inner()
 	title := cHeader.Render(fmt.Sprintf("Org %s", v.OrgName))
 	if m.latest != "" && setup.Older(hub.Version, m.latest) {
 		title += "  " + cWarn.Render(m.latest+" available (u on this host)")
 	}
-	left := append([]string{title, ""}, graph(v, m.hostSel, leftW-2, m.org, m.latest)...)
+	rows := graph(v, m.hostSel, leftW-2, m.org, m.latest)
+	start := 0
+	for i, line := range rows {
+		if strings.Contains(ansi.Strip(line), "▸ ") {
+			start = max(0, i+2-(h-1))
+			break
+		}
+	}
+	left := append([]string{fit(title, leftW-2)}, rows[start:]...)
 	right := hostDetails(v.Hosts[m.hostSel], rightW-2, m.org)
 	if t := versionText(v.Hosts[m.hostSel], m.latest); t != "" {
-		right = append(right[:2:2], append([]string{cDim.Render(fmt.Sprintf("%-9s", "version")) + " " + t}, right[2:]...)...)
-	}
-	if m.confirm != "" {
-		right = append(right, "", cWarn.Render(wrap(m.confirm, rightW-2)))
+		right = append(right[:2:2], append([]string{detailField("version", t, 9, rightW-2)}, right[2:]...)...)
 	}
 	l := cBox.Width(leftW).Height(h).Render(strings.Join(clip(fitAll(left, leftW-2), h), "\n"))
-	r := cBox.Width(rightW).Height(h).Render(strings.Join(clip(fitAll(right, rightW-2), h), "\n"))
+	r := cBox.Width(rightW).Height(h).Render(detailView(right, rightW-2, m.orgScroll, h))
 	return lipgloss.JoinHorizontal(lipgloss.Top, l, r)
 }
 
 // hostsKey handles keys on the Hosts tab; false when the key is not its own.
 func (m *model) hostsKey(k string) (bool, tea.Cmd) {
-	if m.hosts == nil {
+	if m.hosts == nil || len(m.hosts.Hosts) == 0 {
 		return false, nil
 	}
 	n := len(m.hosts.Hosts)
 	switch k {
 	case "up", "left", "k":
 		m.hostSel = (m.hostSel + n - 1) % n
+		m.orgScroll = 0
 	case "down", "right", "j":
 		m.hostSel = (m.hostSel + 1) % n
+		m.orgScroll = 0
 	case "enter":
 		h := m.hosts.Hosts[m.hostSel]
 		m.view = viewOrg

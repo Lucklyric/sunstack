@@ -66,7 +66,7 @@ func TestHostsGraph(t *testing.T) {
 	v := m.View()
 	fits(t, v, m.w, "hosts wide")
 	plain := ansi.Strip(v)
-	requireAll(t, plain, "Org personal", "◆ hubbox  (hub)", "laptop  (you)", "this host · outbox 1", "◐ stale 45s · 2 waiting", "○ not synced yet", "2 teams · 3 sessions · 2 for you")
+	requireAll(t, plain, "Org personal", "◆ hubbox  (hub)", "laptop  (you)", "this host  outbox 1", "◐ stale 45s  2 waiting", "○ not synced yet", "2 teams  3 sessions  2 for you")
 	// Wide: a star, the links joined on one bus.
 	if !strings.Contains(plain, "┬") || !strings.Contains(plain, "┴") || strings.Contains(plain, "├─ ") {
 		t.Errorf("wide layout is not a star:\n%s", plain)
@@ -74,14 +74,14 @@ func TestHostsGraph(t *testing.T) {
 	// The selected host's details on the right.
 	m.key("right")
 	m.key("right")
-	requireAll(t, ansi.Strip(m.View()), "server", "contact", "45s ago", "snapshot", "1m old", "2 message(s) on the hub", "shop  1 agent · 1 busy", "alpha  3 agents · 1 busy, 1 waiting · also on this host", "Q1 waits for you", "deploy waits for you", "ABCD-EFGH-JKLM-NPQR", "Its key changed")
+	requireAll(t, ansi.Strip(m.View()), "server", "contact", "45s ago", "snapshot", "1m old", "2 message(s) on the hub", "shop  1 agent  1 busy", "alpha  3 agents  1 busy, 1 waiting  also on this host", "Q1 waits for you", "deploy waits for you", "ABCD-EFGH-JKLM-NPQR", "Its key changed")
 
 	// Narrow: one line per host under the hub.
 	n := hostsModel(t, 70)
 	n.key("h")
 	nv := n.View()
 	fits(t, nv, n.w, "hosts narrow")
-	requireAll(t, ansi.Strip(nv), "├─ ", "└─ ", "server  ◐ stale 45s")
+	requireAll(t, ansi.Strip(nv), "├─ ", "└─ ", "server", "◐ stale")
 
 	// enter opens the Org tab on that host.
 	m.key("enter")
@@ -103,12 +103,54 @@ func TestHostsTabOnlyInAnOrg(t *testing.T) {
 	}
 }
 
+func TestHostsEmptyAndLongRoster(t *testing.T) {
+	m := hostsModel(t, 80)
+	m.view, m.h = viewHosts, 24
+	m.hosts.Hosts = nil
+	requireAll(t, m.View(), "No hosts available.", "sunstack org join <hub>")
+	for _, k := range []string{"up", "down", "enter", "u"} {
+		m.key(k)
+	}
+	for i := 0; i < 30; i++ {
+		m.hosts.Hosts = append(m.hosts.Hosts, &hub.HostView{
+			ID: fmt.Sprint(i), Name: fmt.Sprintf("server-%02d", i), State: "live", Hub: i == 0,
+		})
+	}
+	m.hostSel = 29
+	screen := m.View()
+	requireAll(t, screen, "Org personal", "server-29", "▸ ")
+	fits(t, screen, m.w, "long host roster")
+	if strings.Contains(screen, "server-00") || strings.Contains(screen, "server-01") {
+		t.Error("host list did not scroll to selection")
+	}
+	if n := strings.Count(screen, "\n") + 1; n > m.h {
+		t.Errorf("host roster uses %d lines on a %d-line screen", n, m.h)
+	}
+}
+
+func TestHostsDetailsScroll(t *testing.T) {
+	m := hostsModel(t, 80)
+	m.view, m.h, m.hostSel = viewHosts, 24, 2
+	requireAll(t, m.View(), "pgup/pgdn")
+	before := m.View()
+	m.key("pgdown")
+	if after := m.View(); after == before {
+		t.Error("page down did not scroll host details")
+	} else {
+		fits(t, after, m.w, "host details after page down")
+	}
+	m.key("down")
+	if m.orgScroll != 0 {
+		t.Error("selecting another host did not reset detail scroll")
+	}
+}
+
 func TestRemoteSessionsInTheTree(t *testing.T) {
 	m := hostsModel(t, 150)
 	v := ansi.Strip(m.View())
 	requireAll(t, v, "server (stale, 45s)", "shop", "builder.alice_api", "newbox (not synced yet)")
 	selectRow(t, m, "builder.alice_api")
-	requireAll(t, ansi.Strip(m.View()), "on server, as of its last snapshot (1m old)", "other actions only on server")
+	requireAll(t, ansi.Strip(m.View()), "on server, as of its last snapshot (1m old)", "Other actions only on server")
 	peeked := false
 	m.peek = func(*core.HostSession) string { peeked = true; return "" }
 	m.View()
@@ -225,7 +267,7 @@ func TestHostsVersionsAndUpdate(t *testing.T) {
 	m.latest = "0.10.0"
 	m.key("h")
 	v := ansi.Strip(m.View())
-	requireAll(t, v, "0.10.0", "0.9.4 · update to 0.10.0")
+	requireAll(t, v, "0.10.0", "0.9.4  update to 0.10.0")
 	var asked []string
 	m.updateHost = func(name, target string) string { asked = append(asked, name+"@"+target); return name + " updated" }
 	m.updateHere = func() string { return "this host updated" }
@@ -255,7 +297,7 @@ func TestHostsVersionsAndUpdate(t *testing.T) {
 	m.view = viewOrg
 	marked := false
 	for _, n := range m.treeNodes() {
-		marked = marked || n.label == "server (stale, 45s) · update 0.9.4"
+		marked = marked || n.label == "server (stale, 45s)  update 0.9.4"
 	}
 	if !marked {
 		t.Error("the Org tab does not mark the host behind")
