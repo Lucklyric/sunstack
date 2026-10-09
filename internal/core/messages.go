@@ -34,6 +34,7 @@ type Message struct {
 	State                                         string // pending, taken (by this session), taken by <label>
 	path                                          string
 	mod                                           time.Time // the file's time, to order messages sent in the same second
+	takenBy                                       string    // the claim token whose taken folder holds it
 }
 
 var msgIDRe = regexp.MustCompile(`^[0-9]{8}T[0-9]{6}Z-[a-z0-9._-]+-[0-9a-f]{6}$`)

@@ -40,6 +40,9 @@ func (p *Project) allMessages() []*Message {
 		for _, f := range files {
 			if m, err := parseMessage(f); err == nil {
 				m.State = state
+				if state == "taken" {
+					m.takenBy = filepath.Base(dir)
+				}
 				if st, err := os.Stat(f); err == nil {
 					m.mod = st.ModTime()
 				}
@@ -247,4 +250,83 @@ func hasVerifiedLine(body string) bool {
 		}
 	}
 	return false
+}
+
+// TaskDetail is one task as the Tasks tab shows it (§21.2). It is read from
+// the files already there and never requeues or moves a message.
+type TaskDetail struct {
+	*TaskInfo
+	Body      string
+	Lifecycle string // pending; pending, no live session; taken by <session>; taken, session gone; done reply; closed
+	Replies   []ReplyDetail
+	Findings  []string // overdue, failed twice
+}
+
+// ReplyDetail is a done reply with its text.
+type ReplyDetail struct {
+	TaskReply
+	From, Body string
+}
+
+// TaskDetails lists every task with its bodies, lifecycle and findings,
+// oldest first.
+func (p *Project) TaskDetails(today time.Time) []*TaskDetail {
+	msgs := map[string]*Message{}
+	for _, m := range p.allMessages() {
+		msgs[m.ID] = m
+	}
+	findings := p.taskFindings(today)
+	var out []*TaskDetail
+	for _, t := range p.Tasks() {
+		d := &TaskDetail{TaskInfo: t}
+		m := msgs[t.ID]
+		if m != nil {
+			d.Body = m.Body
+		}
+		for _, r := range t.Replies {
+			rd := ReplyDetail{TaskReply: r}
+			if rm := msgs[r.ID]; rm != nil {
+				rd.From, rd.Body = rm.From, rm.Body
+			}
+			d.Replies = append(d.Replies, rd)
+		}
+		claims, _ := p.Claims(t.To)
+		switch {
+		case len(t.Replies) > 0:
+			d.Lifecycle = "done reply"
+		case !t.Open:
+			d.Lifecycle = "closed"
+		case t.State == "taken" && m != nil:
+			d.Lifecycle = "taken, session gone"
+			for _, c := range claims {
+				if c.Token == m.takenBy {
+					d.Lifecycle = "taken by " + claimLabel(t.To, c)
+				}
+			}
+		case len(claims) == 0:
+			d.Lifecycle = "pending, no live session"
+		default:
+			d.Lifecycle = "pending"
+		}
+		for _, is := range findings {
+			if !strings.Contains(is.Text, "task "+t.ID+" ") {
+				continue
+			}
+			if strings.Contains(is.Text, "failed twice") {
+				d.Findings = append(d.Findings, "failed twice")
+			} else {
+				d.Findings = append(d.Findings, "overdue")
+			}
+		}
+		out = append(out, d)
+	}
+	return out
+}
+
+// claimLabel names a session by its agent and task: <id>_<task>, or <id>.
+func claimLabel(id string, c *Live) string {
+	if c.Task != "" {
+		return id + "_" + c.Task
+	}
+	return id
 }
