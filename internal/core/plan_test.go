@@ -195,3 +195,44 @@ func treeSum(t *testing.T, dir string) [32]byte {
 	copy(out[:], h.Sum(nil))
 	return out
 }
+
+// The viewer reads only allowed files of the team, never through a link out
+// of it, caps size, and makes control characters visible (§21.3).
+func TestReadView(t *testing.T) {
+	root := t.TempDir()
+	p := &Project{Root: root, Dir: filepath.Join(root, "sunstack")}
+	os.MkdirAll(p.AgentDir("alice"), 0o755)
+	os.WriteFile(filepath.Join(p.Dir, "BOARD.md"), []byte("# Board\n\x1b[31mred\x07\n"), 0o644)
+	os.WriteFile(filepath.Join(p.AgentDir("alice"), "board.md"), []byte(strings.Repeat("x", ViewLimit+10)), 0o644)
+	outside := filepath.Join(root, "secret.md")
+	os.WriteFile(outside, []byte("secret"), 0o644)
+	os.Symlink(outside, filepath.Join(p.AgentDir("alice"), "context.md"))
+	before := treeSum(t, root)
+
+	v, err := p.ReadView(filepath.Join(p.Dir, "BOARD.md"))
+	if err != nil || v.Text != "# Board\n^[[31mred^G\n" || v.Lines != 2 {
+		t.Errorf("controls: %+v %v", v, err)
+	}
+	if v, err := p.ReadView(filepath.Join(p.AgentDir("alice"), "board.md")); err != nil || !v.Truncated || len(v.Text) != ViewLimit {
+		t.Errorf("cap: %v", err)
+	}
+	if _, err := p.ReadView(filepath.Join(p.AgentDir("alice"), "context.md")); err == nil {
+		t.Error("read through a symlink out of the team")
+	}
+	if _, err := p.ReadView(outside); err == nil {
+		t.Error("read outside the sunstack folder")
+	}
+	missing := filepath.Join(p.Dir, "README.md")
+	if _, err := p.ReadView(missing); err == nil || !strings.Contains(err.Error(), "does not exist") {
+		t.Errorf("missing: %v", err)
+	}
+	if _, err := os.Stat(missing); err == nil {
+		t.Error("a missing file was created")
+	}
+	if got := p.AgentViewFiles("alice"); len(got) != 3 || got[1].Rel != filepath.Join("sunstack", "alice", "board.md") {
+		t.Errorf("agent files: %+v", got)
+	}
+	if after := treeSum(t, root); after != before {
+		t.Error("viewing changed a file")
+	}
+}
