@@ -278,12 +278,31 @@ func GrantsText() string {
 			}
 		}
 		if len(g.Teams) > 0 {
-			fmt.Fprintf(&b, "  %s: %s, teams %s, max %d, key %s, age %s%s\n", name, strings.Join(g.Kinds, ", "), strings.Join(g.Teams, ", "), g.Max, g.Fingerprint, core.SSHAge(g.At), state)
+			fmt.Fprintf(&b, "  %s: %s, teams %s, max %d, key %s, age %s%s\n", name, strings.Join(g.Kinds, ", "), strings.Join(teamNames(g.Teams), ", "), g.Max, g.Fingerprint, core.SSHAge(g.At), state)
 		} else {
 			fmt.Fprintf(&b, "  %s: %s, key %s%s\n", name, strings.Join(g.Kinds, ", "), g.Fingerprint, state)
 		}
 	}
 	return b.String()
+}
+
+// teamNames names granted team IDs by this host's index, keeping the ID for
+// a team no longer indexed.
+func teamNames(ids []string) []string {
+	names := map[string]string{}
+	for _, p := range core.IndexedProjects() {
+		if t, ok := p.Team(); ok && t.ID != "" {
+			names[t.ID] = t.Name
+		}
+	}
+	out := make([]string, len(ids))
+	for i, id := range ids {
+		out[i] = id
+		if n := names[id]; n != "" {
+			out[i] = n
+		}
+	}
+	return out
 }
 
 // GrantWarning is what each kind exposes, printed when it is granted.

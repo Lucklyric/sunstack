@@ -87,8 +87,8 @@ func TestAgentGrants(t *testing.T) {
 	must(os.WriteFile(filepath.Join(alpha, "sunstack", "TEAM"), []byte("id: 1111111111111111\nname: renamed\n"), 0o644))
 	check("peek", "1111111111111111", 2, true) // renaming a team preserves its ID grant
 	if txt := GrantsText(); !strings.Contains(txt, "sender: peek, spawn, key ") ||
-		!strings.Contains(txt, "sender: spawn:agents, teams 2222222222222222, max 1, key ") ||
-		!strings.Contains(txt, "sender: peek:agents, teams 1111111111111111, 2222222222222222, max 2, key ") ||
+		!strings.Contains(txt, "sender: spawn:agents, teams beta, max 1, key ") ||
+		!strings.Contains(txt, "sender: peek:agents, teams renamed, beta, max 2, key ") ||
 		!strings.Contains(txt, "age <1m") {
 		t.Errorf("grants listing: %s", txt)
 	}
