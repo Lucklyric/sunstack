@@ -74,12 +74,16 @@ func main() {
 			json.Unmarshal([]byte(os.Getenv("SUNSTACK_TEST_SSH_G")), &g)
 			fmt.Printf("hostname %s\n%s\n", last, g[last])
 			return
-		case len(args) >= 3 && args[len(args)-3] == "-O" && args[len(args)-2] == "check":
+		case len(args) >= 3 && args[len(args)-3] == "-O":
 			for _, a := range args {
 				if p, ok := strings.CutPrefix(a, "ControlPath="); ok {
 					for _, open := range strings.Split(os.Getenv("SUNSTACK_TEST_SSH_OPEN"), ",") {
 						if open != "" && open == p {
-							fmt.Fprintln(os.Stderr, "Master running")
+							if args[len(args)-2] == "exit" {
+								fmt.Fprintln(os.Stderr, "Exit request sent.")
+							} else {
+								fmt.Fprintln(os.Stderr, "Master running")
+							}
 							return
 						}
 					}

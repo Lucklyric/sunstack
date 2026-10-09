@@ -25,6 +25,7 @@ type Org struct {
 	Free      []*FreeGroup `json:"free"` // sessions outside any team
 	Attention []string     `json:"attention"`
 	Notes     []string     `json:"notes,omitempty"`
+	SSH       []SSHPeer    `json:"ssh,omitempty"` // set only in the snapshot that crosses hosts
 }
 
 // OrgTeam is one team on this host.

@@ -26,6 +26,7 @@ type HostView struct {
 	Version     string    // the sunstack it last reported; this host's own for this host
 	Machine     string    // its machine's host name, when it reported one
 	SSH         string    // this host's SSH view of it (core.SSHLine), set when the view is built
+	SSHBack     string    // its SSH view of this host, from its snapshot
 	KeyChanged  bool      // the roster shows another key; its mail is refused until org trust
 }
 
@@ -96,6 +97,7 @@ func LoadView(now time.Time) *OrgView {
 			hv.State, hv.ContactAge = "live", 0
 		} else {
 			loadSnap(c, h.ID, now, hv)
+			hv.SSHBack = sshBack(hv, me)
 		}
 		v.Hosts = append(v.Hosts, hv)
 	}
@@ -140,6 +142,24 @@ func loadSnap(c *Config, id string, now time.Time, hv *HostView) {
 	if t, ok := parseStamp(sn.ReceivedAt); ok {
 		hv.SnapAge = clampAge(hubTime.Sub(t) + now.Sub(localTime))
 	}
+}
+
+// sshBack is a host's SSH view of this host, from its last snapshot: the
+// other direction of the SSH line, observed only there.
+func sshBack(hv *HostView, me string) string {
+	if hv.Org == nil {
+		return ""
+	}
+	for _, p := range hv.Org.SSH {
+		if p.Host == me {
+			line := "ssh from " + hv.Name + ": " + p.Text()
+			if hv.State != "live" {
+				line += " (last known)"
+			}
+			return line
+		}
+	}
+	return ""
 }
 
 func clampAge(d time.Duration) time.Duration {
@@ -263,6 +283,9 @@ func (v *OrgView) Text(view string, local *core.Org) string {
 		fmt.Fprintf(&b, "\n== %s ==\n", h.Label())
 		if h.SSH != "" {
 			fmt.Fprintln(&b, h.SSH)
+		}
+		if h.SSHBack != "" {
+			fmt.Fprintln(&b, h.SSHBack)
 		}
 		if h.Org == nil {
 			b.WriteString("  no snapshot yet\n")

@@ -111,6 +111,9 @@ func TestSSHOrgHost(t *testing.T) {
 	expect(t, laptop.run(t, "org", "--refresh"), 0, "refresh")
 	requireContains(t, laptop.run(t, "org", "--by", "host").out, "ssh cluster-a: connection open, reusable")
 	requireContains(t, laptop.run(t, "ssh").out, "hub-host")
+	// The other direction shows on the hub, from the laptop's snapshot.
+	expect(t, hubHost.run(t, "org", "--refresh"), 0, "hub refresh")
+	requireContains(t, hubHost.run(t, "org", "--by", "host").out, "ssh from laptop: connection open")
 	// Nothing about SSH leaves this host.
 	for _, h := range []*orgHost{hubHost, laptop} {
 		filepath.WalkDir(filepath.Join(h.home, ".sunstack"), func(path string, d os.DirEntry, err error) error {
@@ -121,5 +124,60 @@ func TestSSHOrgHost(t *testing.T) {
 			}
 			return nil
 		})
+	}
+}
+
+// Stop asks first, closes through the recorded socket, and start is the
+// user's own, in a terminal.
+func TestSSHStartStopCLI(t *testing.T) {
+	p := fixture(t)
+	f := newSSHFixture(t, isolatedEnv(t))
+	expect(t, sh(t, p, f.env, "ssh", "scan"), 0, "scan")
+
+	expect(t, sh(t, p, append(f.env, "CLAUDECODE=1"), "ssh", "start", "cluster-a"), 2, "start from an agent session")
+	expect(t, sh(t, p, append(f.env, "CLAUDECODE=1"), "ssh", "stop", "cluster-a", "--yes"), 2, "stop from an agent session")
+	r := sh(t, p, f.env, "ssh", "start", "plain")
+	expect(t, r, 2, "start without a terminal")
+	requireContains(t, r.stderr, "terminal")
+
+	r = sh(t, p, f.env, "ssh", "stop", "cluster-a")
+	expect(t, r, 2, "stop without --yes")
+	requireContains(t, r.stderr, "--yes", "ends every shell")
+	if strings.Contains(f.log(), "-O exit") {
+		t.Fatal("stop closed the connection before confirming")
+	}
+	r = sh(t, p, f.env, "ssh", "stop", "cluster-a", "--yes")
+	expect(t, r, 0, "stop")
+	requireContains(t, r.out, "connection to cluster-a closed")
+	requireContains(t, f.log(), "-F /dev/null -o ControlPath="+filepath.Join(f.cm, "u@cluster-a:22")+" -O exit sunstack-check")
+
+	r = sh(t, p, f.env, "ssh", "stop", "plain", "--yes")
+	expect(t, r, 1, "stop an alias that shares nothing")
+	requireContains(t, r.stderr, "shares no connection")
+}
+
+// The guide only prints: placeholders without flags, quoted values, both
+// OS branches, and the entry the user pastes.
+func TestSSHSetup(t *testing.T) {
+	p := fixture(t)
+	env := isolatedEnv(t)
+	before := readFileOr(filepath.Join(envValue(env, "SUNSTACK_TEST_EVENTS"), "ssh.log"))
+
+	r := sh(t, p, append(env, "CLAUDECODE=1"), "ssh", "setup", "assistant")
+	expect(t, r, 0, "an agent may print the guide")
+	requireContains(t, r.out, "Remote Login", "sshd", "Tailscale SSH", "ssh-copy-id -i ~/.ssh/id_ed25519.pub <user>@<address>",
+		"mkdir -p -m 700 ~/.ssh/cm", "Host assistant", "HostName <address>", "ControlPath ~/.ssh/cm/%C", "ControlPersist 10m",
+		"sunstack ssh check assistant", "For the other direction")
+
+	r = sh(t, p, env, "ssh", "setup", "assistant", "--os", "macos", "--user", "me", "--address", "box name;rm", "--key", "~/.ssh/k.pub")
+	expect(t, r, 0, "guide with values")
+	requireContains(t, r.out, "ssh-copy-id -i ~/.ssh/k.pub me@'box name;rm'", "IdentityFile ~/.ssh/k\n")
+	if strings.Contains(r.out, "sshd installed") {
+		t.Error("--os macos printed the Linux branch")
+	}
+	expect(t, sh(t, p, env, "ssh", "setup", "assistant", "--os", "windows"), 2, "an unknown OS")
+	expect(t, sh(t, p, env, "ssh", "setup", "a b"), 2, "a name that is no alias")
+	if after := readFileOr(filepath.Join(envValue(env, "SUNSTACK_TEST_EVENTS"), "ssh.log")); after != before {
+		t.Errorf("the guide ran ssh: %s", after)
 	}
 }

@@ -121,3 +121,6 @@ teams and sessions, `sunstack hub hosts` on the hub for its version and machine 
 - An SSH login cannot read the macOS login keychain, so sign-in checks (Claude, Codex, MCP
   servers) can read as signed out over SSH. Confirm them from a tmux session on that host, or
   peek a session's screen.
+- **No SSH to that host yet, or a check fails:** run `sunstack ssh setup <host>` and show the
+  user the steps it prints. Setting up SSH, checking it (`sunstack ssh check`) and opening or
+  closing a shared connection (`sunstack ssh start` and `stop`) are the user's to run.

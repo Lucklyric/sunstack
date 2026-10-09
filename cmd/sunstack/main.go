@@ -92,6 +92,9 @@ Team (run these yourself):
   sunstack team                                   who is on the team, who holds whom, where
   sunstack ssh                                    shared SSH connections: which aliases share one, open or closed, last check
   sunstack ssh scan | map <host> <alias> | check <alias|host>   read ~/.ssh/config, name an org host's alias, try a login (yours only)
+  sunstack ssh start | stop <alias|host> [--yes]  open or close the shared connection (yours only; stop asks first)
+  sunstack ssh setup <host> [--os macos|linux] [--user U] [--address A] [--alias N] [--key FILE]
+                                                  print the steps to reach a host over SSH (changes nothing)
   sunstack teams [--scan DIR] [--prune] [--json]  teams indexed on this host (~/.sunstack/teams.json)
   sunstack migrate [--host | --scan DIR] [--apply safe|all] [--json]
                                                   what this team (or every indexed team) needs from an older
@@ -1461,7 +1464,7 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 		return attach(at, stdout)
 
 	case "ssh":
-		return runSSH(rest, stdout)
+		return runSSH(rest, stdin, stdout)
 
 	case "teams":
 		a, err := parse(rest, "scan", "prune json")

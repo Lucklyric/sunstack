@@ -96,6 +96,7 @@ func joined() (*Config, *client, error) {
 func Snapshot() ([]byte, error) {
 	o := core.BuildOrg()
 	stripActivity(o)
+	o.SSH = core.SSHPeers()
 	b, err := json.Marshal(o)
 	if err != nil {
 		return nil, err

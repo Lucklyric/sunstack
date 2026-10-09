@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -36,6 +37,7 @@ type SSHState struct {
 	Aliases map[string]*SSHAlias `json:"aliases"`
 	Hosts   map[string]string    `json:"hosts"` // org host ID -> alias
 	Checks  map[string]*SSHCheck `json:"checks"`
+	Started map[string]string    `json:"started,omitempty"` // alias -> when sunstack ssh start opened its master
 }
 
 func sshStatePath() string { return filepath.Join(Home(), "ssh.json") }
@@ -54,6 +56,9 @@ func LoadSSH() *SSHState {
 	}
 	if s.Checks == nil {
 		s.Checks = map[string]*SSHCheck{}
+	}
+	if s.Started == nil {
+		s.Started = map[string]string{}
 	}
 	return s
 }
@@ -197,8 +202,21 @@ func MasterOpen(path string) bool {
 // RunSSHCheck tries a fresh login to alias that neither makes nor uses a
 // master, and records the result.
 func RunSSHCheck(alias string) (string, error) {
-	_, errOut, code, timedOut := sshRun(15*time.Second, "-n", "-o", "BatchMode=yes", "-o", "ControlMaster=no", "-o", "ControlPath=none",
-		"-o", "ConnectTimeout=5", "-o", "ClearAllForwardings=yes", "-o", "PermitLocalCommand=no", "--", alias, "true")
+	_, errOut, code, timedOut := sshRun(15*time.Second, SSHCheckArgs(alias)...)
+	result := checkResult(errOut, code, timedOut)
+	s := LoadSSH()
+	s.Checks[alias] = &SSHCheck{Result: result, At: now()}
+	return result, s.save()
+}
+
+// SSHCheckArgs are the arguments of a check: a fresh login with no stdin
+// that neither makes nor uses a master.
+func SSHCheckArgs(alias string) []string {
+	return []string{"-n", "-o", "BatchMode=yes", "-o", "ControlMaster=no", "-o", "ControlPath=none",
+		"-o", "ConnectTimeout=5", "-o", "ClearAllForwardings=yes", "-o", "PermitLocalCommand=no", "--", alias, "true"}
+}
+
+func checkResult(errOut string, code int, timedOut bool) string {
 	result := "unknown"
 	low := strings.ToLower(errOut)
 	switch {
@@ -215,9 +233,130 @@ func RunSSHCheck(alias string) (string, error) {
 	case strings.Contains(low, "could not resolve") || strings.Contains(low, "connection refused") || strings.Contains(low, "no route") || strings.Contains(low, "network is unreachable"):
 		result = "unreachable"
 	}
+	return result
+}
+
+// SSHMasterPath is the recorded socket of a shared alias, or an error that
+// says why there is none.
+func SSHMasterPath(alias string) (string, error) {
+	a := LoadSSH().Aliases[alias]
+	switch {
+	case a == nil:
+		return "", &Error{Code: ExitFail, Reason: "not_found", Msg: "no SSH alias " + alias + " (sunstack ssh scan reads ~/.ssh/config)"}
+	case !a.Shared():
+		return "", &Error{Code: ExitFail, Reason: "ssh", Msg: alias + " shares no connection: its ~/.ssh/config entry needs ControlMaster auto and a ControlPath (sunstack ssh setup prints one), then sunstack ssh scan"}
+	}
+	return a.ControlPath, nil
+}
+
+// SSHStart opens a master for alias in the user's terminal, so a passphrase
+// or key-agent prompt can be answered, and confirms that its socket answers.
+// It reports false when a master was already open.
+func SSHStart(alias string, stdin io.Reader, stdout, stderr io.Writer) (bool, error) {
+	path, err := SSHMasterPath(alias)
+	if err != nil {
+		return false, err
+	}
+	if MasterOpen(path) {
+		return false, nil
+	}
+	if err := sshDirSafe(filepath.Dir(path)); err != nil {
+		return false, &Error{Code: ExitFail, Reason: "ssh", Msg: err.Error()}
+	}
+	cmd := exec.Command("ssh", "-fN", "-o", "ControlMaster=yes", "-o", "ControlPath="+path, "--", alias)
+	cmd.Stdin, cmd.Stdout, cmd.Stderr = stdin, stdout, stderr
+	if err := cmd.Run(); err != nil {
+		return false, &Error{Code: ExitFail, Reason: "ssh", Msg: "ssh " + alias + " did not open a connection: " + err.Error()}
+	}
+	if !MasterOpen(path) {
+		return false, &Error{Code: ExitFail, Reason: "ssh", Msg: "ssh " + alias + " exited, but no connection answers at " + path}
+	}
 	s := LoadSSH()
-	s.Checks[alias] = &SSHCheck{Result: result, At: now()}
-	return result, s.save()
+	s.Started[alias] = now()
+	return true, s.save()
+}
+
+// SSHStop closes the master of alias, and with it every shell running
+// through it. It reports false when none was open.
+func SSHStop(alias string) (bool, error) {
+	path, err := SSHMasterPath(alias)
+	if err != nil {
+		return false, err
+	}
+	s := LoadSSH()
+	if !MasterOpen(path) {
+		delete(s.Started, alias)
+		return false, s.save()
+	}
+	_, errOut, code, _ := sshRun(5*time.Second, "-F", "/dev/null", "-o", "ControlPath="+path, "-O", "exit", "sunstack-check")
+	if code != 0 {
+		return false, &Error{Code: ExitFail, Reason: "ssh", Msg: "ssh -O exit: " + strings.TrimSpace(errOut)}
+	}
+	delete(s.Started, alias)
+	return true, s.save()
+}
+
+// sshDirSafe requires the socket folder to be a real folder, owned by this
+// user and closed to everyone else.
+func sshDirSafe(dir string) error {
+	st, err := os.Lstat(dir)
+	switch {
+	case err != nil:
+		return fmt.Errorf("the socket folder %s is missing: mkdir -p -m 700 %s", dir, dir)
+	case st.Mode()&os.ModeSymlink != 0 || !st.IsDir():
+		return fmt.Errorf("the socket folder %s is not a plain folder", dir)
+	case st.Mode().Perm() != 0o700:
+		return fmt.Errorf("the socket folder %s is mode %o: chmod 700 %s", dir, st.Mode().Perm(), dir)
+	case !ownedByMe(st):
+		return fmt.Errorf("the socket folder %s belongs to another user", dir)
+	}
+	return nil
+}
+
+// SSHPeer is what a host's snapshot says about its SSH to one other org
+// host: no alias, user, address, key or socket path, since snapshots are not
+// sealed (§23.1).
+type SSHPeer struct {
+	Host    string `json:"host"` // the destination's host ID
+	Sharing bool   `json:"sharing"`
+	Master  bool   `json:"master"`
+	Check   string `json:"check,omitempty"`
+	CheckAt string `json:"check_at,omitempty"`
+}
+
+// SSHPeers are this host's mapped org hosts, for the snapshot.
+func SSHPeers() []SSHPeer {
+	s := LoadSSH()
+	var out []SSHPeer
+	for id, alias := range s.Hosts {
+		p := SSHPeer{Host: id}
+		if a := s.Aliases[alias]; a != nil && a.Shared() {
+			p.Sharing, p.Master = true, MasterOpen(a.ControlPath)
+		}
+		if c := s.Checks[alias]; c != nil {
+			p.Check, p.CheckAt = c.Result, c.At
+		}
+		out = append(out, p)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Host < out[j].Host })
+	return out
+}
+
+// Text is a peer's state for the views: "ok 3m ago, connection open".
+func (p SSHPeer) Text() string {
+	var parts []string
+	if p.Check != "" {
+		parts = append(parts, "last check "+p.Check+" "+ageSince(p.CheckAt)+" ago")
+	}
+	switch {
+	case p.Master:
+		parts = append(parts, "connection open")
+	case p.Sharing:
+		parts = append(parts, "no open connection")
+	default:
+		parts = append(parts, "no shared connection")
+	}
+	return strings.Join(parts, ", ")
 }
 
 // SSHRow is one shared connection (or one alias without sharing).
@@ -312,6 +451,9 @@ func SSHLine(hostID string) string {
 		line += "no shared connection"
 	case MasterOpen(a.ControlPath):
 		line += "connection open, reusable"
+		if at := s.Started[alias]; at != "" {
+			line += " (sunstack ssh start, " + ageSince(at) + ")"
+		}
 	default:
 		line += "no open connection"
 	}
