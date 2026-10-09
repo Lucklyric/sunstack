@@ -17,7 +17,7 @@ const ViewLimit = 1 << 20
 // ViewFile is one file the viewer may open, with who changes it.
 type ViewFile struct {
 	Path   string // absolute
-	Rel    string // relative to the project root
+	Rel    string // relative to the project root, with forward slashes
 	Writer string // a hint for the footer
 }
 
@@ -67,7 +67,7 @@ func (p *Project) viewFile(path, writer string) ViewFile {
 	if err != nil {
 		rel = path
 	}
-	return ViewFile{Path: path, Rel: rel, Writer: writer}
+	return ViewFile{Path: path, Rel: filepath.ToSlash(rel), Writer: writer}
 }
 
 // ViewText is a file as the viewer shows it.

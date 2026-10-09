@@ -229,7 +229,7 @@ func TestReadView(t *testing.T) {
 	if _, err := os.Stat(missing); err == nil {
 		t.Error("a missing file was created")
 	}
-	if got := p.AgentViewFiles("alice"); len(got) != 3 || got[1].Rel != filepath.Join("sunstack", "alice", "board.md") {
+	if got := p.AgentViewFiles("alice"); len(got) != 3 || got[1].Rel != "sunstack/alice/board.md" {
 		t.Errorf("agent files: %+v", got)
 	}
 	if after := treeSum(t, root); after != before {
