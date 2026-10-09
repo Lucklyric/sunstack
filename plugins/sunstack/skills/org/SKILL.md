@@ -98,7 +98,7 @@ first, hand over to the next skill.
   Hosts tab: the hosts drawn around the hub, each with its link state, teams and sessions;
   `enter` shows that host's sessions in the Org tab.
 
-## 4. Work on another host: sunstack first, SSH for host admin
+## 4. Work on another host: sunstack first, SSH for host admin and for starting work there
 
 Before acting on another host, read its state from sunstack: `sunstack org --by host` for its
 teams and sessions, `sunstack hub hosts` on the hub for its version and machine name, and
@@ -112,9 +112,26 @@ teams and sessions, `sunstack hub hosts` on the hub for its version and machine 
 - **SSH** only for host administration sunstack does not do, such as installing or updating
   other tools, configuration, checking out a repo, copying files, services or debugging. Use it
   when the user asks for that work or approves it, through the user's own SSH host alias.
-- **Never route around sunstack.** When sunstack refuses an action (`user_only`, a missing
-  grant, a read-only host), tell the user and let them run it or grant it. Do not do the same
-  thing over SSH.
+- **Starting work there, also while the user is away.** On a host the user set up for SSH
+  (`sunstack ssh` shows it mapped, with key login and its last check `ok`), you may SSH there
+  through the user's alias and run that host's own `sunstack` from the team's folder there:
+  `sunstack spawn` (an agent session, or `--free` with a brief) or `sunstack send` a task to an
+  agent there. Do it only when the user's request or your board calls for that work on that host.
+  - Use `ssh -o BatchMode=yes <alias> ...`, so it fails instead of waiting for a password.
+  - Record it here first: when you work as an agent, a Now entry in your `board.md` that names
+    the host, the session or message, and the goal. Otherwise tell the user in your reply. Report
+    the session's label and how to attach to it.
+  - The brief says the work came from an agent on another host and asks the session to check
+    with the user before anything consequential. The session runs as the user there, under that
+    host's permission rules.
+  - A session started this way does not start more sessions on other hosts.
+  - If that host's tmux server was not running, the new session may read as signed out (the
+    keychain note below). Check it with `sunstack sessions` there and tell the user.
+- **Never route around sunstack otherwise.** Apart from spawn and send above, when sunstack
+  refuses an action (`user_only`, a missing grant, a read-only host), tell the user and let them
+  run it or grant it. Do not do the same thing over SSH. `sunstack ssh setup`, `check`, `start`
+  and `stop`, `org allow` and `deny`, and `org update` stay the user's to run, here and over
+  SSH.
 - Over SSH, run that host's own `sunstack` for its view instead of reading its files directly.
   Never print secrets. Copy secret files only with the user's approval, and never show their
   contents.
