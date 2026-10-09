@@ -6,7 +6,6 @@ import (
 	"os"
 	"regexp"
 	"strings"
-	"time"
 
 	"github.com/Lucklyric/sunstack/internal/core"
 	"github.com/Lucklyric/sunstack/internal/hub"
@@ -223,12 +222,8 @@ func sshSetup(w io.Writer, host string, flags map[string]string) error {
 	fmt.Fprintln(w, "   Tailscale SSH instead needs no keys, but only with open-source tailscaled (Linux, or macOS without the App Store app) and a tailnet SSH policy that allows it.")
 	if user == "<user>" || address == "<address>" {
 		fmt.Fprintln(w, "   Note the login name there (whoami) and an address this host can reach: a Tailscale name or IP, or <machine>.local on the same network.")
-		if v := hub.LoadView(time.Now()); v != nil {
-			for _, h := range v.Hosts {
-				if strings.EqualFold(h.Name, host) && h.Machine != "" {
-					fmt.Fprintf(w, "   Its machine name is %q.\n", h.Machine)
-				}
-			}
+		if m := hub.HostMachine(host); m != "" {
+			fmt.Fprintf(w, "   Its machine name is %q.\n", m)
 		}
 	}
 	fmt.Fprintln(w, "\n2. Here, a key and its copy there (ls ~/.ssh/*.pub shows the keys you have):")
@@ -274,8 +269,8 @@ func sshStatus(stdout io.Writer) error {
 		case r.Shared:
 			state = "closed; the next ssh " + r.Aliases[0] + " opens it"
 		}
-		if r.Open && s.Started[r.Aliases[0]] != "" {
-			state += " (sunstack ssh start, " + s.Started[r.Aliases[0]] + ")"
+		if r.Open && core.StartedBySunstack(r.Aliases[0], r.Path) {
+			state += " (sunstack ssh start, " + core.SSHAge(s.Started[r.Aliases[0]]) + ")"
 		}
 		line := "  " + name + ": " + state
 		if r.Check != nil {

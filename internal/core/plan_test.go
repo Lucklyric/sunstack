@@ -83,14 +83,14 @@ func TestPlan(t *testing.T) {
 	if c := krOf(t, objs, "alice#KR2").Conditions; strings.Join(c, ",") != "blocked,stale,active" {
 		t.Errorf("alice#KR2 conditions: %v", c)
 	}
-	n := krOf(t, objs, "alice#KR5").Needs
+	n := krOf(t, objs, "alice#KR5").NeedViews
 	if len(n) != 2 || n[0].Status != "waiting" || n[0].Ref != "" || n[1].Ref != "" {
 		t.Errorf("free text and a missing target: %+v", n)
 	}
-	if n := krOf(t, objs, "alice#KR4").Needs; n[0].Ref != "alice#Q1" || n[0].Status != "waiting on the user" {
+	if n := krOf(t, objs, "alice#KR4").NeedViews; n[0].Ref != "alice#Q1" || n[0].Status != "waiting on the user" {
 		t.Errorf("an ask need: %+v", n)
 	}
-	if n := krOf(t, objs, "alice#KR2").Needs; n[0].Ref != "alice#KR1" || n[0].Status != "active" {
+	if n := krOf(t, objs, "alice#KR2").NeedViews; n[0].Ref != "alice#KR1" || n[0].Status != "active" {
 		t.Errorf("a bare need is the owner's own: %+v", n)
 	}
 

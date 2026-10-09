@@ -160,24 +160,26 @@ func TestSSHStartStopCLI(t *testing.T) {
 // OS branches, and the entry the user pastes.
 func TestSSHSetup(t *testing.T) {
 	p := fixture(t)
-	env := isolatedEnv(t)
-	before := readFileOr(filepath.Join(envValue(env, "SUNSTACK_TEST_EVENTS"), "ssh.log"))
+	f := newSSHFixture(t, isolatedEnv(t))
+	env := f.env
+	expect(t, sh(t, p, env, "ssh", "scan"), 0, "scan")
+	before := f.log()
 
-	r := sh(t, p, append(env, "CLAUDECODE=1"), "ssh", "setup", "assistant")
+	r := sh(t, p, append(env, "CLAUDECODE=1"), "ssh", "setup", "studio")
 	expect(t, r, 0, "an agent may print the guide")
 	requireContains(t, r.out, "Remote Login", "sshd", "Tailscale SSH", "ssh-copy-id -i ~/.ssh/id_ed25519.pub <user>@<address>",
-		"mkdir -p -m 700 ~/.ssh/cm", "Host assistant", "HostName <address>", "ControlPath ~/.ssh/cm/%C", "ControlPersist 10m",
-		"sunstack ssh check assistant", "For the other direction")
+		"mkdir -p -m 700 ~/.ssh/cm", "Host studio", "HostName <address>", "ControlPath ~/.ssh/cm/%C", "ControlPersist 10m",
+		"sunstack ssh check studio", "For the other direction")
 
-	r = sh(t, p, env, "ssh", "setup", "assistant", "--os", "macos", "--user", "me", "--address", "box name;rm", "--key", "~/.ssh/k.pub")
+	r = sh(t, p, env, "ssh", "setup", "studio", "--os", "macos", "--user", "me", "--address", "box name;rm", "--key", "~/.ssh/k.pub")
 	expect(t, r, 0, "guide with values")
 	requireContains(t, r.out, "ssh-copy-id -i ~/.ssh/k.pub me@'box name;rm'", "IdentityFile ~/.ssh/k\n")
 	if strings.Contains(r.out, "sshd installed") {
 		t.Error("--os macos printed the Linux branch")
 	}
-	expect(t, sh(t, p, env, "ssh", "setup", "assistant", "--os", "windows"), 2, "an unknown OS")
+	expect(t, sh(t, p, env, "ssh", "setup", "studio", "--os", "windows"), 2, "an unknown OS")
 	expect(t, sh(t, p, env, "ssh", "setup", "a b"), 2, "a name that is no alias")
-	if after := readFileOr(filepath.Join(envValue(env, "SUNSTACK_TEST_EVENTS"), "ssh.log")); after != before {
+	if after := f.log(); after != before {
 		t.Errorf("the guide ran ssh: %s", after)
 	}
 }

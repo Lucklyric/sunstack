@@ -19,7 +19,7 @@ type KRView struct {
 	Item
 	Status     string   // the first of KRStatuses that applies
 	Conditions []string // every status that applies, in that order
-	Needs      []NeedView
+	NeedViews  []NeedView
 }
 
 // NeedView is one direct need of a key result.
@@ -81,12 +81,12 @@ func (b *Boards) Plan(today time.Time) []*ObjectiveView {
 	}
 	for _, k := range krs {
 		for _, n := range k.Item.Needs {
-			k.Needs = append(k.Needs, resolveNeed(k.Item, n, byRef))
+			k.NeedViews = append(k.NeedViews, resolveNeed(k.Item, n, byRef))
 		}
 		if k.Done {
 			continue
 		}
-		for _, nv := range k.Needs {
+		for _, nv := range k.NeedViews {
 			if !nv.Done {
 				k.Conditions = append([]string{"blocked"}, k.Conditions...)
 				break
@@ -95,9 +95,9 @@ func (b *Boards) Plan(today time.Time) []*ObjectiveView {
 	}
 	for _, k := range krs {
 		k.Status = k.Conditions[0]
-		for i, nv := range k.Needs {
+		for i, nv := range k.NeedViews {
 			if t := view[nv.Ref]; t != nil {
-				k.Needs[i].Status = t.Conditions[0]
+				k.NeedViews[i].Status = t.Conditions[0]
 			}
 		}
 	}

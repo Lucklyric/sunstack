@@ -358,6 +358,16 @@ func HostID(name string) (id, orgName string, ok bool) {
 	return "", "", false
 }
 
+// HostMachine is an org host's machine name, from the cached roster only.
+func HostMachine(name string) string {
+	if r := cachedHosts(); r != nil {
+		if h := r.byName(name); h != nil {
+			return h.Machine
+		}
+	}
+	return ""
+}
+
 // HostName is an org host's name by its ID, or the ID when unknown.
 func HostName(id string) string {
 	if r := cachedHosts(); r != nil {

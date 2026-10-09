@@ -451,8 +451,8 @@ func SSHLine(hostID string) string {
 		line += "no shared connection"
 	case MasterOpen(a.ControlPath):
 		line += "connection open, reusable"
-		if at := s.Started[alias]; at != "" {
-			line += " (sunstack ssh start, " + ageSince(at) + ")"
+		if StartedBySunstack(alias, a.ControlPath) {
+			line += " (sunstack ssh start, " + ageSince(s.Started[alias]) + ")"
 		}
 	default:
 		line += "no open connection"
@@ -462,6 +462,21 @@ func SSHLine(hostID string) string {
 	}
 	return line
 }
+
+// StartedBySunstack says whether the open master on path is the one
+// sunstack ssh start opened: its socket is not newer than the record, so a
+// master reopened later by a plain ssh is not taken for it.
+func StartedBySunstack(alias, path string) bool {
+	at, err := time.Parse("2006-01-02T15:04:05Z", LoadSSH().Started[alias])
+	if err != nil {
+		return false
+	}
+	st, err := os.Lstat(path)
+	return err == nil && !st.ModTime().After(at.Add(time.Second))
+}
+
+// SSHAge prints a recorded stamp as an age.
+func SSHAge(stamp string) string { return ageSince(stamp) }
 
 func ageSince(stamp string) string {
 	t, err := time.Parse("2006-01-02T15:04:05Z", stamp)
