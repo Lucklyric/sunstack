@@ -1,6 +1,6 @@
 ---
 name: direct
-description: Give the Sunstack team, one role, or one agent a dated directive from the user (a priority, a change of focus, a constraint for now), which every addressed agent aligns its board with at its next as or save. Use when the user says "sunstack direct", "/sunstack:direct", "tell the Sunstack team to ...", "from now on every agent should ...", or gives an instruction meant for Sunstack agents that are not this session. Only for projects with a Sunstack team (a sunstack/ folder).
+description: Give the Sunstack team, a role or an agent a dated directive from the user (a priority, focus or constraint), or pause the team (halt). Use for "sunstack direct", "/sunstack:direct", "from now on every agent should ...", "pause the team". One piece of work for one agent goes through the message skill.
 ---
 
 # Sunstack: direct
@@ -49,3 +49,15 @@ sunstack direct "<text>" --to "<all or comma-separated ids/titles>"
   `as` or save. If this session works as an addressed agent, align now with the save skill.
 - **1 `not_found`**: an addressee does not exist; fix it with the user.
 - **2**: show the error (for example parentheses in the text) and fix the wording.
+
+## Pause the team
+
+When the user wants every agent to stop starting new work (a broken schema, a bad deploy),
+confirm the reason with them, then run:
+
+```sh
+sunstack halt "<reason>"
+```
+
+Work in progress saves, and nothing new starts (spawns are refused) until the
+user ends it with `sunstack halt --off`. Only the user decides to halt or to end a halt.

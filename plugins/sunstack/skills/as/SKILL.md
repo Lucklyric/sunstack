@@ -1,6 +1,6 @@
 ---
 name: as
-description: Take on a Sunstack agent identity (for example builder.alice) in this project, as a new session or alongside other sessions already working as that agent. Use when the user says "sunstack as <id>", "/sunstack:as", "take on the builder agent", "join builder.alice", "which Sunstack agent should I be", or asks to pick up or switch to a Sunstack agent. Only for projects with a Sunstack team (a sunstack/ folder).
+description: Take on a Sunstack agent identity (for example builder.alice) in this project, alone or alongside sessions already working as it. Use for "sunstack as", "/sunstack:as", "take on the builder agent", "which Sunstack agent should I be". Only in projects with a sunstack/ folder.
 ---
 
 # Sunstack: as

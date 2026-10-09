@@ -1,6 +1,6 @@
 ---
 name: save
-description: Save what the current Sunstack agent is doing and has learned into its board and persistent context, archive what is outdated, and ask the user to approve any change to its pillars, AGENT.md or the team objectives. Use when the user asks to save Sunstack context ("save" in a session holding a Sunstack identity, "sunstack save", "/sunstack:save"), asks to change a Sunstack pillar or agent rule, before ending or switching a Sunstack identity, or after meaningful work as a Sunstack agent.
+description: Save the current Sunstack agent's work and lessons into its board and context, archive what is outdated, and ask the user to approve rule or objective changes. Use for "save" in a session holding a Sunstack identity, "sunstack save", "/sunstack:save", changing a pillar or agent rule, or before ending or switching identity.
 ---
 
 # Sunstack: save
@@ -19,9 +19,8 @@ Every entry you write starts with today's date: `- <YYYY-MM-DD> ...`.
 ## 0. Who am I, and the rules
 
 - You need the root, id and token from the `session state` block that `sunstack as` printed in
-  this session. If you do not have them (for example after compaction or `/clear`), run `sunstack whoami` (with `--root` if you know it): it prints this session's state, found by
-  its CLI session or tmux pane. If it says the pane matched a different CLI session, confirm
-  with the user in one line. If it finds nothing, ask the user to run the as skill. Never guess.
+  this session. If you do not have them (for example after compaction or `/clear`),
+  recover them as the whoami skill says. Never guess.
 - Run every `sunstack` command on its own, with nothing chained after it.
 - If a `sunstack` command exits non-zero in a way not handled below, show the error and stop.
   Do not go on to release or to removing a thread.
@@ -33,7 +32,8 @@ Every entry you write starts with today's date: `- <YYYY-MM-DD> ...`.
   objective it serves (`[O<n>]`) and its `needs:`. If a directive newer than `aligned:` is
   addressed to this agent, make the board follow it and set `aligned:` to the last one checked.
   Each Now entry this session owns ends with `(by: <session_name>@<host>)`, using the
-  `session_name` from session state and `hostname -s`, so sessions on other hosts can tell
+  `session_name` from session state and this host's short name (`hostname -s`, on Windows
+  `hostname`), so sessions on other hosts can tell
   whose it is. Leave other sessions' Now entries as they are. A key result that fits no objective goes to
   Open questions in context, for the user.
   - **Done needs proof**: an entry moving to Done ends with `(verified: <how> [@ <commit>])`,

@@ -1,6 +1,6 @@
 ---
 name: release
-description: Release this session's claim on its Sunstack agent ID so another session can take it. Use when the user asks to release their Sunstack identity or claim ("sunstack release", "/sunstack:release", "release builder.alice"), not a software or version release, or when ending or switching a Sunstack identity after saving.
+description: Release this session's claim on its Sunstack agent ID so another session can take it. Use for "sunstack release", "/sunstack:release", "release builder.alice", or when ending or switching a Sunstack identity after saving. Not a software or version release.
 ---
 
 # Sunstack: release
@@ -22,5 +22,5 @@ sunstack release --root "<root>" "<id>" --token "<token>"
 - **4 `busy`**: retry once, then tell the user.
 - **1 / 2**: show the error. Do not work around it.
 
-If you do not have the token, run `sunstack whoami` (with `--root` if you know it); if it finds
-nothing, stop and tell the user. Never guess one.
+If you do not have the token, recover it as the whoami skill says; if that finds nothing, stop
+and tell the user. Never guess one.

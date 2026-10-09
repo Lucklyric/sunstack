@@ -1,6 +1,6 @@
 ---
 name: fire
-description: Remove an agent from this project's Sunstack team after the user approves, checking that its files are committed and nothing is lost. Use when the user says "sunstack fire", "/sunstack:fire", "remove the <role> agent from the team", "we no longer need <agent id>", or asks to delete a Sunstack agent. Only for projects with a Sunstack team (a sunstack/ folder).
+description: Remove an agent from this project's Sunstack team after the user approves, checking that nothing is lost. Use for "sunstack fire", "/sunstack:fire", "remove the reviewer agent", or deleting a Sunstack agent. Only in projects with a sunstack/ folder.
 ---
 
 # Sunstack: fire

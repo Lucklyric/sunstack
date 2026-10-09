@@ -1,6 +1,6 @@
 ---
 name: whoami
-description: Find which Sunstack agent identity this Claude Code or Codex session holds, with its root, id, token and session name, from the session's own ID or tmux pane. Use when the user asks "sunstack whoami", "/sunstack:whoami", "which agent am I", "what is my Sunstack identity", or after compaction or /clear when the session state is missing. Only for projects with a Sunstack team (a sunstack/ folder). Not for choosing an agent to become (the as skill).
+description: Find which Sunstack agent identity this session holds (root, id, token, session name) from its session ID or tmux pane. Use for "sunstack whoami", "/sunstack:whoami", "which agent am I", or after compaction or /clear lost the session state. Not for choosing an agent to become (the as skill).
 ---
 
 # Sunstack: whoami

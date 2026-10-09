@@ -1,6 +1,6 @@
 ---
 name: board
-description: Show and align the Sunstack team's objectives and key results (OKRs) across the user and every agent, with dependencies, stale or overdue entries and directives not yet followed, and help fix what is off. Use when the user says "sunstack board", "/sunstack:board", "the team's OKRs", "what is every agent on this team working on", "which agent is blocked", "sunstack align", "align the team", "is everyone aligned", or asks to set or change the Sunstack team objectives. Only for projects with a Sunstack team (a sunstack/ folder).
+description: Show and align the Sunstack team's objectives and key results across the user and every agent, with dependencies, stale or overdue entries and unfollowed directives. Use for "sunstack board", "/sunstack:board", "the team's OKRs", "which agent is blocked", "align the team". Not the ranked to-do list (next skill).
 ---
 
 # Sunstack: board
@@ -89,7 +89,7 @@ agent's board is written only by that agent, so this step asks each agent to fix
 
    Add `--from "<id>" --token "<token>"` only if this session holds an agent and the request
    is that agent's own; otherwise the message goes in the user's name. A live session gets a
-   nudge; others see it when they next start (`/sunstack:as <id>`), or start one with the spawn
+   nudge; others see it when they next start (`/sunstack:as <id>`, Codex: `$sunstack:as <id>`), or start one with the spawn
    skill if the user wants it done now.
 4. Tell the user who was asked, who was nudged and who waits, and that `sunstack board` shows
    what is still off once they have saved.

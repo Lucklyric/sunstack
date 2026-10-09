@@ -1,6 +1,6 @@
 ---
 name: org
-description: Show the user's whole Sunstack org on this host and the other hosts of its org, every team, agent and running Claude Code or Codex session (with or without a Sunstack identity), in four views, what needs the user, work by team, people, and hosts, and inspect or summarize any session or team on request. Use when the user says "sunstack org", "/sunstack:org", "what needs me", "what is running on this machine", "show all my sessions", "what is every team doing across teams", "summarize that session", "peek at <session>", "sunstack teams", "work on another host", "should I use SSH", or asks for a team's event log, inbox or effective pillars. To start or close sessions, use the spawn skill.
+description: Show the user's whole Sunstack org across teams and hosts (what needs the user, work by team, people, hosts) and inspect or summarize any session, and how to work on another host. Use for "sunstack org", "/sunstack:org", "what needs me", "show all my sessions", "peek at a session", "work on another host". Starting sessions is the spawn skill.
 ---
 
 # Sunstack: org
@@ -137,6 +137,9 @@ teams and sessions, `sunstack hub hosts` on the hub for its version and machine 
 - An SSH login cannot read the macOS login keychain, so sign-in checks (Claude, Codex, MCP
   servers) can read as signed out over SSH. Confirm them from a tmux session on that host, or
   peek a session's screen.
+- **That host is not in the org yet:** the user creates the org on one host with `sunstack hub
+  init`, makes a join code there with `sunstack hub invite`, and runs `sunstack org join <hub>
+  --code <code>` on the new host. All three are the user's to run.
 - **No SSH to that host yet, or a check fails:** run `sunstack ssh setup <host>` and show the
   user the steps it prints. Setting up SSH, checking it (`sunstack ssh check`) and opening or
   closing a shared connection (`sunstack ssh start` and `stop`) are the user's to run.

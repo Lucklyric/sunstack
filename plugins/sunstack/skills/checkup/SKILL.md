@@ -1,6 +1,6 @@
 ---
 name: checkup
-description: Check this project's Sunstack setup and team, migrate an older project to the current version, suggest which agent fits this session, and walk through the best next steps, such as init, cleanup, updating the install, approving pending rule changes, or recruiting an agent. Use when the user says "sunstack checkup", "/sunstack:checkup", "sunstack health", "set up sunstack", "sunstack init", "what should I do next with sunstack", "migrate sunstack", or asks whether Sunstack is working. Only for projects that use or want Sunstack.
+description: Check this project's Sunstack setup and health, set it up or migrate it, and fix what is off (install, cleanup, pending rule changes). Use for "sunstack checkup", "/sunstack:checkup", "sunstack health", "set up sunstack", "migrate sunstack", or whether Sunstack works. Not for what to work on next (next skill).
 ---
 
 # Sunstack: checkup
@@ -104,8 +104,9 @@ How to do each kind of step:
 - **leftover lock, staging files, inbox of a fired agent, unfinished message**: show the exact
   path and what is in it (`ls -la`), then remove only that path on yes. Never remove a lock
   while a sunstack command may be running.
-- **claim from a closed pane**: offer `/sunstack:as <id>` (Codex: `$sunstack:as <id>`) with
-  takeover, or leave it.
+- **claim from a closed pane**: offer `sunstack release <id_task> --stale` first, which drops
+  claims whose tmux pane is confirmed closed. Otherwise offer `/sunstack:as <id>` (Codex:
+  `$sunstack:as <id>`) with takeover, or leave it.
 - **damaged claim file**: show its content; delete it only on yes.
 - **merge conflict markers**: show the conflicting lines and help resolve them by hand.
 - **uncommitted changes under sunstack/**: show `git status --short sunstack/` and the diff;

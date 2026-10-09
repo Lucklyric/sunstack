@@ -1,6 +1,6 @@
 ---
 name: next
-description: Decide the best next action for this Sunstack team from its current state, one ranked list across setup, what waits on the user, blocked work, board drift and this session's own work, then offer the top item and hand over to the skill that does it. Use when the user asks "sunstack next", "/sunstack:next", "what should I do next", "what's the best next step", "analyze the current status", "what needs doing on the team", or comes back to a project and wants to pick up. Only for projects with a Sunstack team (a sunstack/ folder).
+description: Rank the best next actions for this Sunstack team across setup, what waits on the user, blocked work, board drift and this session's work, then hand the top one to its skill. Use for "sunstack next", "/sunstack:next", "what should I do next", "what needs doing on the team". This team only (the org skill spans teams).
 ---
 
 # Sunstack: next
