@@ -450,5 +450,5 @@ func TestHostsSSHKeys(t *testing.T) {
 	// A session on the mapped host shows how to attach over SSH.
 	m.view = viewOrg
 	selectRow(t, m, "builder.alice_api")
-	requireAll(t, ansi.Strip(m.View()), "ssh -t srv 'tmux attach -t =w'")
+	requireAll(t, ansi.Strip(m.View()), `ssh -t srv 'tmux attach -t '\''=w'\'''`)
 }

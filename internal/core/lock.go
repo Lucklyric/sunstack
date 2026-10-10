@@ -1,6 +1,7 @@
 package core
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -52,7 +53,7 @@ func lockDir(dir, id string) (func(), error) {
 		if i+1 >= lockTries {
 			owner, _ := os.ReadFile(filepath.Join(dir, "owner"))
 			if !reclaimed && ownerDead(owner) {
-				os.RemoveAll(dir)
+				reclaimDead(dir, owner)
 				reclaimed = true
 				i = -1
 				continue
@@ -70,6 +71,24 @@ func lockDir(dir, id string) (func(), error) {
 	}
 	_ = os.WriteFile(filepath.Join(dir, "owner"), []byte(owner+"\n"), 0o644)
 	return func() { os.RemoveAll(dir) }, nil
+}
+
+// reclaimDead removes the lock at dir if its owner is still the dead one
+// read before. Two processes can find the same dead owner; the guard lets
+// one remove it, and the other then finds a new owner or no lock, never
+// removing a lock a live process has just taken.
+func reclaimDead(dir string, dead []byte) {
+	guard := dir + ".reclaim"
+	if st, err := os.Stat(guard); err == nil && time.Since(st.ModTime()) > time.Minute {
+		os.Remove(guard) // left by a process that died while reclaiming
+	}
+	if os.Mkdir(guard, 0o755) != nil {
+		return
+	}
+	defer os.Remove(guard)
+	if owner, err := os.ReadFile(filepath.Join(dir, "owner")); err == nil && bytes.Equal(owner, dead) {
+		os.RemoveAll(dir)
+	}
 }
 
 func trimNL(b []byte) string {
@@ -92,7 +111,7 @@ func LockDirOnce(dir string) (func(), error) {
 		if !ownerDead(owner) {
 			return nil, fail(ExitClaim, "busy", "%s is held (%s)", filepath.Base(dir), trimNL(owner))
 		}
-		os.RemoveAll(dir)
+		reclaimDead(dir, owner)
 		err = os.Mkdir(dir, 0o755)
 	}
 	if err != nil {

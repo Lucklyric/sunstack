@@ -56,8 +56,8 @@ func (p *Project) Spawn(o SpawnOptions) (*SpawnResult, error) {
 	if o.Task != "" && !ValidTask(o.Task) {
 		return nil, fail(ExitUsage, "usage", "invalid task %q: lowercase letters, digits and -, at most 10 characters", o.Task)
 	}
-	if strings.ContainsAny(o.Note, "'\n") {
-		return nil, fail(ExitUsage, "usage", "keep single quotes and line breaks out of the note")
+	if !noteOK(o.Note) {
+		return nil, fail(ExitUsage, "usage", "keep single quotes, line breaks and other control characters out of the note")
 	}
 	// One spawn at a time per team, from the cap check until the new claim
 	// is written, so two spawns cannot both pass a cap of one.
@@ -223,6 +223,18 @@ func (p *Project) Spawn(o SpawnOptions) (*SpawnResult, error) {
 		running = paneRunsTool(o.Socket, pane, o.Tool)
 	}
 	return &SpawnResult{ID: id, Name: name, Pane: pane, Token: l.Token, Tool: o.Tool, Place: place, Home: homeAt, Running: running, Window: window}, nil
+}
+
+// noteOK says whether a note can be typed into the pane's shell inside
+// single quotes: no quote and no control character, which could end the
+// quote or edit the line.
+func noteOK(s string) bool {
+	for _, r := range s {
+		if r == '\'' || r < 0x20 || r == 0x7f || (r >= 0x80 && r < 0xa0) {
+			return false
+		}
+	}
+	return true
 }
 
 func atoiOr(s string, def int) int {

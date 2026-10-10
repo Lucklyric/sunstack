@@ -480,7 +480,9 @@ var shSafe = regexp.MustCompile(`^[A-Za-z0-9._@%+=:,/~-]+$`)
 
 // ShellQuote quotes a value for a POSIX shell command line.
 func ShellQuote(v string) string {
-	if shSafe.MatchString(v) {
+	// zsh expands a word starting with = to a command's path; a leading ~
+	// is left to expand, as in the ~/.ssh paths setup prints.
+	if shSafe.MatchString(v) && v[0] != '=' {
 		return v
 	}
 	return "'" + strings.ReplaceAll(v, "'", `'\''`) + "'"

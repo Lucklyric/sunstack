@@ -240,6 +240,13 @@ func (p *Project) Send(o SendOptions) (*SendResult, error) {
 	if o.ReplyTo != "" && !msgIDRe.MatchString(o.ReplyTo) {
 		return nil, fail(ExitUsage, "usage", "invalid --reply-to message id: %s", o.ReplyTo)
 	}
+	if o.From != "" && !safeID(o.From) {
+		return nil, fail(ExitUsage, "usage", "invalid --from agent id: %q", o.From)
+	}
+	// A line break in a header value would add a header line.
+	if strings.ContainsAny(o.FromLabel+o.Via+o.FromHost+o.ID, "\r\n") {
+		return nil, fail(ExitUsage, "usage", "a line break in the sender")
+	}
 	from := "user"
 	if o.FromLabel != "" {
 		from = o.FromLabel

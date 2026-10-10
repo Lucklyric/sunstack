@@ -96,7 +96,7 @@ func (p *Project) Tasks() []*TaskInfo {
 		// file's time, which a move to the archive keeps.
 		rs := replies[id]
 		sort.Slice(rs, func(i, j int) bool {
-			if a, b := rs[i].ID[:16], rs[j].ID[:16]; a != b {
+			if a, b := idSecond(rs[i].ID), idSecond(rs[j].ID); a != b {
 				return a < b
 			}
 			return rs[i].mod.Before(rs[j].mod)
@@ -120,6 +120,14 @@ func (p *Project) Tasks() []*TaskInfo {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
 	return out
+}
+
+// idSecond is the time part of a message ID (its first 16 characters).
+func idSecond(id string) string {
+	if len(id) < 16 {
+		return id
+	}
+	return id[:16]
 }
 
 // taskFindings flags tasks open too long, and chains that failed twice.
@@ -148,7 +156,9 @@ func (p *Project) taskFindings(today time.Time) []Issue {
 		}
 		// A round failed when its latest reply carries no verified: line.
 		failed := 0
-		for c := t; c != nil; c = byID[c.Follows] {
+		seen := map[string]bool{}
+		for c := t; c != nil && !seen[c.ID]; c = byID[c.Follows] {
+			seen[c.ID] = true
 			if n := len(c.Replies); n > 0 && !c.Replies[n-1].Verified {
 				failed++
 			}

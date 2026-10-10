@@ -77,6 +77,9 @@ var tokenRe = regexp.MustCompile(`^[0-9a-f]{16}$`)
 // exists but cannot be read or parsed is an error, never "free": state
 // changes stop until it is repaired.
 func (p *Project) Claims(id string) ([]*Live, error) {
+	if !safeID(id) {
+		return nil, fail(ExitUsage, "usage", "invalid id: %q", id)
+	}
 	var out []*Live
 	if l, err := p.readClaim(id, p.legacyClaim(id)); err != nil {
 		return nil, err

@@ -562,10 +562,17 @@ func processTTY(pid int) string {
 	return t
 }
 
+// withoutTMUX is the environment for a tmux command: without the caller's
+// tmux, which would point it at the wrong server, and without its agent
+// session, which a server started here would pass to every pane.
 func withoutTMUX(env []string) []string {
 	var out []string
 	for _, e := range env {
-		if !strings.HasPrefix(e, "TMUX=") && !strings.HasPrefix(e, "TMUX_PANE=") {
+		k, _, _ := strings.Cut(e, "=")
+		switch {
+		case k == "TMUX" || k == "TMUX_PANE" || k == "CLAUDECODE" || k == "CLAUDE_PID" || k == "CODEX_THREAD_ID" || k == "CODEX_SESSION_ID":
+		case strings.HasPrefix(k, "CLAUDE_CODE_"):
+		default:
 			out = append(out, e)
 		}
 	}

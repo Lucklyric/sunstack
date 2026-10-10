@@ -61,6 +61,20 @@ func ValidID(id string) bool {
 	return false
 }
 
+// safeID says whether id can name a folder of the team: no path separator,
+// no .., no control character. ValidID is the stricter rule for new IDs.
+func safeID(id string) bool {
+	if id == "" || strings.ContainsAny(id, `/\`) || strings.Contains(id, "..") {
+		return false
+	}
+	for _, r := range id {
+		if r < 0x20 || r == 0x7f {
+			return false
+		}
+	}
+	return true
+}
+
 // Project is a directory holding sunstack/.
 type Project struct {
 	Root string // project root (absolute, symlinks resolved)
@@ -135,6 +149,9 @@ func (p *Project) AgentDir(id string) string { return filepath.Join(p.Dir, id) }
 
 // HasAgent reports whether sunstack/<id>/AGENT.md exists.
 func (p *Project) HasAgent(id string) bool {
+	if !safeID(id) {
+		return false
+	}
 	_, err := os.Stat(filepath.Join(p.AgentDir(id), "AGENT.md"))
 	return err == nil
 }

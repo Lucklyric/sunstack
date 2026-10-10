@@ -77,8 +77,8 @@ func SpawnFree(o FreeOptions) (*FreeResult, error) {
 	if o.Name != "" && !labelRe.MatchString(o.Name) {
 		return nil, fail(ExitUsage, "usage", "invalid --name %q: lowercase letters, digits and -, at most 20 characters", o.Name)
 	}
-	if strings.ContainsAny(o.Note, "'\n") {
-		return nil, fail(ExitUsage, "usage", "keep single quotes and line breaks out of the note")
+	if !noteOK(o.Note) || strings.HasPrefix(o.Note, "-") {
+		return nil, fail(ExitUsage, "usage", "keep single quotes, line breaks and other control characters out of the note, and do not start it with -")
 	}
 	if o.Beside != "" && o.Dir != "" {
 		return nil, fail(ExitUsage, "usage", "use --beside or --dir, not both")
