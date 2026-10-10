@@ -1,6 +1,8 @@
 package tui
 
 import (
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/x/ansi"
 	"os"
 	"path/filepath"
 	"strings"
@@ -47,5 +49,43 @@ func TestHostUpdateIsUserOnly(t *testing.T) {
 		if m.confirm != "" || !strings.Contains(m.note, "for the user") {
 			t.Errorf("%s from an agent session: confirm %q note %q", k, m.confirm, m.note)
 		}
+	}
+}
+
+// A session of a host that stopped reporting is shown as of its last
+// snapshot, dimmed, with the host's state, never as live.
+func TestRemoteSessionsShowHostState(t *testing.T) {
+	m := hostsModel(t, 200)
+	for _, state := range []string{"stale", "offline"} {
+		m.hosts.Hosts[2].State = state
+		found := false
+		for _, n := range m.treeNodes() {
+			if n.kind == "session" && n.host != nil && n.host.Name == "server" {
+				found = true
+				if r := ansi.Strip(m.row(n, 100)); !strings.Contains(r, ", "+state) {
+					t.Errorf("%s host's session row: %q", state, r)
+				}
+			}
+		}
+		if !found {
+			t.Fatal("no session of server in the tree")
+		}
+	}
+	m.hosts.Hosts[2].State = "live"
+	for _, n := range m.treeNodes() {
+		if n.kind == "session" && n.host != nil && strings.Contains(ansi.Strip(m.row(n, 100)), ", live") {
+			t.Error("a live host's session is marked")
+		}
+	}
+}
+
+// Pasting into a prompt adds the text, on one line.
+func TestPasteInPrompt(t *testing.T) {
+	m, _ := boardTeam(t)
+	m.Update(key("B"))
+	m.Update(key("/"))
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("par\nser\x1b]52;c;x\x07"), Paste: true})
+	if m.inputText != "par ser]52;c;x" {
+		t.Errorf("pasted text: %q", m.inputText)
 	}
 }

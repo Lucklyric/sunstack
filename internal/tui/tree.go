@@ -474,6 +474,11 @@ func (m *model) row(n treeNode, w int) string {
 	switch n.kind {
 	case "session":
 		tail = glyph(n.sess) + " " + n.sess.Status
+		// Another host's session as of its last snapshot: not live when the
+		// host stopped reporting.
+		if n.host != nil && !n.host.You && n.host.State != "live" {
+			tail = cDim.Render(n.sess.Status + ", " + n.host.State)
+		}
 	case "agent":
 		switch {
 		case n.st != nil && n.st.ClaimErr != nil:

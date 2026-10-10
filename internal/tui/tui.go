@@ -223,11 +223,31 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.viewer != nil && msg.String() != "ctrl+c" {
 			return m, m.viewerKey(msg)
 		}
+		if msg.Paste && m.inputPrompt != "" {
+			m.inputText += pasteText(msg.Runes)
+			return m, nil
+		}
 		cmd := m.key(msg.String())
 		m.saveState()
 		return m, cmd
 	}
 	return m, nil
+}
+
+// pasteText is pasted text for a one-line prompt: line breaks and tabs
+// become spaces, other control characters are dropped.
+func pasteText(rs []rune) string {
+	var b strings.Builder
+	for _, r := range rs {
+		switch {
+		case r == '\n' || r == '\r' || r == '\t':
+			b.WriteByte(' ')
+		case r < 0x20 || r == 0x7f || (r >= 0x80 && r < 0xa0):
+		default:
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
 }
 
 // key handles one key press.
