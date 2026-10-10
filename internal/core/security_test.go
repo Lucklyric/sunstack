@@ -66,7 +66,7 @@ func TestSendFromForgery(t *testing.T) {
 	if _, err := p.Claims("x/../builder.ann"); err == nil {
 		t.Error("Claims accepted a path")
 	}
-	if p.HasAgent("x/../builder.ann") {
+	if p.HasAgent("x/../builder.ann") || p.HasAgent(".") {
 		t.Error("HasAgent accepted a path")
 	}
 }

@@ -291,7 +291,9 @@ func KeysText() (string, error) {
 			continue
 		}
 		line := "  " + p.Name + ": " + p.Keys.Fingerprint()
-		if p.Changed != nil {
+		if !p.Keys.valid() && p.Changed != nil {
+			line = "  " + p.Name + ": NEW HOST under a name another host had, key " + p.Changed.Fingerprint() + " (mail refused; compare, then sunstack org trust " + p.Name + ")"
+		} else if p.Changed != nil {
 			line += "  KEY CHANGED to " + p.Changed.Fingerprint() + " (mail refused; compare, then sunstack org trust " + p.Name + ")"
 		}
 		b.WriteString(line + "\n")

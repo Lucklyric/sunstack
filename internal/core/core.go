@@ -64,7 +64,7 @@ func ValidID(id string) bool {
 // safeID says whether id can name a folder of the team: no path separator,
 // no .., no control character. ValidID is the stricter rule for new IDs.
 func safeID(id string) bool {
-	if id == "" || strings.ContainsAny(id, `/\`) || strings.Contains(id, "..") {
+	if id == "" || id == "." || strings.ContainsAny(id, `/\`) || strings.Contains(id, "..") {
 		return false
 	}
 	for _, r := range id {

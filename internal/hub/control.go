@@ -383,7 +383,7 @@ func RecoverRequests() {
 	for _, id := range open {
 		e := j[id]
 		host := e.FromHost
-		if host == "" { // recorded before v0.11.2: by name, when only one pin has it
+		if host == "" { // recorded by an older version: by name, when only one pin has it
 			for pid, p := range pins {
 				if p.Name == e.From {
 					if host != "" {

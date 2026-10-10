@@ -49,7 +49,9 @@ func TestReplySealedToAsker(t *testing.T) {
 	if err := pinRoster(&Roster{Hosts: []*Host{{ID: "aaaaaaaaaaaaaaaa", Name: "laptop", Keys: k.Public()}}}); err != nil {
 		t.Fatal(err)
 	}
-	// The hub renames the asker and lists itself as laptop.
+	// The request came in; then the hub renames the asker and lists itself
+	// as laptop before the reply goes out.
+	asker := loadPins()["aaaaaaaaaaaaaaaa"]
 	r := &Roster{Hosts: []*Host{{ID: "aaaaaaaaaaaaaaaa", Name: "old", Keys: k.Public()}, {ID: "cccccccccccccccc", Name: "laptop", Keys: other.Public()}}}
 	if err := pinRoster(r); err != nil {
 		t.Fatal(err)
@@ -57,7 +59,9 @@ func TestReplySealedToAsker(t *testing.T) {
 	if err := saveRoster(r, stamp(time.Now())); err != nil {
 		t.Fatal(err)
 	}
-	asker := loadPins()["aaaaaaaaaaaaaaaa"]
+	if err := saveConfig(&Config{OrgID: "o", Hub: "h", Token: "t"}); err != nil {
+		t.Fatal(err)
+	}
 	req := &Mail{ID: core.NewMessageID("user"), FromHost: "aaaaaaaaaaaaaaaa"}
 	reply(req, asker, "peek", PeekResult{Text: "SECRET"}, nil)
 	files, _ := filepath.Glob(filepath.Join(outboxDir(), "*.json"))
@@ -74,8 +78,8 @@ func TestReplySealedToAsker(t *testing.T) {
 	if p := loadPins()["cccccccccccccccc"]; p == nil || p.Changed == nil {
 		t.Errorf("a new host taking a pinned name was trusted: %+v", p)
 	}
-	if err := saveConfig(&Config{OrgID: "o", Hub: "h", Token: "t"}); err != nil {
-		t.Fatal(err)
+	if s, _ := KeysText(); !strings.Contains(s, "laptop: NEW HOST") {
+		t.Errorf("org keys:\n%s", s)
 	}
 	if _, err := queueLetter("laptop", &Letter{From: "user", To: "shop/builder.alice", Type: "fyi"}, true); err == nil || !strings.Contains(err.Error(), "trust") {
 		t.Errorf("mail to a host that took a pinned name: %v", err)
