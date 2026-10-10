@@ -10,6 +10,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -94,11 +95,15 @@ func privateTmux(t *testing.T, cwd string, env []string) *tmuxFixture {
 		q := exec.Command("tmux", "-L", name, "display-message", "-p", "#{socket_path}")
 		q.Env = append(cleanEnv(), env...)
 		sock, _ := q.Output()
+		standIns := standInPIDs(envValue(env, "SUNSTACK_TEST_EVENTS"))
 		cmd := exec.Command("tmux", "-L", name, "kill-server")
 		cmd.Env = append(cleanEnv(), env...)
 		if out, err := cmd.CombinedOutput(); err != nil {
 			t.Errorf("clean up private server: %v: %s", err, out)
 		}
+		// The stand-ins outlive kill-server briefly and may still write to
+		// the events folder, which would race the temp dir's removal.
+		waitExited(standIns, 5*time.Second)
 		// tmux leaves the socket file behind; remove it.
 		if p := strings.TrimSpace(string(sock)); strings.Contains(filepath.Base(p), "sunstack-test-") {
 			os.Remove(p)
@@ -118,6 +123,35 @@ func privateTmux(t *testing.T, cwd string, env []string) *tmuxFixture {
 	s.tmux(t, "set-option", "-g", "default-shell", "/bin/sh")
 	s.tmux(t, "set-option", "-g", "default-command", "/bin/sh")
 	return s
+}
+
+// standInPIDs are the processes of the stand-in CLIs launched so far, from
+// their launch events.
+func standInPIDs(events string) []int {
+	files, _ := filepath.Glob(filepath.Join(events, "launch-*.json"))
+	var pids []int
+	for _, path := range files {
+		var e launchEvent
+		if b, err := os.ReadFile(path); err == nil && json.Unmarshal(b, &e) == nil && e.PID > 0 {
+			pids = append(pids, e.PID)
+		}
+	}
+	return pids
+}
+
+// waitExited waits until none of pids is alive, or the timeout passes.
+func waitExited(pids []int, timeout time.Duration) {
+	deadline := time.Now().Add(timeout)
+	for _, pid := range pids {
+		for time.Now().Before(deadline) && processAlive(pid) {
+			time.Sleep(20 * time.Millisecond)
+		}
+	}
+}
+
+func processAlive(pid int) bool {
+	p, err := os.FindProcess(pid)
+	return err == nil && p.Signal(syscall.Signal(0)) == nil
 }
 
 func (s *tmuxFixture) tmux(t *testing.T, args ...string) string {
