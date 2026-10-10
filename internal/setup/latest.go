@@ -53,6 +53,12 @@ func RefreshLatest() {
 
 // Older reports whether version a is older than b ("0.9.4" < "0.10.0"). A
 // version that is not numbers (a development build) is never older.
+// ShouldUpdate says whether update installs latest over current: never an
+// older release, while a version it cannot read keeps updating.
+func ShouldUpdate(current, latest string) bool {
+	return latest != current && !Older(latest, current)
+}
+
 func Older(a, b string) bool {
 	pa, oka := parts(a)
 	pb, okb := parts(b)

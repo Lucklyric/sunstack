@@ -165,3 +165,16 @@ func TestRetiredAskRulesRemoved(t *testing.T) {
 		t.Errorf("settings after setup:\n%s", b)
 	}
 }
+
+// update installs only a newer release; an older "latest" is never a
+// downgrade, and a version it cannot read keeps updating.
+func TestShouldUpdate(t *testing.T) {
+	for _, c := range []struct {
+		cur, latest string
+		want        bool
+	}{{"0.11.1", "0.11.2", true}, {"0.11.2", "0.11.2", false}, {"0.11.2", "0.11.1", false}, {"0.11.2-3-gabc", "0.11.2", true}} {
+		if got := ShouldUpdate(c.cur, c.latest); got != c.want {
+			t.Errorf("ShouldUpdate(%s, %s) = %v", c.cur, c.latest, got)
+		}
+	}
+}

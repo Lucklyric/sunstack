@@ -128,7 +128,7 @@ Org (every team and Claude Code or Codex session on this host):
 
 Hosts (an org: several hosts connected through one hub, over Tailscale):
   sunstack org join <hub> --code CODE             join the org whose hub is there (a Tailscale name or address)
-  sunstack org leave                              leave it
+  sunstack org leave                              leave it; join, leave and trust are user-only
   sunstack org keys                               this host's key fingerprint and the ones it trusts
   sunstack org trust <host>                       accept a host's changed key, after comparing fingerprints
   sunstack org allow [<host> peek|spawn|update…]   let a host peek, spawn or update here (none by default); no host: list
@@ -144,7 +144,7 @@ Hosts (an org: several hosts connected through one hub, over Tailscale):
                                                   a message to another host, through the hub
   sunstack hub init <org name>                    make this host the hub of a new org
   sunstack hub invite [--read-only]               a one-time join code for another host (10 minutes)
-  sunstack hub revoke <name>                      remove a host; its connections end
+  sunstack hub revoke <name>                      remove a host; its connections end; init, invite, revoke are user-only
   sunstack hub hosts [--json]                     the hosts of the org, on the hub
   sunstack hub connect [--install|--uninstall]    keep one connection to the hub open (--install: as a service)
 
@@ -1644,7 +1644,7 @@ func lifecycle(cmd string, t setup.Targets, yes, skipBinary bool, args []string,
 		default:
 			if latest, err := setup.LatestVersion(); err != nil {
 				step("check latest release", err)
-			} else if latest != version {
+			} else if setup.ShouldUpdate(version, latest) {
 				fmt.Fprintf(out, "updating sunstack %s -> %s\n", version, latest)
 				if err := setup.SelfUpdate(latest); err != nil {
 					step("binary update", err)
@@ -1657,6 +1657,8 @@ func lifecycle(cmd string, t setup.Targets, yes, skipBinary bool, args []string,
 					}
 					return nil
 				}
+			} else if latest != version {
+				fmt.Fprintf(out, "sunstack %s is newer than the latest release %s; not downgrading\n", version, latest)
 			} else {
 				fmt.Fprintf(out, "sunstack %s is the latest release\n", version)
 			}
