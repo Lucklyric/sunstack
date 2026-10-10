@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -491,7 +492,40 @@ func (m *model) copyResume() string {
 	return "copied: " + cmd
 }
 
-func (m *model) View() string {
+// View is the screen. Text from files, boards and other hosts is in it, so
+// only its colors pass as escape sequences.
+func (m *model) View() string { return termSafe(m.render()) }
+
+// termSafe keeps SGR color sequences, newlines and tabs, and drops every
+// other control character and sequence: OSC 52 would set the clipboard,
+// OSC 8 plant a link, CSI move the cursor.
+func termSafe(s string) string {
+	var b strings.Builder
+	for i := 0; i < len(s); {
+		r, n := utf8.DecodeRuneInString(s[i:])
+		switch {
+		case r == 0x1b && i+1 < len(s) && s[i+1] == '[':
+			j := i + 2
+			for j < len(s) && s[j] >= 0x20 && s[j] <= 0x3f {
+				j++
+			}
+			if j < len(s) && s[j] == 'm' {
+				b.WriteString(s[i : j+1])
+			}
+			i = min(j+1, len(s))
+			continue
+		case r == '\n' || r == '\t':
+			b.WriteRune(r)
+		case r < 0x20 || r == 0x7f || (r >= 0x80 && r < 0xa0) || (r == utf8.RuneError && n == 1):
+		default:
+			b.WriteString(s[i : i+n])
+		}
+		i += n
+	}
+	return b.String()
+}
+
+func (m *model) render() string {
 	if m.w == 0 {
 		return "loading…"
 	}

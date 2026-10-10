@@ -541,6 +541,10 @@ func (m *model) hostsKey(k string) (bool, tea.Cmd) {
 		m.confirm = "Open a shared connection to " + alias + "? The terminal goes to ssh for a passphrase if needed. y to open, any other key to cancel"
 		m.confirmDo = func() { m.pending = m.sshStart(alias) }
 	case "u":
+		if err := core.UserOnly("updating from the dashboard"); err != nil {
+			m.note = err.Error()
+			return true, nil
+		}
 		h := m.hosts.Hosts[m.hostSel]
 		if h.You {
 			m.confirm = "Update sunstack on this host and restart its connector? y to update, any other key to cancel"
@@ -560,6 +564,10 @@ func (m *model) hostsKey(k string) (bool, tea.Cmd) {
 			m.pending = func() tea.Msg { return hubMsg{m.updateHost(h.Name, target)} }
 		}
 	case "U":
+		if err := core.UserOnly("updating from the dashboard"); err != nil {
+			m.note = err.Error()
+			return true, nil
+		}
 		target := m.latest
 		if target == "" {
 			target = hub.Version
