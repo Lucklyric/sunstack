@@ -1,7 +1,6 @@
 package core
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -84,34 +83,70 @@ func (a *SSHAlias) Shared() bool {
 	return false
 }
 
-// configAliases are the Host names in ~/.ssh/config without wildcards.
+// configAliases are the Host names in ~/.ssh/config and the files it
+// includes, without wildcards.
 func configAliases() []string {
 	home, _ := os.UserHomeDir()
-	f, err := os.Open(filepath.Join(home, ".ssh", "config"))
-	if err != nil {
-		return nil
-	}
-	defer f.Close()
+	dir := filepath.Join(home, ".ssh")
 	seen := map[string]bool{}
 	var out []string
-	sc := bufio.NewScanner(f)
-	for sc.Scan() {
-		fields := strings.Fields(sc.Text())
-		if len(fields) < 2 || !strings.EqualFold(fields[0], "Host") {
-			continue
+	var read func(path string, depth int)
+	read = func(path string, depth int) {
+		b, err := os.ReadFile(path)
+		if err != nil || depth > 16 { // OpenSSH's include depth
+			return
 		}
-		for _, n := range fields[1:] {
-			if strings.HasPrefix(n, "#") {
-				break
+		for _, line := range strings.Split(string(b), "\n") {
+			key, rest := sshKeyword(line)
+			switch strings.ToLower(key) {
+			case "host":
+				for _, n := range strings.Fields(rest) {
+					if strings.HasPrefix(n, "#") {
+						break
+					}
+					if strings.ContainsAny(n, "*?!") || seen[n] {
+						continue
+					}
+					seen[n] = true
+					out = append(out, n)
+				}
+			case "include":
+				for _, pat := range strings.Fields(rest) {
+					if strings.HasPrefix(pat, "#") {
+						break
+					}
+					switch {
+					case strings.HasPrefix(pat, "~/"):
+						pat = filepath.Join(home, pat[2:])
+					case !filepath.IsAbs(pat):
+						pat = filepath.Join(dir, pat)
+					}
+					matches, _ := filepath.Glob(pat)
+					for _, m := range matches {
+						read(m, depth+1)
+					}
+				}
 			}
-			if strings.ContainsAny(n, "*?!") || seen[n] {
-				continue
-			}
-			seen[n] = true
-			out = append(out, n)
 		}
 	}
+	read(filepath.Join(dir, "config"), 0)
 	return out
+}
+
+// sshKeyword splits an ssh_config line into its keyword and arguments:
+// "Host a", "Host=a" and "Host = a" alike.
+func sshKeyword(line string) (string, string) {
+	line = strings.TrimSpace(line)
+	if line == "" || line[0] == '#' {
+		return "", ""
+	}
+	i := strings.IndexAny(line, " \t=")
+	if i < 0 {
+		return line, ""
+	}
+	rest := strings.TrimLeft(line[i:], " \t")
+	rest = strings.TrimPrefix(rest, "=")
+	return line[:i], strings.TrimSpace(rest)
 }
 
 // sshRun runs ssh with an argument list, no stdin, within limit.

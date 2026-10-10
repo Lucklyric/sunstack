@@ -197,6 +197,10 @@ func (p *Project) resolveRecipient(to string) (id, session string, err error) {
 	return id, "", err
 }
 
+// MaxMessage is the largest message body, quoted context included. Sealed
+// for another host it still fits the hub's 256 KB frame.
+const MaxMessage = 128 << 10
+
 // NewMessageID makes a message ID for a sender.
 func NewMessageID(from string) string { return newMessageID(from) }
 
@@ -239,6 +243,9 @@ func (p *Project) Send(o SendOptions) (*SendResult, error) {
 	}
 	if o.ReplyTo != "" && !msgIDRe.MatchString(o.ReplyTo) {
 		return nil, fail(ExitUsage, "usage", "invalid --reply-to message id: %s", o.ReplyTo)
+	}
+	if len(o.Body) > MaxMessage {
+		return nil, fail(ExitUsage, "usage", "the message is larger than %d KB; put long text in a file and send its path", MaxMessage>>10)
 	}
 	if o.From != "" && !safeID(o.From) {
 		return nil, fail(ExitUsage, "usage", "invalid --from agent id: %q", o.From)

@@ -3,6 +3,7 @@ package core
 import (
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -143,5 +144,44 @@ func TestReclaimDeadKeepsNewOwner(t *testing.T) {
 	}
 	if _, err := os.Stat(dir + ".reclaim"); err == nil {
 		t.Error("the guard was left behind")
+	}
+}
+
+// A message is at most MaxMessage bytes, in a team and in a host inbox.
+func TestMessageSizeCap(t *testing.T) {
+	p := secTeam(t)
+	big := strings.Repeat("x", MaxMessage+1)
+	if _, err := p.Send(SendOptions{To: "builder.ann", Type: "fyi", Body: big, NoNudge: true}); err == nil || !strings.Contains(err.Error(), "KB") {
+		t.Errorf("team message over the cap: %v", err)
+	}
+	if _, err := p.Send(SendOptions{To: "builder.ann", Type: "fyi", Body: "small", NoNudge: true}); err != nil {
+		t.Errorf("small message: %v", err)
+	}
+}
+
+// ssh scan reads the aliases of included files and Host=name lines.
+func TestConfigAliasesInclude(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	ssh := filepath.Join(home, ".ssh")
+	os.MkdirAll(filepath.Join(ssh, "conf.d"), 0o700)
+	os.MkdirAll(filepath.Join(home, "extra"), 0o700)
+	files := map[string]string{
+		"config":           "Include conf.d/*.conf ~/extra/hosts\nHost=top\nHost = spaced other\nHost *\n  User me\n# Include nothing\n",
+		"conf.d/a.conf":    "Host alpha\n  HostName 10.0.0.1\nInclude config\n",
+		"conf.d/b.conf":    "host beta # a comment\n",
+		"../extra/hosts":   "Host gamma\n",
+		"conf.d/skip.text": "Host nope\n",
+	}
+	for rel, text := range files {
+		if err := os.WriteFile(filepath.Join(ssh, rel), []byte(text), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got := configAliases()
+	sort.Strings(got)
+	if strings.Join(got, " ") != "alpha beta gamma other spaced top" {
+		t.Errorf("aliases: %s", got)
 	}
 }
