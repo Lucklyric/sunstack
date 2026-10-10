@@ -188,7 +188,9 @@ func saveRoster(r *Roster, hubTime string) error {
 }
 
 func saveSnap(sn *Snap, hubTime string) error {
-	if !isFileName(sn.Host) {
+	// The hub names the host; only an ID may become a file name here, next
+	// to pins.json and allow.json.
+	if !idRe.MatchString(sn.Host) {
 		return errors.New("bad host id")
 	}
 	return writeJSON(filepath.Join(remoteDir(), sn.Host+".json"), &cachedSnap{Snap: *sn, HubTime: hubTime, LocalTime: stamp(time.Now())}, 0o600)
@@ -259,30 +261,36 @@ func queueLetter(hostName string, l *Letter, keep bool) (*Sent, error) {
 	if h == nil {
 		return nil, failErr("not_found", "no host %s in the org (sunstack org --refresh, then sunstack org --by host)", hostName)
 	}
-	me := core.ThisHost()
-	if h.ID == me.ID {
+	if h.ID == core.ThisHost().ID {
 		return nil, usageErr("%s is this host", hostName)
 	}
-	pin := loadPins()[h.ID]
+	return queueTo(h.ID, h.Name, l, keep)
+}
+
+// queueTo seals a letter for the host with ID id, called name, with the
+// key pinned for that ID.
+func queueTo(id, name string, l *Letter, keep bool) (*Sent, error) {
+	me := core.ThisHost()
+	pin := loadPins()[id]
 	switch {
 	case pin == nil:
-		return nil, failErr("no_key", "no key pinned for %s yet (sunstack org --refresh)", h.Name)
+		return nil, failErr("no_key", "no key pinned for %s yet (sunstack org --refresh)", name)
 	case pin.Changed != nil:
-		return nil, failErr("key_changed", "%s's key changed; compare fingerprints (sunstack org keys) and run sunstack org trust %s", h.Name, h.Name)
+		return nil, failErr("key_changed", "%s's key changed; compare fingerprints (sunstack org keys) and run sunstack org trust %s", name, name)
 	}
 	l.At = stamp(time.Now())
 	keys, err := LoadKeys()
 	if err != nil {
 		return nil, err
 	}
-	m := Mail{ID: core.NewMessageID(l.From), FromHost: me.ID, ToHost: h.ID}
+	m := Mail{ID: core.NewMessageID(l.From), FromHost: me.ID, ToHost: id}
 	if err := seal(keys, pin.Keys, &m, l); err != nil {
 		return nil, err
 	}
 	if b, _ := json.Marshal(m); len(b) > MaxFrame {
 		return nil, usageErr("the message is larger than 256 KB")
 	}
-	s := &Sent{Mail: m, ToName: h.Name, Status: "queued", At: l.At}
+	s := &Sent{Mail: m, ToName: name, Status: "queued", At: l.At}
 	if keep {
 		s.Letter = *l
 	} else {

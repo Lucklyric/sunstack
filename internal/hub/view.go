@@ -123,7 +123,7 @@ func loadSnap(c *Config, id string, now time.Time, hv *HostView) {
 		}
 	} else {
 		var cs cachedSnap
-		if readJSON(filepath.Join(remoteDir(), id+".json"), &cs) != nil {
+		if !idRe.MatchString(id) || readJSON(filepath.Join(remoteDir(), id+".json"), &cs) != nil {
 			return
 		}
 		sn = cs.Snap
@@ -135,13 +135,43 @@ func loadSnap(c *Config, id string, now time.Time, hv *HostView) {
 		}
 	}
 	var o core.Org
-	if json.Unmarshal(sn.Snapshot, &o) != nil {
+	if json.Unmarshal(cleanJSON(sn.Snapshot), &o) != nil {
 		return
 	}
 	hv.Org, hv.HasSnap = &o, true
 	if t, ok := parseStamp(sn.ReceivedAt); ok {
 		hv.SnapAge = clampAge(hubTime.Sub(t) + now.Sub(localTime))
 	}
+}
+
+// cleanJSON makes terminal control characters in every string of another
+// host's JSON visible, so its text cannot drive this terminal.
+func cleanJSON(raw []byte) []byte {
+	var v any
+	if json.Unmarshal(raw, &v) != nil {
+		return raw
+	}
+	var clean func(any) any
+	clean = func(v any) any {
+		switch t := v.(type) {
+		case string:
+			return core.VisibleControls(t)
+		case []any:
+			for i := range t {
+				t[i] = clean(t[i])
+			}
+		case map[string]any:
+			for k := range t {
+				t[k] = clean(t[k])
+			}
+		}
+		return v
+	}
+	b, err := json.Marshal(clean(v))
+	if err != nil {
+		return raw
+	}
+	return b
 }
 
 // sshBack is a host's SSH view of this host, from its last snapshot: the

@@ -206,17 +206,29 @@ func loadPins() map[string]*Pin {
 }
 
 // pinRoster pins hosts seen for the first time and marks changed keys.
+// A host seen for the first time under a name another pinned host had is
+// pinned as changed, so mail waits for the user's trust: the hub cannot
+// hand a known name to a new key.
 func pinRoster(r *Roster) error {
 	pins := loadPins()
+	named := map[string]string{} // lower-case name -> ID, before this roster
+	for id, p := range pins {
+		named[strings.ToLower(p.Name)] = id
+	}
 	changed := false
 	for _, h := range r.Hosts {
-		if !h.Keys.valid() {
+		if !h.Keys.valid() || !idRe.MatchString(h.ID) {
 			continue
 		}
 		p := pins[h.ID]
 		switch {
 		case p == nil:
-			pins[h.ID] = &Pin{Name: h.Name, Keys: h.Keys}
+			if id, ok := named[strings.ToLower(h.Name)]; ok && id != h.ID {
+				k := h.Keys
+				pins[h.ID] = &Pin{Name: h.Name, Changed: &k}
+			} else {
+				pins[h.ID] = &Pin{Name: h.Name, Keys: h.Keys}
+			}
 			changed = true
 		case p.Keys != h.Keys && (p.Changed == nil || *p.Changed != h.Keys):
 			k := h.Keys
@@ -237,14 +249,26 @@ func pinRoster(r *Roster) error {
 // Trust accepts a host's new key after the user compared fingerprints.
 func Trust(name string) (string, error) {
 	pins := loadPins()
+	var hit, same *Pin
 	for _, p := range pins {
-		if strings.EqualFold(p.Name, name) {
-			if p.Changed == nil {
-				return "", failErr("unchanged", "%s's key has not changed (%s)", p.Name, p.Keys.Fingerprint())
-			}
-			p.Keys, p.Changed = *p.Changed, nil
-			return p.Keys.Fingerprint(), writeJSON(pinsPath(), pins, 0o600)
+		if !strings.EqualFold(p.Name, name) {
+			continue
 		}
+		if p.Changed == nil {
+			same = p
+			continue
+		}
+		if hit != nil {
+			return "", failErr("ambiguous", "two hosts called %s have new keys; ask the hub's user to revoke the wrong one", name)
+		}
+		hit = p
+	}
+	switch {
+	case hit != nil:
+		hit.Keys, hit.Changed = *hit.Changed, nil
+		return hit.Keys.Fingerprint(), writeJSON(pinsPath(), pins, 0o600)
+	case same != nil:
+		return "", failErr("unchanged", "%s's key has not changed (%s)", same.Name, same.Keys.Fingerprint())
 	}
 	return "", failErr("not_found", "no pinned host %s (sunstack org keys lists them)", name)
 }

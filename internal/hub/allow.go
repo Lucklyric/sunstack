@@ -63,24 +63,34 @@ func checkKinds(kinds []string) error {
 	return nil
 }
 
-// pinByName finds a trusted host by name, now.
+// pinByName finds a trusted host by name, now: the roster's host by that
+// name, else the one pin with it.
 func pinByName(name string) (string, *Pin, error) {
 	pins := loadPins()
-	byMachine := ""
+	id := ""
 	if r := cachedHosts(); r != nil {
 		if h := r.byName(name); h != nil {
-			byMachine = h.ID
+			id = h.ID
 		}
 	}
-	for id, p := range pins {
-		if strings.EqualFold(p.Name, name) || id == byMachine {
-			if p.Changed != nil {
-				return "", nil, failErr("key_changed", "%s's key changed; compare fingerprints and run sunstack org trust %s first", p.Name, p.Name)
+	if id == "" {
+		for pid, p := range pins {
+			if strings.EqualFold(p.Name, name) {
+				if id != "" {
+					return "", nil, failErr("ambiguous", "two hosts are called %s (sunstack org keys lists them)", name)
+				}
+				id = pid
 			}
-			return id, p, nil
 		}
 	}
-	return "", nil, failErr("not_found", "no host %s in the org (sunstack org keys lists them)", name)
+	p := pins[id]
+	switch {
+	case p == nil:
+		return "", nil, failErr("not_found", "no host %s in the org (sunstack org keys lists them)", name)
+	case p.Changed != nil:
+		return "", nil, failErr("key_changed", "%s's key changed; compare fingerprints and run sunstack org trust %s first", p.Name, p.Name)
+	}
+	return id, p, nil
 }
 
 // Allow grants kinds to the host called name, resolved once, now.

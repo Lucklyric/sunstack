@@ -235,6 +235,11 @@ func (sv *Server) join(w http.ResponseWriter, r *http.Request) {
 			if h.Hub {
 				return errors.New("that is the hub's own host ID")
 			}
+			// A host keeps its keys across org leave; other keys under its
+			// ID would take over its name and mail.
+			if h.Keys != req.Keys {
+				return fmt.Errorf("host ID %s is in the org with other keys; if that host made new keys, the hub's user runs sunstack hub revoke %s first", req.ID, h.Name)
+			}
 			// Joining again replaces the token and keys (after org leave).
 			h.Name, h.Keys, h.CanSend, h.TokenHash, h.IP = req.Name, req.Keys, inv.CanSend, tokenHash(token), peerIP(r)
 			return nil

@@ -152,11 +152,19 @@ func (r *Roster) byID(id string) *Host {
 	return nil
 }
 
+// byName finds a host by name, or nil when none or more than one has it.
 func (r *Roster) byName(name string) *Host {
+	var named *Host
 	for _, h := range r.Hosts {
 		if strings.EqualFold(h.Name, name) {
-			return h
+			if named != nil {
+				return nil
+			}
+			named = h
 		}
+	}
+	if named != nil {
+		return named
 	}
 	// Then by its machine's host name, when only one host has it.
 	var hit *Host

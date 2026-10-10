@@ -166,12 +166,13 @@ func takeReply(m *Mail, l *Letter) (string, string, bool) {
 
 // journal entry: a request this host received.
 type received struct {
-	From    string `json:"from"` // the asking host's name
-	Kind    string `json:"kind"`
-	Digest  string `json:"digest"`
-	Status  string `json:"status"` // queued, running, done, uncertain
-	Reply   *Mail  `json:"reply,omitempty"`
-	Expires string `json:"expires"`
+	From     string `json:"from"`                // the asking host's name
+	FromHost string `json:"from_host,omitempty"` // and its ID, where the reply goes
+	Kind     string `json:"kind"`
+	Digest   string `json:"digest"`
+	Status   string `json:"status"` // queued, running, done, uncertain
+	Reply    *Mail  `json:"reply,omitempty"`
+	Expires  string `json:"expires"`
 }
 
 var journalMu sync.Mutex
@@ -231,7 +232,7 @@ func takeRequest(m *Mail, pin *Pin, l *Letter) (string, string, bool) {
 		}
 		return "delivered", "", true
 	}
-	j[m.ID] = &received{From: pin.Name, Kind: l.Type, Digest: digest, Status: "queued", Expires: c.Expires}
+	j[m.ID] = &received{From: pin.Name, FromHost: m.FromHost, Kind: l.Type, Digest: digest, Status: "queued", Expires: c.Expires}
 	err := saveJournal(j)
 	journalMu.Unlock()
 	if err != nil {
@@ -292,7 +293,8 @@ func reply(req *Mail, to *Pin, kind string, res any, err error) {
 		c.Result, _ = json.Marshal(res)
 	}
 	body, _ := json.Marshal(c)
-	s, qerr := queueLetter(to.Name, &Letter{From: "user", To: "host", Type: kind + "-reply", ReplyTo: req.ID, Body: string(body)}, false)
+	// By the asking host's ID, never its name, which the hub controls.
+	s, qerr := queueTo(req.FromHost, to.Name, &Letter{From: "user", To: "host", Type: kind + "-reply", ReplyTo: req.ID, Body: string(body)}, false)
 	if qerr != nil {
 		return
 	}
@@ -358,6 +360,8 @@ func Peek(hostName, target string, lines int) (*PeekResult, error) {
 	if json.Unmarshal(c.Result, &r) != nil {
 		return nil, failErr("bad_reply", "the peek reply cannot be read")
 	}
+	// Another host's pane text: its control sequences are shown, not run.
+	r.Label, r.Text = core.VisibleControls(r.Label), core.VisibleControls(r.Text)
 	return &r, nil
 }
 
@@ -378,12 +382,19 @@ func RecoverRequests() {
 	pins := loadPins()
 	for _, id := range open {
 		e := j[id]
-		var pin *Pin
-		for _, p := range pins {
-			if p.Name == e.From {
-				pin = p
+		host := e.FromHost
+		if host == "" { // recorded before v0.11.2: by name, when only one pin has it
+			for pid, p := range pins {
+				if p.Name == e.From {
+					if host != "" {
+						host = ""
+						break
+					}
+					host = pid
+				}
 			}
 		}
+		pin := pins[host]
 		if pin == nil {
 			continue
 		}
@@ -391,7 +402,7 @@ func RecoverRequests() {
 		if e.Status == "running" {
 			msg = "this host restarted while running it; the result is uncertain (a session it started carries @sunstack_request " + id + "); it is not run again"
 		}
-		reply(&Mail{ID: id}, pin, e.Kind, nil, errors.New(msg))
+		reply(&Mail{ID: id, FromHost: host}, pin, e.Kind, nil, errors.New(msg))
 	}
 }
 
