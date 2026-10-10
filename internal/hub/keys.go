@@ -199,6 +199,12 @@ type Pin struct {
 
 func pinsPath() string { return filepath.Join(remoteDir(), "pins.json") }
 
+// lockPins serializes changes to pins.json: the connector's roster updates
+// and the user's trust.
+func lockPins() (func(), error) {
+	return core.LockDir(filepath.Join(remoteDir(), "pins.lock"), "the pinned keys")
+}
+
 func loadPins() map[string]*Pin {
 	pins := map[string]*Pin{}
 	_ = readJSON(pinsPath(), &pins)
@@ -210,6 +216,11 @@ func loadPins() map[string]*Pin {
 // pinned as changed, so mail waits for the user's trust: the hub cannot
 // hand a known name to a new key.
 func pinRoster(r *Roster) error {
+	unlock, err := lockPins()
+	if err != nil {
+		return err
+	}
+	defer unlock()
 	pins := loadPins()
 	named := map[string]string{} // lower-case name -> ID, before this roster
 	for id, p := range pins {
@@ -248,6 +259,11 @@ func pinRoster(r *Roster) error {
 
 // Trust accepts a host's new key after the user compared fingerprints.
 func Trust(name string) (string, error) {
+	unlock, err := lockPins()
+	if err != nil {
+		return "", err
+	}
+	defer unlock()
 	pins := loadPins()
 	var hit, same *Pin
 	for _, p := range pins {

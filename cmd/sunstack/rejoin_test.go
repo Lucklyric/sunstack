@@ -25,3 +25,20 @@ func TestRejoinNeedsSameKeys(t *testing.T) {
 		t.Errorf("join with new keys: %s", r.stderr)
 	}
 }
+
+// Org membership and the hub's roster are the user's: an agent session is
+// refused, as for org allow.
+func TestOrgAdminIsUserOnly(t *testing.T) {
+	hubHost, _, _ := newOrgEnv(t, nil)
+	agent := &orgHost{name: hubHost.name, home: hubHost.home, env: append(append([]string{}, hubHost.env...), "CLAUDECODE=1")}
+	for _, args := range [][]string{
+		{"hub", "init", "other"}, {"hub", "invite"}, {"hub", "revoke", "laptop"},
+		{"org", "join", "127.0.0.1", "--code", "x"}, {"org", "leave"}, {"org", "trust", "laptop"},
+	} {
+		r := agent.run(t, args...)
+		expect(t, r, 2, strings.Join(args, " ")+" from an agent session")
+		if !strings.Contains(r.stderr, "for the user") {
+			t.Errorf("%v: %s", args, r.stderr)
+		}
+	}
+}

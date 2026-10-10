@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -116,5 +117,59 @@ func TestRemoteTextCleaned(t *testing.T) {
 		if strings.ContainsAny(s, "\x1b\x07\u009b") {
 			t.Errorf("control sequence kept: %q", s)
 		}
+	}
+}
+
+// Pin changes wait for the pins lock, so a trust is never lost to a roster
+// update writing at the same time.
+func TestPinWritesLocked(t *testing.T) {
+	t.Setenv("SUNSTACK_HOME", t.TempDir())
+	k, _ := LoadKeys()
+	if err := pinRoster(&Roster{Hosts: []*Host{{ID: "aaaaaaaaaaaaaaaa", Name: "laptop", Keys: k.Public()}}}); err != nil {
+		t.Fatal(err)
+	}
+	unlock, err := lockPins()
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() {
+		done <- pinRoster(&Roster{Hosts: []*Host{{ID: "bbbbbbbbbbbbbbbb", Name: "server", Keys: k.Public()}}})
+	}()
+	select {
+	case err := <-done:
+		t.Fatalf("pinRoster did not wait for the lock: %v", err)
+	case <-time.After(100 * time.Millisecond):
+	}
+	unlock()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if loadPins()["bbbbbbbbbbbbbbbb"] == nil {
+		t.Error("the pin was not written")
+	}
+}
+
+// A remote update that hangs ends at the limit with a refusal, and the
+// connector is not restarted.
+func TestUpdateTimeout(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the stand-in update runs /bin/sh")
+	}
+	t.Setenv("SUNSTACK_SERVICE", "1")
+	t.Setenv("SUNSTACK_UPDATE_CMD", "sleep 30")
+	old := updateLimit
+	updateLimit = 300 * time.Millisecond
+	defer func() { updateLimit = old }()
+	start := time.Now()
+	_, err := updateHandler("", "", json.RawMessage(`{}`))
+	if err == nil || !strings.Contains(err.Error(), "did not finish") {
+		t.Errorf("hung update: %v", err)
+	}
+	if time.Since(start) > 5*time.Second {
+		t.Errorf("the update ran %s", time.Since(start))
+	}
+	if restartAfterReply.Load() {
+		t.Error("the connector would restart after a failed update")
 	}
 }

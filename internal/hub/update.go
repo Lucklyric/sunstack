@@ -1,6 +1,7 @@
 package hub
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"os"
@@ -29,6 +30,9 @@ type UpdateResult struct {
 
 var restartAfterReply atomic.Bool
 
+// updateLimit ends an update that hangs, within the asking host's wait.
+var updateLimit = 150 * time.Second
+
 func updateHandler(_, _ string, raw json.RawMessage) (any, error) {
 	var a UpdateArgs
 	if json.Unmarshal(raw, &a) != nil {
@@ -44,13 +48,20 @@ func updateHandler(_, _ string, raw json.RawMessage) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+	ctx, cancel := context.WithTimeout(context.Background(), updateLimit)
+	defer cancel()
 	// SUNSTACK_UPDATE_CMD stands in for the update in tests.
-	cmd := exec.Command(exe, "update")
+	cmd := exec.CommandContext(ctx, exe, "update")
 	if c := os.Getenv("SUNSTACK_UPDATE_CMD"); c != "" {
-		cmd = exec.Command("/bin/sh", "-c", c)
+		cmd = exec.CommandContext(ctx, "/bin/sh", "-c", c)
 	}
 	cmd.Stdin = nil
-	if out, err := cmd.CombinedOutput(); err != nil {
+	cmd.WaitDelay = time.Second // a child still holding the output ends too
+	out, err := cmd.CombinedOutput()
+	if ctx.Err() == context.DeadlineExceeded {
+		return nil, errors.New("sunstack update did not finish in " + updateLimit.String() + "; it may have half-updated, so check it on that host")
+	}
+	if err != nil {
 		lines := strings.Split(strings.TrimSpace(string(out)), "\n")
 		return nil, errors.New("sunstack update failed: " + lines[len(lines)-1])
 	}

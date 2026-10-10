@@ -28,6 +28,12 @@ func hubCommand(rest []string, stdin io.Reader, stdout, stderr io.Writer) error 
 	}
 	sub, rest := rest[0], rest[1:]
 	switch sub {
+	case "init", "invite", "revoke":
+		if err := core.UserOnly("sunstack hub " + sub); err != nil {
+			return err
+		}
+	}
+	switch sub {
 	case "init":
 		a, err := parse(rest, "", "")
 		if err == nil {
@@ -143,6 +149,12 @@ func hubCommand(rest []string, stdin io.Reader, stdout, stderr io.Writer) error 
 
 // orgMembership is org join, leave, keys and trust.
 func orgMembership(rest []string, stdin io.Reader, stdout io.Writer) error {
+	switch rest[0] {
+	case "join", "leave", "trust":
+		if err := core.UserOnly("sunstack org " + rest[0]); err != nil {
+			return err
+		}
+	}
 	switch rest[0] {
 	case "leave":
 		a, err := parse(rest[1:], "", "")
