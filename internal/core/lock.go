@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"time"
 )
 
@@ -48,7 +49,13 @@ func lockDir(dir, id string) (func(), error) {
 			break
 		}
 		if !os.IsExist(err) {
-			return nil, fail(ExitFail, "fs", "%v", err)
+			// Windows refuses a folder still being deleted (the last
+			// holder's unlock) with access denied: wait and retry.
+			if runtime.GOOS != "windows" || !os.IsPermission(err) || i+1 >= lockTries {
+				return nil, fail(ExitFail, "fs", "%v", err)
+			}
+			time.Sleep(lockWait)
+			continue
 		}
 		if i+1 >= lockTries {
 			owner, _ := os.ReadFile(filepath.Join(dir, "owner"))
