@@ -67,6 +67,14 @@ func freePanes() ([]freePane, string) {
 	return ps, sock
 }
 
+// onDefaultServer says whether socket is the default tmux server's.
+func onDefaultServer(socket string) bool {
+	def, _ := DefaultSocket()
+	a, err1 := os.Stat(socket)
+	b, err2 := os.Stat(def)
+	return err1 == nil && err2 == nil && os.SameFile(a, b)
+}
+
 // SpawnFree starts a free session.
 func SpawnFree(o FreeOptions) (*FreeResult, error) {
 	if o.Tool == "" {
@@ -91,7 +99,8 @@ func SpawnFree(o FreeOptions) (*FreeResult, error) {
 	case place != "team" && place != "here" && place != "window":
 		return nil, fail(ExitUsage, "usage", "--place must be team, here or window")
 	}
-	if o.Socket == "" || o.Remote {
+	// Free sessions are found and counted on the default server only.
+	if o.Socket == "" || o.Remote || !onDefaultServer(o.Socket) {
 		place = "team"
 	}
 	if o.Beside != "" && o.Dir != "" {
@@ -184,7 +193,7 @@ func SpawnFree(o FreeOptions) (*FreeResult, error) {
 	if o.Note != "" {
 		cmd += " '" + o.Note + "'"
 	}
-	if err := tm("send-keys", "-t", h.pane, "-l", cmd); err == nil {
+	if err = tm("send-keys", "-t", h.pane, "-l", cmd); err == nil {
 		err = tm("send-keys", "-t", h.pane, "Enter")
 	}
 	if err != nil {

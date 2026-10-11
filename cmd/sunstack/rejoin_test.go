@@ -1,30 +1,28 @@
 package main
 
 import (
-	"os"
 	"os/exec"
 	"strings"
 	"testing"
 )
 
-// A host keeps its keys across org leave, so it joins again; another key
-// under its host ID would take over its name and mail, so that is refused.
-func TestRejoinNeedsSameKeys(t *testing.T) {
+// A host ID already in the org joins again only after hub revoke: the
+// roster's public keys are no proof of being that host.
+func TestRejoinNeedsRevoke(t *testing.T) {
 	hubHost, addr, hosts := newOrgEnv(t, nil, "laptop")
 	laptop := hosts[0]
 	laptop.join(t, hubHost, addr)
 	expect(t, laptop.run(t, "org", "leave"), 0, "leave")
-	laptop.join(t, hubHost, addr)
 
-	expect(t, laptop.run(t, "org", "leave"), 0, "leave again")
-	must(t, os.Remove(laptop.file("keys.json")))
 	r := hubHost.run(t, "hub", "invite")
 	expect(t, r, 0, "invite")
 	r = laptop.run(t, "org", "join", addr, "--code", field(codeRe, r.out))
-	expect(t, r, 1, "join with new keys")
-	if !strings.Contains(r.stderr, "other keys") {
-		t.Errorf("join with new keys: %s", r.stderr)
+	expect(t, r, 1, "join under an ID in the org")
+	if !strings.Contains(r.stderr, "hub revoke") {
+		t.Errorf("join under an ID in the org: %s", r.stderr)
 	}
+	expect(t, hubHost.run(t, "hub", "revoke", "laptop"), 0, "revoke")
+	laptop.join(t, hubHost, addr)
 }
 
 // Org membership and the hub's roster are the user's: an agent session is
@@ -65,6 +63,16 @@ func TestSpawnBesideCaller(t *testing.T) {
 	}
 	if out := s.tmux(t, "list-sessions", "-F", "#{session_name}"); strings.Contains(out, "ss-") {
 		t.Errorf("a home was made: %s", out)
+	}
+
+	// On a tmux server other than the default one, free sessions could not
+	// be counted or found, so a free session goes to the team's home there.
+	home := privateTmux(t, p, isolatedEnv(t))
+	other := append(append([]string{}, s.env...), "SUNSTACK_TMUX_SOCKET="+home.socket)
+	r = sh(t, p, other, "spawn", "--free", "--tool", "codex", "--name", "elsewhere")
+	expect(t, r, 0, "spawn --free on another server")
+	if out := home.tmux(t, "list-sessions", "-F", "#{session_name}"); !strings.Contains(out, "ss-") {
+		t.Errorf("no home on the default server: %s\n%s", out, r.out)
 	}
 
 	// Too small to split: a new window after the caller's.

@@ -248,7 +248,10 @@ func pinRoster(r *Roster) error {
 			p.Changed, changed = nil, true
 		}
 		if p != nil && p.Name != h.Name {
-			p.Name, changed = h.Name, true
+			// A name another pinned host had stays with that host.
+			if id, ok := named[strings.ToLower(h.Name)]; !ok || id == h.ID {
+				p.Name, changed = h.Name, true
+			}
 		}
 	}
 	if !changed {

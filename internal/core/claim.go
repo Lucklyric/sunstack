@@ -219,7 +219,7 @@ func (p *Project) resolve(arg string) (string, error) {
 	}
 	var matches []string
 	for _, id := range p.Agents() {
-		if strings.HasPrefix(id, arg+".") {
+		if ValidID(id) && strings.HasPrefix(id, arg+".") {
 			matches = append(matches, id)
 		}
 	}

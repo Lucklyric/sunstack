@@ -67,10 +67,10 @@ func checkKinds(kinds []string) error {
 // name, else the one pin with it.
 func pinByName(name string) (string, *Pin, error) {
 	pins := loadPins()
-	id := ""
+	id, listed := "", ""
 	if r := cachedHosts(); r != nil {
 		if h := r.byName(name); h != nil {
-			id = h.ID
+			id, listed = h.ID, h.Name
 		}
 	}
 	if id == "" {
@@ -89,6 +89,8 @@ func pinByName(name string) (string, *Pin, error) {
 		return "", nil, failErr("not_found", "no host %s in the org (sunstack org keys lists them)", name)
 	case p.Changed != nil:
 		return "", nil, failErr("key_changed", "%s's key changed; compare fingerprints and run sunstack org trust %s first", p.Name, p.Name)
+	case listed != "" && !strings.EqualFold(p.Name, listed):
+		return "", nil, failErr("name_changed", "the hub now lists another host as %s (pinned as %s); ask the hub's user, and check sunstack org keys", listed, p.Name)
 	}
 	return id, p, nil
 }

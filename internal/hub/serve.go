@@ -235,14 +235,9 @@ func (sv *Server) join(w http.ResponseWriter, r *http.Request) {
 			if h.Hub {
 				return errors.New("that is the hub's own host ID")
 			}
-			// A host keeps its keys across org leave; other keys under its
-			// ID would take over its name and mail.
-			if h.Keys != req.Keys {
-				return fmt.Errorf("host ID %s is in the org with other keys; if that host made new keys, the hub's user runs sunstack hub revoke %s first", req.ID, h.Name)
-			}
-			// Joining again replaces the token and keys (after org leave).
-			h.Name, h.Keys, h.CanSend, h.TokenHash, h.IP = req.Name, req.Keys, inv.CanSend, tokenHash(token), peerIP(r)
-			return nil
+			// Public keys are in every roster, so they prove nothing: a host
+			// joins again only after the hub's user removed its entry.
+			return fmt.Errorf("host ID %s is already in the org as %s; the hub's user runs sunstack hub revoke %s first", req.ID, h.Name, h.Name)
 		}
 		ro.Hosts = append(ro.Hosts, &Host{ID: req.ID, Name: req.Name, CanSend: inv.CanSend, Keys: req.Keys, Added: stamp(time.Now()), TokenHash: tokenHash(token), IP: peerIP(r)})
 		return nil
@@ -413,7 +408,7 @@ func (s store) putMail(from string, m *Mail) frame {
 	case m.FromHost != sender.ID:
 		return refuse("the message names another sending host", true)
 	case !sender.CanSend:
-		return refuse("this host may not send (sunstack hub invite without --read-only, then join again)", true)
+		return refuse("this host may not send (the hub's user runs sunstack hub revoke, then hub invite without --read-only, and this host joins again)", true)
 	case to == nil:
 		return refuse("no such host in the org", true)
 	case to.ID == sender.ID:

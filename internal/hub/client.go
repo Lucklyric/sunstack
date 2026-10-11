@@ -264,6 +264,9 @@ func queueLetter(hostName string, l *Letter, keep bool) (*Sent, error) {
 	if h.ID == core.ThisHost().ID {
 		return nil, usageErr("%s is this host", hostName)
 	}
+	if p := loadPins()[h.ID]; p != nil && !strings.EqualFold(p.Name, h.Name) {
+		return nil, failErr("name_changed", "the hub now lists another host as %s (pinned as %s); ask the hub's user, and check sunstack org keys", h.Name, p.Name)
+	}
 	return queueTo(h.ID, h.Name, l, keep)
 }
 

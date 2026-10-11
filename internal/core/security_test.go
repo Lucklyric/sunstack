@@ -185,3 +185,15 @@ func TestConfigAliasesInclude(t *testing.T) {
 		t.Errorf("aliases: %s", got)
 	}
 }
+
+// A title resolves only to a valid agent ID: a folder name with a quote would
+// end the quoted prompt spawn types into the pane.
+func TestResolveTitleNeedsValidID(t *testing.T) {
+	p := secTeam(t)
+	bad := filepath.Join(p.Dir, "worker.a';touch x;#")
+	os.MkdirAll(bad, 0o755)
+	os.WriteFile(filepath.Join(bad, "AGENT.md"), []byte("---\ntitle: worker\nfrom: custom\n---\n## Role\nWorks.\n"), 0o644)
+	if id, err := p.resolve("worker"); err == nil {
+		t.Errorf("title resolved to %q", id)
+	}
+}

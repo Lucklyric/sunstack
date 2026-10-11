@@ -173,3 +173,37 @@ func TestUpdateTimeout(t *testing.T) {
 		t.Error("the connector would restart after a failed update")
 	}
 }
+
+// A hub that moves a pinned host onto another pinned host's name does not
+// redirect mail sent to that name.
+func TestPinnedNameSwap(t *testing.T) {
+	t.Setenv("SUNSTACK_HOME", t.TempDir())
+	a, _ := LoadKeys()
+	var b *Keys
+	{
+		home := os.Getenv("SUNSTACK_HOME")
+		t.Setenv("SUNSTACK_HOME", t.TempDir())
+		b, _ = LoadKeys()
+		t.Setenv("SUNSTACK_HOME", home)
+	}
+	before := &Roster{Hosts: []*Host{{ID: "aaaaaaaaaaaaaaaa", Name: "assistant", Keys: a.Public()}, {ID: "bbbbbbbbbbbbbbbb", Name: "other", Keys: b.Public()}}}
+	if err := pinRoster(before); err != nil {
+		t.Fatal(err)
+	}
+	after := &Roster{Hosts: []*Host{{ID: "aaaaaaaaaaaaaaaa", Name: "renamed", Keys: a.Public()}, {ID: "bbbbbbbbbbbbbbbb", Name: "assistant", Keys: b.Public()}}}
+	if err := pinRoster(after); err != nil {
+		t.Fatal(err)
+	}
+	if err := saveRoster(after, stamp(time.Now())); err != nil {
+		t.Fatal(err)
+	}
+	if err := saveConfig(&Config{OrgID: "o", Hub: "h", Token: "t"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := queueLetter("assistant", &Letter{From: "user", To: "shop/builder.alice", Type: "fyi"}, true); err == nil {
+		t.Error("mail to assistant went to the host that took its name")
+	}
+	if _, _, err := pinByName("assistant"); err == nil {
+		t.Error("a grant to assistant would go to the host that took its name")
+	}
+}

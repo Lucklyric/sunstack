@@ -200,7 +200,7 @@ func (p *Project) Spawn(o SpawnOptions) (*SpawnResult, error) {
 	first := fmt.Sprintf("%s %s --token %s%s (you were started by sunstack spawn; this claim is yours), %s", skill, id, l.Token, task, note)
 	// Single quotes: the shell must not expand $sunstack in the Codex prompt.
 	cmd := fmt.Sprintf("%s '%s'", o.Tool, first)
-	if err := exec.Command("tmux", TmuxArgs(o.Socket, "send-keys", "-t", pane, "-l", cmd)...).Run(); err == nil {
+	if err = exec.Command("tmux", TmuxArgs(o.Socket, "send-keys", "-t", pane, "-l", cmd)...).Run(); err == nil {
 		err = exec.Command("tmux", TmuxArgs(o.Socket, "send-keys", "-t", pane, "Enter")...).Run()
 	}
 	if err != nil {
