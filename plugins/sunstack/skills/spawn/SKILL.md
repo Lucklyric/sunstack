@@ -1,6 +1,6 @@
 ---
 name: spawn
-description: Start a Claude Code or Codex session as a Sunstack agent, or a free session, in the team's tmux session; list this project's live sessions; dismiss or kill one. Use for "sunstack spawn", "/sunstack:spawn", "start a session for builder.alice", "sunstack sessions", or a message waiting for an agent with no live session.
+description: Start a Claude Code or Codex session as a Sunstack agent, or a free session, beside this pane or in a new tmux window; list this project's live sessions; dismiss or kill one. Use for "sunstack spawn", "/sunstack:spawn", "start a session for builder.alice", "sunstack sessions", or a message waiting for an agent with no live session.
 ---
 
 # Sunstack: spawn
@@ -13,7 +13,8 @@ description: Start a Claude Code or Codex session as a Sunstack agent, or a free
   tool, task label, first instruction). Closing one needs a confirm too. The one exception is
   starting work on another host over SSH when the user's request or your board calls for it
   (the org skill, section 4).
-- `spawn` needs tmux installed. Outside tmux it always uses the team's home. Without tmux
+- `spawn` needs tmux installed. Inside tmux it opens beside this pane by default; outside tmux
+  it always uses the team's home. Without tmux
   (`no_tmux`), give the user the steps to start it themselves: open a terminal in the project,
   run `claude` or `codex`, then `/sunstack:as <id>` (Codex: `$sunstack:as <id>`).
 
@@ -31,12 +32,12 @@ resume it. `sunstack team` shows the same per agent.
 1. Choose the agent (rank as in the as skill's "Pick the agent"), the tool (default: the
    agent's `tool:` in its `AGENT.md`, else the one this session runs), a task label (up to 10 characters), and a one-line first
    instruction (no single quotes), for example "handle message <id>" or "work on KR2".
-2. Choose where: by default the team's home, a tmux session named `ss-<team>-<id>` on the
-   user's default tmux server, with one window per agent. The user's screen does not change,
-   and `sunstack attach <session>` picks the session up later. Offer another place only with a
-   reason, and say it in the plan:
-   - `--place here`, a pane beside this one, when the user wants to watch it now;
-   - `--place window`, a new window in this tmux session, when the user asked for one.
+2. Choose where: by default a pane beside this one, or a new window in this tmux session when
+   this pane is too small to split. Offer another place only with a reason, and say it in the
+   plan:
+   - `--place window`, a new window in this tmux session, when the user asked for one;
+   - `--place team`, the team's home (a tmux session `ss-<team>-<id>` with one window per
+     agent), when the user wants it out of sight; `sunstack attach <session>` finds it later.
    If the new session is for a piece of work with a result, write a task brief (the message
    skill's template: Goal, Scope, Done when, Verify, Report) to a file and pass it with
    `--brief`; the session finds it in its inbox as its first task.
@@ -48,8 +49,8 @@ resume it. `sunstack team` shows the same per agent.
    sunstack spawn "<id>" --tool <claude|codex> --task "<task>" --note "<first instruction>"
    ```
 
-   Add `--place here` or `--place window` for another place, and `--brief "<brief file>"` for a
-   task brief. It opens a pane in the team's home (or the place asked for) in the project root,
+   Add `--place window` or `--place team` for another place, and `--brief "<brief file>"` for a
+   task brief. It opens a pane beside this one (or the place asked for) in the project root,
    prints where, claims the agent for the new session, and starts the CLI
    with a first prompt that takes on the identity. The new session may stop at its first-run
    prompts (folder trust, sign-in); tell the user which pane to look at.
@@ -64,10 +65,8 @@ resume it. `sunstack team` shows the same per agent.
    - **2 `missing_brief`**: the brief lacks the labels named; fill them in. Nothing was opened.
    - **1 `halted`**: the team is halted (the error gives the reason). Tell the user; only
      they end it with `sunstack halt --off`.
-   - **1 `no_space`**: with `--place here`, this pane is too small to split; offer the default
-     place or `--place window` instead.
    - **1 `home_taken`**: a tmux session with the home's name exists but sunstack did not make
-     it; ask the user to rename or close it, or use `--place here` or `--place window`.
+     it; ask the user to rename or close it, or use the default place or `--place window`.
    - **1 `no_tmux`**: tmux is not installed; give the manual steps above.
    - **1 / 2 other**: show the error.
 
@@ -81,7 +80,8 @@ A plain Claude or Codex session that holds no agent, for work outside the team's
 sunstack spawn --free --tool <claude|codex> [--name <label>] [--note "<first prompt>"] [--dir <folder> | --beside <session>]
 ```
 
-It opens in the team's tmux session (window `free`), in `--dir` (relative to the team root),
+It opens where an agent session would (beside this pane by default; `--place window` or
+`--place team` as above), working in the team root, in `--dir` (relative to the team root),
 or in the folder of the session named by `--beside`. Its label (`--name`, else `<tool>-<n>`)
 names it in the org view, in `sunstack attach` and in `sunstack kill`. It counts toward
 `max_sessions` like any session. Confirm with the user first: it starts a paid session.

@@ -82,6 +82,42 @@ func (p *Project) home(id string) (*homePane, error) {
 	return openHome(name, owner, p.Root, id)
 }
 
+// openNear opens a pane in folder cwd near the caller's pane: beside it
+// (side by side when it is at least 160 columns wide, else stacked), or a
+// new window after the caller's when place is window, there is no caller
+// pane, or the pane is too small to split. It reports whether it opened a
+// window; name, if set, names that window.
+func openNear(socket, caller, place, cwd, name string) (string, bool, error) {
+	tm := func(args ...string) string {
+		out, err := exec.Command("tmux", TmuxArgs(socket, args...)...).Output()
+		if err != nil {
+			return ""
+		}
+		return strings.TrimSpace(string(out))
+	}
+	common := []string{"-d", "-P", "-F", "#{pane_id}", "-c", cwd, "-e", "PATH=" + os.Getenv("PATH")}
+	if place == "here" && caller != "" {
+		split := "-v"
+		if atoiOr(tm("display-message", "-p", "-t", caller, "#{pane_width}"), 0) >= 160 {
+			split = "-h"
+		}
+		if pane := tm(append([]string{"split-window", split, "-t", caller}, common...)...); pane != "" {
+			return pane, false, nil
+		}
+	}
+	args := append([]string{"new-window"}, common...)
+	if w := tm("display-message", "-p", "-t", caller, "#{window_id}"); caller != "" && w != "" {
+		args = append(args, "-a", "-t", w) // after the caller's window, in its session
+	}
+	if name != "" {
+		args = append(args, "-n", name)
+	}
+	if pane := tm(args...); pane != "" {
+		return pane, true, nil
+	}
+	return "", false, fail(ExitFail, "tmux", "could not open a tmux pane or window")
+}
+
 // openHome opens a pane in folder cwd in the home called name, in window
 // win: a split of that window, a new window when there is none, or the next
 // overflow window (<win>-2, …) when it is too small to split. It creates the

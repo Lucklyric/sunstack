@@ -469,7 +469,7 @@ func TestReopenPrivatePane(t *testing.T) {
 			claim := sh(t, p, asEnv, "as", "reviewer", "--tool", tool)
 			expect(t, claim, 0, "claim outside tmux")
 			tok := field(tokenRe, claim.out)
-			r := sh(t, p, caller.env, "reopen", sid)
+			r := sh(t, p, caller.env, "reopen", sid, "--place", "team")
 			expect(t, r, 0, "reopen")
 			requireContains(t, r.out, "reopened "+tool+" session "+sid, cwd)
 			pane := field(paneRe, r.out)
@@ -865,7 +865,7 @@ func TestSpawnTeamHome(t *testing.T) {
 		return home.tmux(t, "display-message", "-p", "-t", pane, "#{session_name}\t#{window_name}\t#{window_id}")
 	}
 
-	r := sh(t, p, env, "spawn", "reviewer", "--task", "one", "--tool", "claude")
+	r := sh(t, p, env, "spawn", "--place", "team", "reviewer", "--task", "one", "--tool", "claude")
 	expect(t, r, 0, "spawn into the home")
 	requireContains(t, r.out, "ss-alpha-team-a1b2")
 	one := field(paneRe, r.out)
@@ -881,12 +881,12 @@ func TestSpawnTeamHome(t *testing.T) {
 	}
 
 	// A second task of the agent splits its window; another agent gets its own.
-	r = sh(t, p, env, "spawn", "reviewer", "--task", "two", "--tool", "claude")
+	r = sh(t, p, env, "spawn", "--place", "team", "reviewer", "--task", "two", "--tool", "claude")
 	expect(t, r, 0, "second task")
 	if w := strings.Split(where(field(paneRe, r.out)), "\t"); w[2] != w1[2] {
 		t.Errorf("second task in %v, want window %s", w, w1[2])
 	}
-	r = sh(t, p, env, "spawn", "builder.alice", "--tool", "codex")
+	r = sh(t, p, env, "spawn", "--place", "team", "builder.alice", "--tool", "codex")
 	expect(t, r, 0, "another agent")
 	if w := strings.Split(where(field(paneRe, r.out)), "\t"); w[0] != "ss-alpha-team-a1b2" || w[1] != "builder.alice" {
 		t.Errorf("builder.alice in %v", w)
@@ -899,7 +899,7 @@ func TestSpawnTeamHome(t *testing.T) {
 			plain = append(plain, e)
 		}
 	}
-	r = sh(t, p, plain, "spawn", "builder.bob", "--tool", "claude")
+	r = sh(t, p, plain, "spawn", "--place", "team", "builder.bob", "--tool", "claude")
 	expect(t, r, 0, "spawn outside tmux")
 	if w := strings.Split(where(field(paneRe, r.out)), "\t"); w[1] != "builder.bob" {
 		t.Errorf("builder.bob in %v", w)
@@ -912,7 +912,7 @@ func TestSpawnTeamHome(t *testing.T) {
 	q := fixture(t)
 	must(t, os.WriteFile(filepath.Join(q, "sunstack", "TEAM"), []byte("id: c3d4000000000000\nname: beta\n"), 0o644))
 	home.tmux(t, "new-session", "-d", "-s", "ss-beta-c3d4")
-	r = sh(t, q, env, "spawn", "reviewer", "--tool", "claude")
+	r = sh(t, q, env, "spawn", "--place", "team", "reviewer", "--tool", "claude")
 	expect(t, r, 1, "unowned home")
 	requireContains(t, r.stderr, "home_taken")
 }
@@ -927,7 +927,7 @@ func TestAttach(t *testing.T) {
 	env := append(append([]string{}, caller.env...), "SUNSTACK_TMUX_SOCKET="+home.socket)
 	var panes []string
 	for _, task := range []string{"one", "two"} {
-		r := sh(t, p, env, "spawn", "reviewer", "--task", task, "--tool", "claude")
+		r := sh(t, p, env, "spawn", "--place", "team", "reviewer", "--task", task, "--tool", "claude")
 		expect(t, r, 0, "spawn "+task)
 		panes = append(panes, field(paneRe, r.out))
 	}
@@ -942,7 +942,7 @@ func TestAttach(t *testing.T) {
 
 	// A free session by its label, before its first prompt gives it a
 	// session ID (found in the live check).
-	r = sh(t, p, env, "spawn", "--free", "--tool", "codex", "--name", "scratch", "--yes")
+	r = sh(t, p, env, "spawn", "--place", "team", "--free", "--tool", "codex", "--name", "scratch", "--yes")
 	expect(t, r, 0, "spawn free")
 	free := field(paneRe, r.out)
 	r = sh(t, p, env, "attach", "scratch")
@@ -966,7 +966,7 @@ func TestSpawnFree(t *testing.T) {
 		return s.tmux(t, "display-message", "-p", "-t", pane, "#{"+name+"}")
 	}
 
-	r := sh(t, p, s.env, "spawn", "--free", "--tool", "codex")
+	r := sh(t, p, s.env, "spawn", "--place", "team", "--free", "--tool", "codex")
 	expect(t, r, 0, "free codex")
 	requireContains(t, r.out, "codex-1", "ss-alpha-a1b2:free")
 	first := field(paneRe, r.out)
@@ -974,12 +974,12 @@ func TestSpawnFree(t *testing.T) {
 		t.Errorf("marks %q", got)
 	}
 
-	r = sh(t, p, s.env, "spawn", "--free", "--tool", "claude", "--name", "review", "--note", "look at the fixture")
+	r = sh(t, p, s.env, "spawn", "--place", "team", "--free", "--tool", "claude", "--name", "review", "--note", "look at the fixture")
 	expect(t, r, 0, "free claude with a note")
-	expect(t, sh(t, p, s.env, "spawn", "--free", "--tool", "claude", "--name", "review"), 4, "label taken")
+	expect(t, sh(t, p, s.env, "spawn", "--place", "team", "--free", "--tool", "claude", "--name", "review"), 4, "label taken")
 
 	must(t, os.MkdirAll(filepath.Join(p, "sub"), 0o755))
-	r = sh(t, p, s.env, "spawn", "--free", "--tool", "claude", "--dir", "sub")
+	r = sh(t, p, s.env, "spawn", "--place", "team", "--free", "--tool", "claude", "--dir", "sub")
 	expect(t, r, 0, "free in a subfolder")
 	requireContains(t, r.out, "claude-1")
 
@@ -997,13 +997,13 @@ func TestSpawnFree(t *testing.T) {
 	}
 
 	// The team's cap counts free sessions.
-	r = sh(t, p, s.env, "spawn", "--free", "--tool", "claude")
+	r = sh(t, p, s.env, "spawn", "--place", "team", "--free", "--tool", "claude")
 	expect(t, r, 4, "cap")
 	requireContains(t, r.stderr, "team_full", "review")
 
 	// A folder in no team gets its own home.
 	loose := t.TempDir()
-	r = sh(t, p, s.env, "spawn", "--free", "--tool", "claude", "--dir", loose, "--name", "loose")
+	r = sh(t, p, s.env, "spawn", "--place", "team", "--free", "--tool", "claude", "--dir", loose, "--name", "loose")
 	expect(t, r, 0, "free outside teams")
 	if home := opt(field(paneRe, r.out), "session_name"); !strings.HasPrefix(home, "ss-") || home == "ss-alpha-a1b2" {
 		t.Errorf("outside-team home %q", home)
@@ -1016,7 +1016,7 @@ func TestSpawnFree(t *testing.T) {
 			t.Error("review still open")
 		}
 	}
-	expect(t, sh(t, p, s.env, "spawn", "--free", "--tool", "claude", "--name", "review"), 0, "the label is free again")
+	expect(t, sh(t, p, s.env, "spawn", "--place", "team", "--free", "--tool", "claude", "--name", "review"), 0, "the label is free again")
 }
 
 // A connector started by launchd has no UTF-8 locale, and tmux then prints
@@ -1033,9 +1033,9 @@ func TestSpawnWithoutLocale(t *testing.T) {
 		}
 	}
 	env = append(env, "LC_ALL=C")
-	r := sh(t, p, env, "spawn", "--free", "--tool", "codex")
+	r := sh(t, p, env, "spawn", "--place", "team", "--free", "--tool", "codex")
 	expect(t, r, 0, "free codex without a locale")
 	requireContains(t, r.out, "ss-alpha-a1b2:free")
-	r = sh(t, p, env, "spawn", "--free", "--tool", "claude")
+	r = sh(t, p, env, "spawn", "--place", "team", "--free", "--tool", "claude")
 	expect(t, r, 4, "the cap counts the first session")
 }

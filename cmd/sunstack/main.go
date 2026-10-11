@@ -69,8 +69,9 @@ Sessions and messages:
   sunstack check|take|ack --session [<msg>]       the same for a session that works as no agent (its host inbox)
   sunstack whoami [--root DIR]
   sunstack spawn <id|title> [--tool claude|codex] [--task LABEL] [--note "..."] [--brief FILE] [--place team|here|window] [--over-cap]
-                                                  start a session as that agent in the team's tmux session (ss-<team>-<id>,
-                                                  one window per agent; here: beside this pane; window: a new window);
+                                                  start a session as that agent beside this pane, or in a new window when it is
+                                                  too small (window: always a new window; team: the team's tmux session
+                                                  ss-<team>-<id>, also used outside tmux);
                                                   --brief puts a task in its inbox; refused at max_sessions (sunstack/TEAM, default 6)
                                                   and while the team is halted; the tool defaults to tool: in AGENT.md
   sunstack dismiss <id|id_task>                   ask a session to finish (a shutdown message)
@@ -112,12 +113,12 @@ Org (every team and Claude Code or Codex session on this host):
   sunstack spawn --free --team <host>:<team> [--dir SUBDIR] | --beside <host>:<session-id> [--tool T] [--name L] [--yes]
                                                   start a session on another host that allows it (org allow), in its team's
                                                   tmux session; it asks first (or --yes), since it starts a paid session
-  sunstack spawn --free [--tool claude|codex] [--name LABEL] [--note "..."] [--dir DIR | --beside SESSION] [--over-cap]
-                                                  start a plain session that holds no agent, in the team's tmux session (window
-                                                  free), in DIR, or in the folder of another session; sunstack kill LABEL closes it
+  sunstack spawn --free [--tool claude|codex] [--name LABEL] [--note "..."] [--dir DIR | --beside SESSION] [--place P] [--over-cap]
+                                                  start a plain session that holds no agent, placed as spawn is, working in the team
+                                                  root, in DIR, or in the folder of another session; sunstack kill LABEL closes it
   sunstack doing <id> "<line>" --token T          one line on what this session is doing now ("" clears)
-  sunstack reopen <session-id> [--place P]        resume a closed session in a tmux pane (in its team's tmux session, else
-                                                  beside this one), so messages wake it at once (exit it where it ran first)
+  sunstack reopen <session-id> [--place P]        resume a closed session in a tmux pane (beside this one, else a new window;
+                                                  outside tmux its team's tmux session), so messages wake it at once (exit it where it ran first)
   sunstack attach <session>                       go to a session's tmux pane: an agent session's name or any session's ID or label
   sunstack log [--id ID] [--follow]               the event log
   sunstack inbox <id>                             pending messages, read only
@@ -1078,17 +1079,29 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 			if len(a.pos) > 0 || a.has("task") || a.has("brief") {
 				return &core.Error{Code: core.ExitUsage, Reason: "usage", Msg: "spawn --free takes no agent, --task or --brief; use --name for its label"}
 			}
+			place := a.flags["place"]
+			if a.has("window") {
+				place = "window"
+			}
 			root := ""
 			if p, err := core.FindProject(a.flags["root"]); err == nil {
 				root = p.Root
 			}
 			callerTool, _ := detectTool()
 			r, err := core.SpawnFree(core.FreeOptions{Tool: a.flags["tool"], DefaultTool: callerTool, Name: a.flags["name"], Note: a.flags["note"],
-				Beside: a.flags["beside"], Dir: a.flags["dir"], Root: root, OverCap: a.has("over-cap")})
+				Beside: a.flags["beside"], Dir: a.flags["dir"], Root: root, OverCap: a.has("over-cap"),
+				Place: place, Socket: tmuxSocket(), Caller: os.Getenv("TMUX_PANE")})
 			if err != nil {
 				return err
 			}
-			fmt.Fprintf(stdout, "sunstack: started free session %s (%s) in %s, in tmux session %s, pane %s (sunstack attach %s)\n", r.Label, r.Tool, r.Cwd, r.Home, r.Pane, r.Label)
+			where := "a pane beside this one"
+			switch {
+			case r.Home != "":
+				where = "tmux session " + r.Home
+			case r.Window:
+				where = "a new tmux window"
+			}
+			fmt.Fprintf(stdout, "sunstack: started free session %s (%s) in %s, in %s, pane %s (sunstack attach %s)\n", r.Label, r.Tool, r.Cwd, where, r.Pane, r.Label)
 			if !r.Running {
 				fmt.Fprintf(stdout, "warning: %s is not running in pane %s yet; it may be at a login or trust prompt, or have exited; sunstack kill %s closes it\n", r.Tool, r.Pane, r.Label)
 			}

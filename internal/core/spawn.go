@@ -97,16 +97,13 @@ func (p *Project) Spawn(o SpawnOptions) (*SpawnResult, error) {
 	case o.Window:
 		place = "window"
 	case place == "":
-		place = "team"
+		place = "here"
 	case place != "team" && place != "here" && place != "window":
 		return nil, fail(ExitUsage, "usage", "--place must be team, here or window")
 	}
 	if o.Socket == "" {
 		// Outside tmux there is no pane to split or window to join.
 		place = "team"
-	}
-	if place == "here" && o.Caller == "" {
-		place = "window"
 	}
 	if _, err := exec.LookPath("tmux"); err != nil {
 		return nil, fail(ExitFail, "no_tmux", "spawn opens a tmux pane, and tmux is not on PATH; start %s yourself and take on the agent there", o.Tool)
@@ -127,20 +124,15 @@ func (p *Project) Spawn(o SpawnOptions) (*SpawnResult, error) {
 		}
 		pane, homeAt = h.pane, h.at
 		o.Socket, o.Server = h.socket, h.server
-	case "window":
-		out, err := exec.Command("tmux", TmuxArgs(o.Socket, "new-window", "-d", "-P", "-F", "#{pane_id}", "-n", name, "-c", p.Root, "-e", "PATH="+os.Getenv("PATH"))...).Output()
-		if pane = strings.TrimSpace(string(out)); err != nil || pane == "" {
-			return nil, fail(ExitFail, "tmux", "could not open a tmux window: %v", err)
-		}
 	default:
-		// Side by side when the caller's pane is wide enough, else stacked.
-		split := "-v"
-		if w, _ := exec.Command("tmux", TmuxArgs(o.Socket, "display-message", "-p", "-t", o.Caller, "#{pane_width}")...).Output(); atoiOr(strings.TrimSpace(string(w)), 0) >= 160 {
-			split = "-h"
+		// Beside the caller, or a new window when that pane is too small.
+		var win bool
+		var err error
+		if pane, win, err = openNear(o.Socket, o.Caller, place, p.Root, name); err != nil {
+			return nil, err
 		}
-		out, err := exec.Command("tmux", TmuxArgs(o.Socket, "split-window", "-d", split, "-t", o.Caller, "-P", "-F", "#{pane_id}", "-c", p.Root, "-e", "PATH="+os.Getenv("PATH"))...).Output()
-		if pane = strings.TrimSpace(string(out)); err != nil || pane == "" {
-			return nil, fail(ExitFail, "no_space", "could not split this pane (%v); it may be too small, so rerun with --place window", err)
+		if win {
+			place = "window"
 		}
 	}
 	window := place == "window"

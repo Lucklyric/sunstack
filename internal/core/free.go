@@ -31,12 +31,16 @@ type FreeOptions struct {
 	// Remote: another host asked (§20.4); Dir must then stay inside Root.
 	Remote  bool
 	Request string // that request's ID, marked on the pane
+	// Where, as for spawn: team (the scope's home), here (beside Caller,
+	// else a new window) or window; empty is here inside tmux. Outside
+	// tmux (no Socket) and for another host, always the home.
+	Place, Socket, Caller string
 }
 
 // FreeResult is a started free session.
 type FreeResult struct {
-	Label, Tool, Pane, Home, Cwd string
-	Running                      bool
+	Label, Tool, Pane, Home, Cwd string // Home: the home it opened in, if any
+	Running, Window              bool   // Window: a new window, not beside the caller
 }
 
 var labelRe = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,19}$`)
@@ -79,6 +83,16 @@ func SpawnFree(o FreeOptions) (*FreeResult, error) {
 	}
 	if !noteOK(o.Note) || strings.HasPrefix(o.Note, "-") {
 		return nil, fail(ExitUsage, "usage", "keep single quotes, line breaks and other control characters out of the note, and do not start it with -")
+	}
+	place := o.Place
+	switch {
+	case place == "":
+		place = "here"
+	case place != "team" && place != "here" && place != "window":
+		return nil, fail(ExitUsage, "usage", "--place must be team, here or window")
+	}
+	if o.Socket == "" || o.Remote {
+		place = "team"
 	}
 	if o.Beside != "" && o.Dir != "" {
 		return nil, fail(ExitUsage, "usage", "use --beside or --dir, not both")
@@ -139,9 +153,19 @@ func SpawnFree(o FreeOptions) (*FreeResult, error) {
 			label = fmt.Sprintf("%s-%d", o.Tool, n)
 		}
 	}
-	h, err := openHome(home, scope, cwd, "free")
-	if err != nil {
-		return nil, err
+	var h *homePane
+	window := false
+	if place == "team" {
+		if h, err = openHome(home, scope, cwd, "free"); err != nil {
+			return nil, err
+		}
+	} else {
+		pane, win, err := openNear(o.Socket, o.Caller, place, cwd, label)
+		if err != nil {
+			return nil, err
+		}
+		h = &homePane{pane: pane, socket: o.Socket}
+		window = win
 	}
 	tm := func(args ...string) error {
 		return exec.Command("tmux", append([]string{"-S", h.socket}, args...)...).Run()
@@ -177,7 +201,7 @@ func SpawnFree(o FreeOptions) (*FreeResult, error) {
 		time.Sleep(250 * time.Millisecond)
 		running = paneRunsTool(h.socket, h.pane, o.Tool)
 	}
-	return &FreeResult{Label: label, Tool: o.Tool, Pane: h.pane, Home: h.at, Cwd: cwd, Running: running}, nil
+	return &FreeResult{Label: label, Tool: o.Tool, Pane: h.pane, Home: h.at, Cwd: cwd, Running: running, Window: window}, nil
 }
 
 // freeFolder resolves where a free session opens: beside a session, a

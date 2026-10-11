@@ -88,7 +88,7 @@ func Reopen(o ReopenOptions) (*ReopenResult, error) {
 	switch {
 	case o.Window:
 		place = "window"
-	case place == "" && terr == nil:
+	case place == "" && terr == nil && o.Socket == "":
 		place = "team"
 	case place == "":
 		place = "here"
@@ -123,20 +123,9 @@ func Reopen(o ReopenOptions) (*ReopenResult, error) {
 		o.Socket, o.Server = h.socket, h.server
 		return finishReopen(o, res, tool, cmd, h.pane)
 	}
-	var args []string
-	if place == "window" || o.Caller == "" {
-		args = []string{"new-window", "-d", "-P", "-F", "#{pane_id}", "-c", cwd, "-e", "PATH=" + os.Getenv("PATH")}
-	} else {
-		split := "-v"
-		if w, _ := exec.Command("tmux", TmuxArgs(o.Socket, "display-message", "-p", "-t", o.Caller, "#{pane_width}")...).Output(); atoiOr(strings.TrimSpace(string(w)), 0) >= 160 {
-			split = "-h"
-		}
-		args = []string{"split-window", "-d", split, "-t", o.Caller, "-P", "-F", "#{pane_id}", "-c", cwd, "-e", "PATH=" + os.Getenv("PATH")}
-	}
-	out, err := exec.Command("tmux", TmuxArgs(o.Socket, args...)...).Output()
-	pane := strings.TrimSpace(string(out))
-	if err != nil || pane == "" {
-		return nil, fail(ExitFail, "tmux", "could not open a tmux pane (%v); rerun with --window", err)
+	pane, _, err := openNear(o.Socket, o.Caller, place, cwd, "")
+	if err != nil {
+		return nil, err
 	}
 	return finishReopen(o, res, tool, cmd, pane)
 }
