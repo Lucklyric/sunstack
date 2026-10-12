@@ -1,6 +1,6 @@
 ---
 name: verify
-description: Have a Sunstack agent check the active task against everything the user asked for, the way the user would before accepting it. It gathers the task's requirements and the standing ones from the team's history, settles open points with the user in a short Q&A, picks or hires a verifier (preferably on the other CLI), and sends it a task; the verifier drives the real app and answers per requirement with evidence. Use for "sunstack verify", "/sunstack:verify", "verify this", "check it does what I asked", "acceptance check", "keep checking deliveries". A verifier that received such a task follows the Verifier's procedure section.
+description: Have a Sunstack agent check the active task against everything the user asked for, the way the user would before accepting it. It gathers the task's requirements and the standing ones from the team's history, settles open points with the user in a short Q&A, picks or hires a verifier (preferably on the other CLI), and sends it a task; the verifier drives the real app and answers per requirement with evidence. Use for "sunstack verify", "/sunstack:verify", "verify this", "check it does what I asked", "acceptance check", "keep checking deliveries", "does the verifier need an update". A verifier that received such a task follows the Verifier's procedure section.
 ---
 
 # Sunstack: verify
@@ -90,6 +90,24 @@ fits, offer to hire one with the recruit skill (`sunstack hire verifier <name>`)
 the template it will use. When the verifier needs a new session, plan it on the other CLI
 (`--tool codex` or `--tool claude`) if that CLI is installed; if not, say so.
 
+### Is the verifier up to date?
+
+Check the chosen verifier before sending, and put the result in the brief. When the user only
+asks whether a verifier needs an update, run this alone and report it; send nothing.
+
+- **Directives**: `sunstack board` lists `<verifier> has not aligned with D<n>`.
+- **Rules and objectives since its last save**: with `C` the last commit of its context
+  (`git log -1 --format=%h -- sunstack/<verifier>/context.md`), list
+  `git log --oneline C..HEAD -- sunstack/BOARD.md sunstack/PILLARS.md sunstack/<verifier>/pillars.md`,
+  plus uncommitted changes to those files (`git status --short -- <files>`). No commit yet: it
+  never saved, so everything is new to it.
+- **The verify skill against the code**: for each feature file the task touches in
+  `verify-<app>/features/`, `F` its last commit; the skill is stale for that feature when
+  `git log --oneline F..HEAD -- <the task's files>` lists commits, or the task's files have
+  uncommitted changes. No verify skill, or no file for a feature: note it.
+
+Each finding is one line under `Verifier freshness:` in the brief's Context, or `fresh`.
+
 ## 5. Send the task
 
 Write the brief to a file in this session's scratch or temporary folder:
@@ -109,6 +127,7 @@ Context:
   Standing requirements that apply:
     - "<quote>" (<source>, <speaker>)
   Sources: <paths read; sources that could not be reached>
+  Verifier freshness: <fresh, or one line per finding>
 Not: Fixing what you find. Real sends from the app (mail, posts, payments), deployments, spending or destructive actions. Sunstack messages to the requester are fine.
 ```
 
@@ -145,6 +164,10 @@ verification task itself is not verified again.
 
 For the agent that received a verification task. Do not run the steps above.
 
+0. **Catch up first.** For each line under `Verifier freshness:`: align with the directive
+   (save skill), read the changed rules and objectives and update the standing requirements in
+   your context, and refresh the stale feature files of the verify skill and run them once.
+   Report what you refreshed. Do this even when the brief says `fresh` but you notice drift.
 1. **Requirements first.** Take the brief's list, check it against its sources and the
    authority rule, and add what it missed, marked as added by you. Verify this task only.
 2. **The verify skill.** For a task that changes something a user runs, use the project's
