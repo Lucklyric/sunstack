@@ -1895,7 +1895,12 @@ func migrateNote(p *core.Project) string {
 	return b.String()
 }
 
-func printMessages(stdout io.Writer, ms []*core.Message) {
+func printMessages(w io.Writer, ms []*core.Message) {
+	// Messages come from other agents and hosts: control characters are
+	// made visible, never passed to the terminal.
+	var b strings.Builder
+	stdout := &b
+	defer func() { io.WriteString(w, core.VisibleControls(b.String())) }()
 	if len(ms) == 0 {
 		fmt.Fprintln(stdout, "no messages")
 	}

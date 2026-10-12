@@ -228,7 +228,7 @@ func pinRoster(r *Roster) error {
 	}
 	changed := false
 	for _, h := range r.Hosts {
-		if !h.Keys.valid() || !idRe.MatchString(h.ID) {
+		if !h.Keys.valid() || !idRe.MatchString(h.ID) || !nameRe.MatchString(h.Name) {
 			continue
 		}
 		p := pins[h.ID]

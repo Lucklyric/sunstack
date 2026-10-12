@@ -301,3 +301,16 @@ func TestQueuedRequestExpires(t *testing.T) {
 		t.Errorf("an expired request: ran=%v, %v", ran, err)
 	}
 }
+
+// A roster name with terminal controls is not pinned, so org keys and
+// everything that names the host never prints it.
+func TestRosterNameControls(t *testing.T) {
+	t.Setenv("SUNSTACK_HOME", t.TempDir())
+	k, _ := LoadKeys()
+	if err := pinRoster(&Roster{Hosts: []*Host{{ID: "aaaaaaaaaaaaaaaa", Name: "box\x1b]52;c;ZXZpbA==\x07", Keys: k.Public()}}}); err != nil {
+		t.Fatal(err)
+	}
+	if s, _ := KeysText(); strings.ContainsAny(s, "\x1b\x07") {
+		t.Errorf("org keys printed a control sequence: %q", s)
+	}
+}
