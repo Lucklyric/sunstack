@@ -138,6 +138,9 @@ func SendToSession(s *HostSession, o SendOptions) (*SendResult, error) {
 			return nil, fail(ExitFail, "fs", "%v", err)
 		}
 		_, werr := f.WriteString(m.text())
+		if werr == nil {
+			werr = f.Sync() // on disk before anyone acks it as delivered
+		}
 		cerr := f.Close()
 		if werr != nil || cerr != nil {
 			os.Remove(tmp)
@@ -149,6 +152,7 @@ func SendToSession(s *HostSession, o SendOptions) (*SendResult, error) {
 		os.Remove(tmp)
 		return nil, fail(ExitFail, "fs", "%v", err)
 	}
+	SyncDir(dir)
 	release()
 	release = func() {}
 	res := &SendResult{ID: m.ID, To: to}

@@ -168,6 +168,15 @@ func (p *Project) Agents() []string {
 	return ids
 }
 
+// SyncDir flushes a folder's entries, so a file renamed into it survives a
+// power cut. Best effort: some systems cannot sync a folder.
+func SyncDir(dir string) {
+	if d, err := os.Open(dir); err == nil {
+		d.Sync()
+		d.Close()
+	}
+}
+
 // Checksum of content; "absent" stands for a missing file.
 func Checksum(b []byte, exists bool) string {
 	if !exists {

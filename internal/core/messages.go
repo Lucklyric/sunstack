@@ -328,6 +328,9 @@ func (p *Project) Send(o SendOptions) (*SendResult, error) {
 			return nil, fail(ExitFail, "fs", "%v", err)
 		}
 		_, werr := f.WriteString(m.text())
+		if werr == nil {
+			werr = f.Sync() // on disk before anyone acks it as delivered
+		}
 		cerr := f.Close()
 		if werr != nil || cerr != nil {
 			os.Remove(tmp)
@@ -339,6 +342,7 @@ func (p *Project) Send(o SendOptions) (*SendResult, error) {
 		os.Remove(tmp)
 		return nil, fail(ExitFail, "fs", "%v", err)
 	}
+	SyncDir(filepath.Dir(p.msgPath(dir, m.ID)))
 	release()
 	release = func() {}
 	fields := []string{m.Type, m.ID}

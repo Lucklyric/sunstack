@@ -367,8 +367,10 @@ func writeFile(path string, data []byte, mode os.FileMode) error {
 	}
 	if err != nil {
 		os.Remove(name)
+		return err
 	}
-	return err
+	core.SyncDir(filepath.Dir(path))
+	return nil
 }
 
 func writeJSON(path string, v any, mode os.FileMode) error {
