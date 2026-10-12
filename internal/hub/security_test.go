@@ -288,3 +288,16 @@ func TestUpdateTimeoutEndsChildren(t *testing.T) {
 		t.Error("a child of the timed-out update kept running")
 	}
 }
+
+// A request that expired while it waited behind others is not run.
+func TestQueuedRequestExpires(t *testing.T) {
+	t.Setenv("SUNSTACK_HOME", t.TempDir())
+	ran := false
+	old := handlers["peek"]
+	handlers["peek"] = func(_, _ string, _ json.RawMessage) (any, error) { ran = true; return nil, nil }
+	defer func() { handlers["peek"] = old }()
+	jb := job{mail: &Mail{ID: core.NewMessageID("user"), FromHost: "aaaaaaaaaaaaaaaa"}, from: &Pin{Name: "laptop"}, kind: "peek", expires: time.Now().Add(-time.Hour)}
+	if _, err := runJob(jb); err == nil || !strings.Contains(err.Error(), "expired") || ran {
+		t.Errorf("an expired request: ran=%v, %v", ran, err)
+	}
+}

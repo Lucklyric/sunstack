@@ -194,10 +194,11 @@ func saveJournal(j map[string]*received) error {
 }
 
 type job struct {
-	mail *Mail
-	from *Pin
-	kind string
-	args json.RawMessage
+	mail    *Mail
+	from    *Pin
+	kind    string
+	args    json.RawMessage
+	expires time.Time
 }
 
 var (
@@ -259,7 +260,7 @@ func takeRequest(m *Mail, pin *Pin, l *Letter) (string, string, bool) {
 		go worker()
 	})
 	select {
-	case jobs <- job{mail: m, from: pin, kind: l.Type, args: c.Args}:
+	case jobs <- job{mail: m, from: pin, kind: l.Type, args: c.Args, expires: exp}:
 	default:
 		reply(m, pin, l.Type, nil, errors.New("this host is busy with other requests; try again"))
 	}
@@ -271,19 +272,25 @@ func takeRequest(m *Mail, pin *Pin, l *Letter) (string, string, bool) {
 func worker() {
 	for jb := range jobs {
 		setStatus(jb.mail.ID, "running", nil)
-		var res any
-		var err error
-		switch h := handlers[jb.kind]; {
-		case !Allowed(jb.mail.FromHost, jb.kind):
-			err = notAllowed(jb.from.Name, jb.kind)
-		case h == nil:
-			err = errors.New(jb.kind + " is not available on this host")
-		default:
-			res, err = h(jb.from.Name, jb.mail.ID, jb.args)
-		}
+		res, err := runJob(jb)
 		reply(jb.mail, jb.from, jb.kind, res, err)
 		afterReply()
 	}
+}
+
+// runJob runs one request, unless it expired while queued or its grant
+// was taken back.
+func runJob(jb job) (any, error) {
+	h := handlers[jb.kind]
+	switch {
+	case time.Now().After(jb.expires.Add(skew)):
+		return nil, errors.New("the request expired before this host got to it")
+	case !Allowed(jb.mail.FromHost, jb.kind):
+		return nil, notAllowed(jb.from.Name, jb.kind)
+	case h == nil:
+		return nil, errors.New(jb.kind + " is not available on this host")
+	}
+	return h(jb.from.Name, jb.mail.ID, jb.args)
 }
 
 func setStatus(id, status string, r *Mail) {
