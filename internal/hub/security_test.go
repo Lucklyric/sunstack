@@ -267,3 +267,24 @@ func TestTransientRefusalKeepsOutbox(t *testing.T) {
 		t.Error("a final refusal kept the mail in the outbox")
 	}
 }
+
+// A timed-out update ends with everything it started, so nothing keeps
+// changing the install after the reply says it did not finish.
+func TestUpdateTimeoutEndsChildren(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("process groups are Unix; the stand-in update runs /bin/sh")
+	}
+	mark := filepath.Join(t.TempDir(), "late")
+	t.Setenv("SUNSTACK_SERVICE", "1")
+	t.Setenv("SUNSTACK_UPDATE_CMD", "(sleep 1; touch '"+mark+"') & sleep 30")
+	old := updateLimit
+	updateLimit = 300 * time.Millisecond
+	defer func() { updateLimit = old }()
+	if _, err := updateHandler("", "", json.RawMessage(`{}`)); err == nil {
+		t.Fatal("a hung update succeeded")
+	}
+	time.Sleep(1500 * time.Millisecond)
+	if _, err := os.Stat(mark); err == nil {
+		t.Error("a child of the timed-out update kept running")
+	}
+}

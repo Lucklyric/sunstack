@@ -56,7 +56,8 @@ func updateHandler(_, _ string, raw json.RawMessage) (any, error) {
 		cmd = exec.CommandContext(ctx, "/bin/sh", "-c", c)
 	}
 	cmd.Stdin = nil
-	cmd.WaitDelay = time.Second // a child still holding the output ends too
+	ownGroup(cmd)
+	cmd.WaitDelay = time.Second // do not wait long on output a killed child held
 	out, err := cmd.CombinedOutput()
 	if ctx.Err() == context.DeadlineExceeded {
 		return nil, errors.New("sunstack update did not finish in " + updateLimit.String() + "; it may have half-updated, so check it on that host")
