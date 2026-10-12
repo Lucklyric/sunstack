@@ -93,20 +93,24 @@ the template it will use. When the verifier needs a new session, plan it on the 
 ### Is the verifier up to date?
 
 Check the chosen verifier before sending, and put the result in the brief. When the user only
-asks whether a verifier needs an update, run this alone and report it; send nothing.
+asks whether a verifier needs an update, run this alone and report it; send nothing. It finds
+candidates to look at, not proof: git history does not record what the verifier read.
 
-- **Directives**: `sunstack board` lists `<verifier> has not aligned with D<n>`.
-- **Rules and objectives since its last save**: with `C` the last commit of its context
+Run every `git` here from the team root (`git -C "<team root>" ...`), with paths relative to it.
+
+- **Directives**: `sunstack board` lists `<verifier> has not aligned with D<n>`. This one is exact.
+- **Rules and objectives that may be new to it**: with `C` the last commit of its context
   (`git log -1 --format=%h -- sunstack/<verifier>/context.md`), list
-  `git log --oneline C..HEAD -- sunstack/BOARD.md sunstack/PILLARS.md sunstack/<verifier>/pillars.md`,
-  plus uncommitted changes to those files (`git status --short -- <files>`). No commit yet: it
-  never saved, so everything is new to it.
-- **The verify skill against the code**: for each feature file the task touches in
-  `verify-<app>/features/`, `F` its last commit; the skill is stale for that feature when
-  `git log --oneline F..HEAD -- <the task's files>` lists commits, or the task's files have
-  uncommitted changes. No verify skill, or no file for a feature: note it.
+  `git log --oneline C..HEAD -- sunstack/BOARD.md sunstack/PILLARS.md sunstack/<verifier>/pillars.md sunstack/<verifier>/AGENT.md`,
+  plus uncommitted changes to those files (`git status --short -- <files>`).
+- **Code that may have outrun the verify skill**: for each feature file the task touches in
+  `verify-<app>/features/`, with `F` its last commit, `git log --oneline F..HEAD -- <the task's files>`
+  and uncommitted changes to them. Changed code means "check this feature's instructions", not
+  that they are wrong.
 
-Each finding is one line under `Verifier freshness:` in the brief's Context, or `fresh`.
+No repository, no commit for `C` or `F`, no verify skill or no file for a feature: say
+`unknown` for that line. Each finding is one line under `Verifier freshness:` in the brief's
+Context; `fresh` only when every check ran and found nothing.
 
 ## 5. Send the task
 
@@ -164,10 +168,11 @@ verification task itself is not verified again.
 
 For the agent that received a verification task. Do not run the steps above.
 
-0. **Catch up first.** For each line under `Verifier freshness:`: align with the directive
-   (save skill), read the changed rules and objectives and update the standing requirements in
-   your context, and refresh the stale feature files of the verify skill and run them once.
-   Report what you refreshed. Do this even when the brief says `fresh` but you notice drift.
+0. **Catch up first.** For each line under `Verifier freshness:` (and any drift you notice
+   yourself): align with the directive (save skill), and reread the changed rules, objectives
+   and your AGENT.md; save only new lasting decisions, not copies of the rules. Feature lines
+   are checked in step 2: read the feature file and fix only what really drifted. Report what
+   you caught up on.
 1. **Requirements first.** Take the brief's list, check it against its sources and the
    authority rule, and add what it missed, marked as added by you. Verify this task only.
 2. **The verify skill.** For a task that changes something a user runs, use the project's
