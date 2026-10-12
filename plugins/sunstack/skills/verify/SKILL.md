@@ -42,8 +42,9 @@ Verify one task, the one being worked on now, never the team's backlog:
   user's requirements with a `question` message (message skill), or ask the user. Never ask for
   its token.
 
-Note the task ID, its owner, and the delivery's identity: the commit, plus the uncommitted
-files when the tree is dirty. When several tasks could be meant, or none, ask once; do not
+Note the task's message ID (a conversation-only task has none), its owner, and the delivery's
+identity: the commit, plus, when the tree is dirty, the uncommitted files and a fingerprint of
+their diff (`git diff HEAD -- <files> | shasum`). When several tasks could be meant, or none, ask once; do not
 fall back to old Done entries.
 
 ## 2. Gather the requirements
@@ -94,8 +95,8 @@ the template it will use. When the verifier needs a new session, plan it on the 
 Write the brief to a file in this session's scratch or temporary folder:
 
 ```text
-Goal: Check task <task ID> against the user's requirements below, the way the user would before accepting it.
-Scope: Verify <the task's files and behavior> at <commit> plus <uncommitted files, if any>. You may write the project's verify skill, your own run and evidence folder, and your own Sunstack state. Product code, other agents' state and the user's live data stay read-only.
+Goal: Check <the product task: its message ID, or a one-line description> against the user's requirements below, the way the user would before accepting it.
+Scope: Verify <the task's files and behavior> at <commit> plus <uncommitted files and diff fingerprint, if any>. You may write the project's verify skill, your own run and evidence folder, and your own Sunstack state. Product code, other agents' state and the user's live data stay read-only.
 Done when:
   - every requirement below has a verdict: met, partly, not met, changed, pending or unverifiable
   - each verdict says how it was checked (live, tests or read) and where its evidence is
@@ -108,7 +109,7 @@ Context:
   Standing requirements that apply:
     - "<quote>" (<source>, <speaker>)
   Sources: <paths read; sources that could not be reached>
-Not: Fixing what you find. Sends, deployments, spending or destructive actions.
+Not: Fixing what you find. Real sends from the app (mail, posts, payments), deployments, spending or destructive actions. Sunstack messages to the requester are fine.
 ```
 
 Show the requirements, the recipient (and a hire or spawn, if any) and the brief together, and
@@ -123,12 +124,13 @@ The verifier replies `done`. Read every line, not the counts.
 
 - **Accepted** only when every requirement is `met`, or `changed` with the user's agreement
   cited, nothing is `pending`, and the delivery's identity still matches what was tested. If
-  files changed since, the affected verdicts are stale: verify those again.
+  files changed since (a new commit or a different diff fingerprint), the affected verdicts are
+  stale: verify those again.
 - **Accepted**: the owner records it at its next save, `(verified: <counts> by <verifier> @ <commit>)`
   on the Done entry, and may then send its own `done` reply for the task.
 - **Not met, partly or unasked changes**: show them to the user. The fix goes to the owner as a
-  task with `--follows <the original task ID>`, quoting the failed requirements and the
-  verifier's lines. Verify again after it. After two failed rounds, stop and ask the user.
+  task, with `--follows <the product task's message ID>` when it has one, otherwise carrying the
+  original scope and context; it quotes the failed requirements and the verifier's lines. Verify again after it. After two failed rounds, stop and ask the user.
 - **Pending or unverifiable**: tell the user which answer or prerequisite is missing, with the
   ask's owner (`<agent>#Q<n>`).
 
@@ -169,6 +171,8 @@ For the agent that received a verification task. Do not run the steps above.
 5. **Map or product.** Where the verify skill describes the app wrongly, fix the skill. Where
    the app breaks an agreed requirement, report it and keep the requirement: never rewrite the
    map to match a regression. Edit nothing outside the brief's Scope.
-6. **Reply** with a `done` message (`--reply-to <task ID>`, message skill) in the brief's Report shape, with the identity you tested
-   (commit, uncommitted files, build or config when relevant) and
+6. **Reply** with a `done` message to the verification task you received
+   (`--reply-to <its message ID>`, never the product task's; message skill) in the brief's
+   Report shape, with the identity you tested (commit, diff fingerprint, build or config when
+   relevant) and
    `verified: <n> met, <n> partly, <n> not met, <n> changed, <n> pending, <n> unverifiable by <your id>`.
