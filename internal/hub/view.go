@@ -145,7 +145,8 @@ func loadSnap(c *Config, id string, now time.Time, hv *HostView) {
 }
 
 // cleanJSON makes terminal control characters in every string of another
-// host's JSON visible, so its text cannot drive this terminal.
+// host's JSON visible, so its text cannot drive this terminal, and drops
+// its nulls.
 func cleanJSON(raw []byte) []byte {
 	var v any
 	if json.Unmarshal(raw, &v) != nil {
@@ -157,12 +158,22 @@ func cleanJSON(raw []byte) []byte {
 		case string:
 			return core.VisibleControls(t)
 		case []any:
-			for i := range t {
-				t[i] = clean(t[i])
+			// A null entry would be a nil pointer for every view that walks
+			// the list: drop it.
+			out := t[:0]
+			for _, e := range t {
+				if e != nil {
+					out = append(out, clean(e))
+				}
 			}
+			return out
 		case map[string]any:
-			for k := range t {
-				t[k] = clean(t[k])
+			for k, e := range t {
+				if e == nil {
+					delete(t, k)
+				} else {
+					t[k] = clean(e)
+				}
 			}
 		}
 		return v

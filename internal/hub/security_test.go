@@ -314,3 +314,24 @@ func TestRosterNameControls(t *testing.T) {
 		t.Errorf("org keys printed a control sequence: %q", s)
 	}
 }
+
+// A peer's snapshot with null entries loads without them, so the views
+// that walk it cannot crash.
+func TestSnapshotNulls(t *testing.T) {
+	t.Setenv("SUNSTACK_HOME", t.TempDir())
+	os.MkdirAll(remoteDir(), 0o700)
+	if err := saveSnap(&Snap{Host: "aaaaaaaaaaaaaaaa", Snapshot: json.RawMessage(`{"schema":1,"teams":[null,{"name":"t","agents":[null]}],"sessions":[null]}`)}, stamp(time.Now())); err != nil {
+		t.Fatal(err)
+	}
+	hv := &HostView{}
+	loadSnap(&Config{}, "aaaaaaaaaaaaaaaa", time.Now(), hv)
+	if hv.Org == nil {
+		t.Fatal("no snapshot loaded")
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			t.Errorf("a null entry crashed the view: %v", r)
+		}
+	}()
+	OrgCounts(hv.Org)
+}
