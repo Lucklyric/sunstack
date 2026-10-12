@@ -8,6 +8,10 @@ description: Start a Claude Code or Codex session as a Sunstack agent, or a free
 ## Rules
 
 - If there is no Sunstack team here (no `sunstack/PROTOCOL.md` in this folder or above), say so in one line and stop; the checkup skill sets one up.
+- Act only on the team of the folder this session works in. Work for another team is delegated:
+  send it to the agent or session there that owns the work, else its lead (`<team>/<id>`,
+  message skill), and stop. Hiring, firing, spawning, dismissing, directing or briefing in
+  another team yourself needs the user's explicit yes first.
 - Run every `sunstack` command on its own, with nothing chained after it.
 - Starting a session starts a paid model session: confirm with the user every time (agent,
   tool, task label, first instruction). Closing one needs a confirm too. The one exception is

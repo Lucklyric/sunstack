@@ -15,6 +15,10 @@ context.
 ## Rules
 
 - Run every `sunstack` command on its own, with nothing chained after it.
+- Act only on the team of the folder this session works in. Work for another team is delegated:
+  send it to the agent or session there that owns the work, else its lead (`<team>/<id>`,
+  message skill), and stop. Hiring, firing, spawning, dismissing, directing or briefing in
+  another team yourself needs the user's explicit yes first.
 - If the shell says `sunstack` is not found, tell the user to install it
   (`curl -fsSL https://raw.githubusercontent.com/Lucklyric/sunstack/main/install.sh | sh`,
   then `sunstack install`) and stop. If there is no `sunstack/` folder, offer `sunstack init`
