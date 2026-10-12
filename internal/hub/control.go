@@ -212,14 +212,30 @@ var handlers = map[string]func(from, id string, args json.RawMessage) (any, erro
 	"update": updateHandler,
 }
 
+// maxRequestTTL is the longest a request may stay valid; Sunstack's own
+// requests use at most 10 minutes.
+const maxRequestTTL = 15 * time.Minute
+
+func notAllowed(name, kind string) error {
+	return errors.New("not allowed: the user on this host has not run sunstack org allow " + name + " " + kind)
+}
+
 // takeRequest records a request, then queues it for the worker. A request
 // seen before gets its recorded reply again; it is never run twice.
 func takeRequest(m *Mail, pin *Pin, l *Letter) (string, string, bool) {
 	var c Control
 	_ = json.Unmarshal([]byte(l.Body), &c)
 	exp, ok := parseStamp(c.Expires)
-	if !ok || time.Now().After(exp.Add(skew)) {
+	switch {
+	case !ok || time.Now().After(exp.Add(skew)):
 		return "refused", "the request expired", true
+	case exp.After(time.Now().Add(maxRequestTTL + skew)):
+		return "refused", "the request stays valid too long", true
+	case !Allowed(m.FromHost, l.Type):
+		// Answered at once: an ungranted request takes no journal entry
+		// and no worker slot.
+		reply(m, pin, l.Type, nil, notAllowed(pin.Name, l.Type))
+		return "delivered", "", true
 	}
 	sum := sha256.Sum256([]byte(l.Type + "\n" + string(c.Args)))
 	digest := hex.EncodeToString(sum[:])
@@ -259,7 +275,7 @@ func worker() {
 		var err error
 		switch h := handlers[jb.kind]; {
 		case !Allowed(jb.mail.FromHost, jb.kind):
-			err = errors.New("not allowed: the user on this host has not run sunstack org allow " + jb.from.Name + " " + jb.kind)
+			err = notAllowed(jb.from.Name, jb.kind)
 		case h == nil:
 			err = errors.New(jb.kind + " is not available on this host")
 		default:

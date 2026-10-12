@@ -207,3 +207,35 @@ func TestPinnedNameSwap(t *testing.T) {
 		t.Error("a grant to assistant would go to the host that took its name")
 	}
 }
+
+// A request without a grant is answered at once and never journaled or
+// queued; a request may not stay valid longer than the longest one Sunstack
+// sends.
+func TestRequestNeedsGrantFirst(t *testing.T) {
+	t.Setenv("SUNSTACK_HOME", t.TempDir())
+	k, _ := LoadKeys()
+	const from = "aaaaaaaaaaaaaaaa"
+	if err := saveConfig(&Config{OrgID: "o", Hub: "h", Token: "t"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := pinRoster(&Roster{Hosts: []*Host{{ID: from, Name: "laptop", Keys: k.Public()}}}); err != nil {
+		t.Fatal(err)
+	}
+	pin := loadPins()[from]
+	ask := func(exp time.Time) (string, string) {
+		body, _ := json.Marshal(Control{Expires: stamp(exp), Args: json.RawMessage(`{}`)})
+		m := &Mail{ID: core.NewMessageID("user"), FromHost: from}
+		status, msg, _ := takeRequest(m, pin, &Letter{From: "user", To: "host", Type: "peek", Body: string(body)})
+		if loadJournal()[m.ID] != nil {
+			t.Errorf("request %s (%s) was journaled", m.ID, status)
+		}
+		return status, msg
+	}
+	ask(time.Now().Add(time.Minute))
+	if _, err := Allow("laptop", []string{"peek"}); err != nil {
+		t.Fatal(err)
+	}
+	if status, _ := ask(time.Date(2100, 1, 1, 0, 0, 0, 0, time.UTC)); status != "refused" {
+		t.Errorf("a request valid until 2100: %s", status)
+	}
+}
