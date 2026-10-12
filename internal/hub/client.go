@@ -332,13 +332,23 @@ func settle(id, op, reason string) {
 	if !isFileName(id) {
 		return
 	}
+	src := filepath.Join(outboxDir(), id+".json")
 	status := "at hub"
-	if op == "refused" {
+	switch op {
+	case "refused":
 		status = "refused"
-	} else if op != "stored" {
+	case "retry":
+		// It stays queued; the reason says why it waits.
+		var s Sent
+		if readJSON(src, &s) == nil && s.Reason != reason {
+			s.Reason = reason
+			_ = writeJSON(src, &s, 0o600)
+		}
+		return
+	case "stored":
+	default:
 		return
 	}
-	src := filepath.Join(outboxDir(), id+".json")
 	dst := filepath.Join(sentDir(), id+".json")
 	var done Sent
 	if readJSON(dst, &done) == nil && (done.Status == "delivered" || done.Status == "refused") {

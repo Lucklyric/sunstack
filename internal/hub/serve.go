@@ -382,7 +382,11 @@ func (s store) pull(id string) (*frame, error) {
 // A message the hub already holds or decided gets the same answer again.
 func (s store) putMail(from string, m *Mail) frame {
 	refuse := func(reason string, final bool) frame {
-		if final && isFileName(m.ID) {
+		if !final {
+			// The sender keeps it queued and tries again.
+			return frame{Op: "retry", ID: m.ID, Reason: reason}
+		}
+		if isFileName(m.ID) {
 			_ = writeJSON(filepath.Join(s.receiptDir(from), m.ID+".json"), &Receipt{ID: m.ID, ToHost: m.ToHost, Status: "refused", Reason: reason, At: stamp(time.Now())}, 0o600)
 		}
 		return frame{Op: "refused", ID: m.ID, Reason: reason}

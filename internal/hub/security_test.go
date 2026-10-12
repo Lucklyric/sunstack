@@ -239,3 +239,31 @@ func TestRequestNeedsGrantFirst(t *testing.T) {
 		t.Errorf("a request valid until 2100: %s", status)
 	}
 }
+
+// A failure the hub expects to pass (its roster unreadable, a full queue)
+// keeps the mail in the outbox for the next try; a final refusal moves it.
+func TestTransientRefusalKeepsOutbox(t *testing.T) {
+	t.Setenv("SUNSTACK_HOME", t.TempDir())
+	s := store{dir: t.TempDir()}
+	m := &Mail{ID: core.NewMessageID("user"), FromHost: "aaaaaaaaaaaaaaaa", ToHost: "bbbbbbbbbbbbbbbb", Eph: "e", Sealed: "s", Sig: "g"}
+	f := s.putMail("aaaaaaaaaaaaaaaa", m) // no hosts.json yet
+	if f.Op != "retry" {
+		t.Fatalf("unreadable roster: %+v", f)
+	}
+	os.MkdirAll(outboxDir(), 0o700)
+	if err := writeJSON(filepath.Join(outboxDir(), m.ID+".json"), &Sent{Mail: *m, Status: "queued"}, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	settle(m.ID, f.Op, f.Reason)
+	var kept Sent
+	if readJSON(filepath.Join(outboxDir(), m.ID+".json"), &kept) != nil {
+		t.Fatal("a transient refusal removed the mail from the outbox")
+	}
+	if kept.Reason != f.Reason {
+		t.Errorf("outbox reason %q, want %q", kept.Reason, f.Reason)
+	}
+	settle(m.ID, "refused", "no such host in the org")
+	if _, err := os.Stat(filepath.Join(outboxDir(), m.ID+".json")); err == nil {
+		t.Error("a final refusal kept the mail in the outbox")
+	}
+}
