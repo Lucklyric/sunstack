@@ -40,7 +40,9 @@ Verify one task, the one being worked on now, never the team's backlog:
   conversation.
 - **The user names another session's task**: ask that session for its task ID, brief and the
   user's requirements with a `question` message (message skill), or ask the user. Never ask for
-  its token.
+  its token. When this session never heard that task's conversation, it is the wrong requester:
+  send the verification as a task to the session that set the task, or else to the team's lead
+  (`pm` role), with whatever the user settled here, and stop.
 
 Note the task's message ID (a conversation-only task has none), its owner, and the delivery's
 identity: the commit, plus, when the tree is dirty, the uncommitted files and a fingerprint of
@@ -88,7 +90,9 @@ Leave out the task's owner. Rank the rest: role fit first (`verifier`, then `rev
 `qa`), then the other CLI from the work's, then idle (`sunstack org --by agent`). When none
 fits, offer to hire one with the recruit skill (`sunstack hire verifier <name>`); recruit shows
 the template it will use. When the verifier needs a new session, plan it on the other CLI
-(`--tool codex` or `--tool claude`) if that CLI is installed; if not, say so.
+(`--tool codex` or `--tool claude`) if that CLI is installed; if not, say so. A new session
+counts against the team's `max_sessions` (`sunstack sessions`); when the team is full, put the
+choice (finish an idle session, or `--over-cap`) into the step 5 question.
 
 ### Is the verifier up to date?
 
