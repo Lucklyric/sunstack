@@ -270,9 +270,9 @@ func TestRemoteUpdate(t *testing.T) {
 	// The laptop's connector ends after queuing its reply; start it again,
 	// as the service manager would.
 	soon(t, "the update ran", func() bool {
-		// The refused request before the grant is done too: wait for both.
+		// The request before the grant was answered at once, never journaled.
 		j := readFileOr(laptop.file("remote/requests.json"))
-		return strings.Count(j, `"status": "done"`)+strings.Count(j, `"status":"done"`) == 2
+		return strings.Count(j, `"status": "done"`)+strings.Count(j, `"status":"done"`) == 1
 	})
 	// Until the old connector has exited, a new one finds it busy.
 	var logs func() string
