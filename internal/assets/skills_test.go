@@ -35,3 +35,19 @@ func TestSkillFrontmatterIsYAML(t *testing.T) {
 		}
 	}
 }
+
+// The verify skill hires from the verifier template when no agent fits.
+func TestVerifierTemplate(t *testing.T) {
+	b, ok := Template("verifier")
+	if !ok {
+		t.Fatal("no verifier template")
+	}
+	for _, want := range []string{"title: verifier", "from: verifier@" + LibraryVersion, "## Role", "## How I work", "## Context policy"} {
+		if !strings.Contains(string(b), want) {
+			t.Errorf("verifier template lacks %q", want)
+		}
+	}
+	if _, err := os.Stat("../../plugins/sunstack/skills/verify/SKILL.md"); err != nil {
+		t.Error("no verify skill")
+	}
+}
