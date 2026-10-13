@@ -11,10 +11,11 @@ archive. It needs the user's explicit approval.
 ## Rules
 
 - If there is no Sunstack team here (no `sunstack/PROTOCOL.md` in this folder or above), say so in one line and stop; the checkup skill sets one up.
-- Act only on the team of the folder this session works in. Work for another team is delegated:
-  send it to the agent or session there that owns the work, else its lead (`<team>/<id>`,
-  message skill), and stop. Hiring, firing, spawning, dismissing, directing or briefing in
-  another team yourself needs the user's explicit yes first.
+- Act only on this folder's team (its sessions on other hosts included). Work for a different
+  team is delegated: send it as a task (message skill) to its agent that owns that work, else
+  to its lead (its `pm` agent; none: ask the user), as `<team>/<id>` or `<host>:<team>/<id>`,
+  and stop. Hiring, firing, spawning, dismissing or directing in a different team yourself
+  needs the user's explicit yes first.
 - Run every `sunstack` command on its own, with nothing chained after it.
 - Ask with AskUserQuestion if you have it, otherwise as numbered options in the conversation;
   then end your turn and wait. No answer or a cancel is not approval.

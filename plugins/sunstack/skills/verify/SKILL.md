@@ -15,10 +15,11 @@ Verifier's procedure at the end of this skill, using the project's verify skill
 ## Rules
 
 - If there is no Sunstack team here (no `sunstack/PROTOCOL.md` in this folder or above), say so in one line and stop; the checkup skill sets one up.
-- Act only on the team of the folder this session works in. Work for another team is delegated:
-  send it to the agent or session there that owns the work, else its lead (`<team>/<id>`,
-  message skill), and stop. Hiring, firing, spawning, dismissing, directing or briefing in
-  another team yourself needs the user's explicit yes first.
+- Act only on this folder's team (its sessions on other hosts included). Work for a different
+  team is delegated: send it as a task (message skill) to its agent that owns that work, else
+  to its lead (its `pm` agent; none: ask the user), as `<team>/<id>` or `<host>:<team>/<id>`,
+  and stop. Hiring, firing, spawning, dismissing or directing in a different team yourself
+  needs the user's explicit yes first.
 - Run every `sunstack` command on its own, with nothing chained after it.
 - The verifier is never the task's owner. Prefer one on the other CLI: Codex for work done in
   Claude Code, and the other way round.
@@ -90,12 +91,11 @@ checkable.
 sunstack team
 ```
 
-Leave out the task's owner. Rank the rest: role fit first (`verifier`, then `reviewer` or
+Leave out the task's owner and agents of its role (the same title). Rank the rest: role fit first (`verifier`, then `reviewer` or
 `qa`), then the other CLI from the work's, then idle (`sunstack org --by agent`). When none
 fits, check whether an agent's role could take it with a small `AGENT.md` change (offer that
 first, as the recruit skill does it); otherwise offer to hire one with the recruit skill
-(`sunstack hire verifier <name>`); recruit shows
-the template it will use. When the verifier needs a new session, plan it on the other CLI
+(`sunstack hire verifier <name>`); recruit shows the template it will use. When the verifier needs a new session, plan it on the other CLI
 (`--tool codex` or `--tool claude`) if that CLI is installed; if not, say so. A new session
 counts against the team's `max_sessions` (`sunstack sessions`); when the team is full, put the
 choice (finish an idle session, or `--over-cap`) into the step 5 question.

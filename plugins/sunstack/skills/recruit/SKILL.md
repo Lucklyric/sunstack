@@ -1,6 +1,6 @@
 ---
 name: recruit
-description: Add an agent to this project's Sunstack team from a short description, by hiring from a template, copying a teammate's role, or drafting a new role for the user to approve. Use for "sunstack recruit", "/sunstack:recruit", "hire a Sunstack agent that ...", "add another researcher". Offers sunstack init when there is no team.
+description: Add an agent to this project's Sunstack team from a short description, after checking whether an existing agent, another session of it, or a small role change covers the work, by hiring from a template, copying a teammate's role, or drafting a new role for the user to approve. Use for "sunstack recruit", "/sunstack:recruit", "hire a Sunstack agent that ...", "add another researcher". Offers sunstack init when there is no team.
 ---
 
 # Sunstack: recruit
@@ -15,10 +15,11 @@ context.
 ## Rules
 
 - Run every `sunstack` command on its own, with nothing chained after it.
-- Act only on the team of the folder this session works in. Work for another team is delegated:
-  send it to the agent or session there that owns the work, else its lead (`<team>/<id>`,
-  message skill), and stop. Hiring, firing, spawning, dismissing, directing or briefing in
-  another team yourself needs the user's explicit yes first.
+- Act only on this folder's team (its sessions on other hosts included). Work for a different
+  team is delegated: send it as a task (message skill) to its agent that owns that work, else
+  to its lead (its `pm` agent; none: ask the user), as `<team>/<id>` or `<host>:<team>/<id>`,
+  and stop. Hiring, firing, spawning, dismissing or directing in a different team yourself
+  needs the user's explicit yes first.
 - If the shell says `sunstack` is not found, tell the user to install it
   (`curl -fsSL https://raw.githubusercontent.com/Lucklyric/sunstack/main/install.sh | sh`,
   then `sunstack install`) and stop. If there is no `sunstack/` folder, offer `sunstack init`
@@ -48,21 +49,23 @@ sessions at once, each on its own task, kept apart on its board by
 `(by: <session>@<host>)`. So hire last. Read the candidate's own `AGENT.md` and pillars, not
 only its line in `sunstack team`, before you judge:
 
-- **An agent's role already covers the work**: no hire. Give it the task (message skill), or
-  start another session of it (spawn skill).
+- **An agent's role already covers the work**: no hire. On the user's yes, give it the task
+  (message skill) or start another session of it (spawn skill), and stop here.
 - **An agent's role almost covers it**: propose the one or two `AGENT.md` lines that would
-  extend it, instead of a new agent. Run `sunstack snapshot "<id>" AGENT.md`, write the
-  candidate where it says, show its ID and the exact before and after, and on the user's yes
+  extend it, instead of a new agent. Run `sunstack snapshot "<id>" AGENT.md`, write the whole
+  file with its frontmatter unchanged as a new file directly in the `candidate_dir` it prints,
+  show its ID and the exact before and after, and on the user's yes
   run `sunstack amend "<id>" AGENT.md "<candidate>" "<checksum>" --summary "<one line>"` with
   that unchanged candidate. On a mismatch, snapshot again and show the change again. Do not
-  work as that agent for this. Then tell its live sessions to reread it (message skill).
+  work as that agent for this. Then send its live sessions an `fyi` to reread it (message
+  skill; this approval covers it), and stop here.
 - **Hire** only when no role fits, or the work needs separate lasting context or pillars (for
   example, checking that agent's own work). Say why in the proposal.
 
 While you look, name agents that seem no longer needed as candidates for the fire skill: no
 board entries and no sessions for weeks, or a role another agent covers with the same pillars
 and no need to stay independent (a verifier and the builder it checks stay apart). Never fire
-here. Show this judgement to the user before step 2; go on only if they still want a new agent.
+here. Show this judgment to the user before step 2; go on only if they still want a new agent.
 
 ## 2. Fill the gaps with a short Q&A
 

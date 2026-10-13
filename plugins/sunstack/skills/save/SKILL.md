@@ -116,7 +116,7 @@ For each rule change, and for any still-pending line under `## Proposals` in con
    - **exit 3 `mismatch`**: the file changed; snapshot again, redo the candidate, ask again.
 
 Never run amend without first showing the change. Change another agent's rules only when the
-user asks for it.
+user asks for it, or approves a change you showed them (the recruit skill's role extension).
 
 ## 3. Snapshot each file you will write
 
@@ -155,7 +155,8 @@ archive goes first.
   user. Rewrite the candidate and commit again with the new checksum. Give up after three
   rounds and tell the user.
 - **1 `duplicate_key`**: a key you added is already used, often by another session that added
-  one at the same time, or it is in the archive. Give your entry the key the error names,
+  one at the same time, or it is in the archive. Give your entry the new key the error suggests
+  (`give the newer entry <key>`),
   update your own references to it, and commit again.
 - **4 `busy`**: retry once. If it persists, tell the user (a leftover lock).
 - **4 `token`**: this session no longer holds the ID. Stop and tell the user.
