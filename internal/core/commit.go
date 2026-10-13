@@ -131,8 +131,9 @@ func (p *Project) readCandidate(want, path string) ([]byte, error) {
 
 // swap compares the target with the snapshot checksum and, if unchanged,
 // replaces it (or deletes it when cand is nil and del is set). Caller holds
-// the owner's lock.
-func swap(t *target, sum string, cand []byte, del bool, candDir string) error {
+// the owner's lock. check, if set, vets the candidate against the current
+// content once the checksum matches.
+func swap(t *target, sum string, cand []byte, del bool, candDir string, check func(cur []byte) error) error {
 	b, ok, err := readMaybe(t.path)
 	if err != nil {
 		return fail(ExitFail, "fs", "%v", err)
@@ -144,6 +145,11 @@ func swap(t *target, sum string, cand []byte, del bool, candDir string) error {
 		e := fail(ExitMismatch, "mismatch", "%s changed since the snapshot; merge onto the content above and try again", t.rel)
 		e.Stdout = snapshotText(cur, candDir, b)
 		return e
+	}
+	if check != nil {
+		if err := check(b); err != nil {
+			return err
+		}
 	}
 	if del {
 		if err := os.Remove(t.path); err != nil && !os.IsNotExist(err) {
@@ -191,12 +197,11 @@ func (p *Project) Commit(o CommitOptions) error {
 	if err != nil {
 		return err
 	}
+	var check func([]byte) error
 	if o.Rel == "board.md" && !o.Delete {
-		if err := p.keyClash(o.ID, t.path, cand); err != nil {
-			return err
-		}
+		check = func(cur []byte) error { return p.keyClash(o.ID, cur, cand) }
 	}
-	if err := swap(t, o.Sum, cand, o.Delete, p.sessionTmp(o.ID, o.Token)); err != nil {
+	if err := swap(t, o.Sum, cand, o.Delete, p.sessionTmp(o.ID, o.Token), check); err != nil {
 		return err
 	}
 	if !o.Delete {
@@ -251,7 +256,7 @@ func (p *Project) Amend(o AmendOptions) error {
 	if t.owner != TeamID && !p.HasAgent(o.ID) {
 		return fail(ExitFail, "not_found", "%s was removed; the approved change was not applied", o.ID)
 	}
-	if err := swap(t, o.Sum, cand, false, p.TmpDir(t.owner)); err != nil {
+	if err := swap(t, o.Sum, cand, false, p.TmpDir(t.owner), nil); err != nil {
 		return err
 	}
 	os.Remove(o.Candidate)

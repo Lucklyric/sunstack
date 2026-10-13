@@ -181,8 +181,7 @@ func keyNum(key string) int {
 // keyClash refuses a board candidate that gives two entries one key, or
 // reuses an archived key, which sessions of one agent can do when they add
 // key results or asks at the same time and merge.
-func (p *Project) keyClash(id, path string, cand []byte) error {
-	old, _, _ := readMaybe(path)
+func (p *Project) keyClash(id string, old, cand []byte) error {
 	had := map[string]int{}
 	oldItems, _ := parseBoard(id, old)
 	for _, it := range oldItems {

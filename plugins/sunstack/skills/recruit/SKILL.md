@@ -51,15 +51,17 @@ only its line in `sunstack team`, before you judge:
 - **An agent's role already covers the work**: no hire. Give it the task (message skill), or
   start another session of it (spawn skill).
 - **An agent's role almost covers it**: propose the one or two `AGENT.md` lines that would
-  extend it, instead of a new agent. Show its ID and the exact lines; on the user's yes,
-  `sunstack snapshot "<id>" AGENT.md`, write the candidate where it says, and
-  `sunstack amend "<id>" AGENT.md "<candidate>" "<checksum>" --summary "<one line>"`. Do not
+  extend it, instead of a new agent. Run `sunstack snapshot "<id>" AGENT.md`, write the
+  candidate where it says, show its ID and the exact before and after, and on the user's yes
+  run `sunstack amend "<id>" AGENT.md "<candidate>" "<checksum>" --summary "<one line>"` with
+  that unchanged candidate. On a mismatch, snapshot again and show the change again. Do not
   work as that agent for this. Then tell its live sessions to reread it (message skill).
 - **Hire** only when no role fits, or the work needs separate lasting context or pillars (for
   example, checking that agent's own work). Say why in the proposal.
 
-While you look, name agents that seem no longer needed (no board entries or sessions for
-weeks, or a role another agent covers with the same pillars) as candidates for the fire skill. Never fire here.
+While you look, name agents that seem no longer needed as candidates for the fire skill: no
+board entries and no sessions for weeks, or a role another agent covers with the same pillars
+and no need to stay independent (a verifier and the builder it checks stay apart). Never fire here.
 Show this judgement to the user before step 2; go on only if they still want a new agent.
 
 ## 2. Fill the gaps with a short Q&A

@@ -69,7 +69,8 @@ objective). Mark the one you recommend most. Options per change: do it / skip.
 ## 4. Carry out
 
 - **Another session**: follow the spawn skill.
-- **Extend a role**: as in the recruit skill (show the exact lines, then snapshot and amend).
+- **Extend a role**: as in the recruit skill (snapshot, show the exact before and after,
+  amend on a yes).
 - **Hire**: follow the recruit skill with the role you proposed as the description; it drafts
   and asks for approval of the exact `AGENT.md` before `sunstack hire`.
 - **Retire**: first have its open key results and useful context handed to the agent taking

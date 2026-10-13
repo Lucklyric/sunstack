@@ -35,4 +35,14 @@ func TestBoardKeyClash(t *testing.T) {
 	}
 	expect(t, commit(2, board+"- 2026-10-12 KR3 [O1] task a\n- 2026-10-12 KR2 [O1] task c\n"), 1, "session c reuses archived KR2")
 	expect(t, commit(2, board+"- 2026-10-12 KR3 [O1] task a\n- 2026-10-12 KR4 [O1] task c\n- 2026-10-12 Q1 ask c\n"), 0, "KR4 and Q1 are new")
+
+	// A stale snapshot is a mismatch first, never a key clash: KR1 was
+	// archived by another session after this one read the board.
+	cur := "- 2026-10-12 KR3 [O1] task a\n- 2026-10-12 KR4 [O1] task c\n- 2026-10-12 Q1 ask c\n"
+	stale := field(sumRe, sh(t, p, nil, "snapshot", "builder.alice", "board.md", "--token", toks[1]).out)
+	must(t, os.WriteFile(filepath.Join(arch, "2026-10.md"), []byte("## Done\n- 2026-10-12 KR1 [O1] old work\n"), 0o644))
+	expect(t, commit(2, "## Now\n"+cur), 0, "session c archives KR1")
+	f := filepath.Join(tmp(1), "stale.md")
+	must(t, os.WriteFile(f, []byte(board+cur+"- 2026-10-12 KR5 [O1] task b\n"), 0o644))
+	expect(t, sh(t, p, nil, "commit", "builder.alice", "board.md", f, stale, "--token", toks[1]), 3, "stale snapshot is a mismatch")
 }
