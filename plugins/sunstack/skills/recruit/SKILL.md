@@ -61,8 +61,8 @@ only its line in `sunstack team`, before you judge:
 
 While you look, name agents that seem no longer needed as candidates for the fire skill: no
 board entries and no sessions for weeks, or a role another agent covers with the same pillars
-and no need to stay independent (a verifier and the builder it checks stay apart). Never fire here.
-Show this judgement to the user before step 2; go on only if they still want a new agent.
+and no need to stay independent (a verifier and the builder it checks stay apart). Never fire
+here. Show this judgement to the user before step 2; go on only if they still want a new agent.
 
 ## 2. Fill the gaps with a short Q&A
 

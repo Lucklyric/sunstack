@@ -63,7 +63,8 @@ Look for, in this order:
 ## 3. Propose
 
 Show a short list. For each change: what (another session of `<id>`, extend `<id>`'s
-`AGENT.md`, hire `<title>.<name>`, retire `<id>`), why (the evidence), and what it would own (one or two key results under which
+`AGENT.md`, hire `<title>.<name>`, retire `<id>`), why (the evidence), and what it would own
+(one or two key results under which
 objective). Mark the one you recommend most. Options per change: do it / skip.
 
 ## 4. Carry out
