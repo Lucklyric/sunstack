@@ -60,8 +60,8 @@ and ones this session has already taken.
    - `task`: add a Now entry with the Goal as its text, the Done when criteria and
      `(by: <session>@<host>)`, and snapshot and commit `board.md` right away, as the save skill
      does, so other sessions of this agent see it and its key. Then do it inside its Scope. Stop
-     at its Timebox if one is set, and report what is done so far. Reply `done --reply-to <message id>` with what Report asks
-     for and a `verified:` line naming the checks you actually ran (`verified: none, <reason>`
+     at its Timebox if one is set, and report what is done so far. Reply
+     `done --reply-to <message id>` with what Report asks for and a `verified:` line naming the checks you actually ran (`verified: none, <reason>`
      when there was nothing to run). Put findings outside the scope in the reply as
      follow-ups; do not act on them. Keep each `Done when` criterion in the Now entry; one you
      choose not to meet stays, marked `skip: <reason>`, and the reply names it. Label every
