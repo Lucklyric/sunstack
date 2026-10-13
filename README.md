@@ -77,6 +77,7 @@ Hosts of one org connect through one always-on host, the hub, over Tailscale. Th
 - `sunstack org` and the TUI's Org and Hosts tabs show every host, with its state and the age of its last contact. Other hosts' prompts, replies and pane text never leave them.
 - `sunstack send <host>:<team>/<agent> "..."` reaches an agent on another host within seconds. A message from another host is a request: the receiving session asks you before anything consequential, and user-only commands never run from another host.
 - `sunstack hub revoke <host>` cuts a host off at once.
+- A machine that must never reach your home network (a cloud server, say) can be a managed host instead. It runs no connector and no Tailscale: the hub pulls it over SSH every 30 seconds with its own key, which the machine limits to one sunstack command. On the hub: `sunstack hub manage <name> --ssh <alias>` prints a line to run on that machine, then run it once more. Other hosts see it, message it, peek and spawn there under its own grants. What it sends goes out only as replies to what it got; anything else waits on the hub (`sunstack hub held`).
 
 ## Keeping work honest
 

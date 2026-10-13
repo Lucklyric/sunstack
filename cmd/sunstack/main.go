@@ -146,6 +146,10 @@ Hosts (an org: several hosts connected through one hub, over Tailscale):
   sunstack hub init <org name>                    make this host the hub of a new org
   sunstack hub invite [--read-only]               a one-time join code for another host (10 minutes)
   sunstack hub revoke <name>                      remove a host; its connections end; init, invite, revoke are user-only
+  sunstack hub manage <name> --ssh <alias>        add a managed host the hub pulls over SSH (user only)
+  sunstack hub held [--release ID|--drop ID]      mail held from managed hosts (user only)
+  sunstack org managed --org ID --org-name NAME --hub ID --hub-key KEY
+                                                  make this host a managed host (the line hub manage prints)
   sunstack hub hosts [--json]                     the hosts of the org, on the hub
   sunstack hub connect [--install|--uninstall]    keep one connection to the hub open (--install: as a service)
 
@@ -1261,7 +1265,7 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 		return nil
 
 	case "org":
-		if len(rest) > 0 && (rest[0] == "join" || rest[0] == "leave" || rest[0] == "keys" || rest[0] == "trust" || rest[0] == "allow" || rest[0] == "deny" || rest[0] == "update") {
+		if len(rest) > 0 && (rest[0] == "join" || rest[0] == "leave" || rest[0] == "keys" || rest[0] == "trust" || rest[0] == "allow" || rest[0] == "deny" || rest[0] == "update" || rest[0] == "managed" || rest[0] == "managed-serve") {
 			return orgMembership(rest, stdin, stdout)
 		}
 		a, err := parse(rest, "by", "attention json refresh")
@@ -1281,9 +1285,12 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 			view = "attention"
 		}
 		if a.has("refresh") {
+			if err := hub.RefuseManaged("is refreshed by the hub's pulls"); err != nil {
+				return err
+			}
 			if err := hub.PushOnce(); err != nil {
 				fmt.Fprintf(stderr, "sunstack: hub not reached: %v\n", err)
-			} else if _, err := hub.PullOnce(); err != nil {
+			} else if _, err := hub.RefreshOnce(); err != nil {
 				fmt.Fprintf(stderr, "sunstack: hub not reached: %v\n", err)
 			}
 		}

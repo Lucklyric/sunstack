@@ -77,6 +77,8 @@ func (p PublicKeys) Fingerprint() string {
 	return s[0:4] + "-" + s[4:8] + "-" + s[8:12] + "-" + s[12:16]
 }
 
+func (p PublicKeys) equal(o PublicKeys) bool { return p.Seal == o.Seal && p.Sign == o.Sign }
+
 func (p PublicKeys) valid() bool {
 	a, err1 := base64.StdEncoding.DecodeString(p.Seal)
 	b, err2 := base64.StdEncoding.DecodeString(p.Sign)
@@ -137,7 +139,11 @@ func seal(k *Keys, to PublicKeys, m *Mail, l *Letter) error {
 }
 
 func signed(m *Mail) []byte {
-	return []byte(m.ID + "|" + m.FromHost + "|" + m.ToHost + "|" + m.Eph + "|" + m.Sealed)
+	s := m.ID + "|" + m.FromHost + "|" + m.ToHost + "|" + m.Eph + "|" + m.Sealed
+	if m.InReply != "" {
+		s += "|" + m.InReply
+	}
+	return []byte(s)
 }
 
 // open checks the sender's signature against its pinned key and decrypts.

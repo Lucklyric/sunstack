@@ -176,6 +176,11 @@ func (p *Project) Spawn(o SpawnOptions) (*SpawnResult, error) {
 		so := SendOptions{To: name, Body: o.Brief, Type: "task", NoNudge: true, Via: o.Via, FromSession: o.FromSession}
 		if o.FromHost != "" {
 			so.FromLabel, so.FromHost = o.FromHost+":user", o.FromHost
+			// The brief takes the spawn request's ID, so its reply answers
+			// an ID the asking host sent (§25.5).
+			if IsMessageID(o.Request) {
+				so.ID = o.Request
+			}
 		}
 		if _, err := p.Send(so); err != nil {
 			p.removeLive(l)

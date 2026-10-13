@@ -16,6 +16,7 @@ type HostView struct {
 	ID, Name    string
 	Hub, You    bool
 	CanSend     bool
+	Managed     bool          // pulled by the hub over SSH (§25)
 	Waiting     int           // mail waiting for it on the hub
 	State       string        // live, stale, offline, not synced yet; the own host is live
 	ContactAge  time.Duration // since the hub last heard from it
@@ -74,7 +75,7 @@ func LoadView(now time.Time) *OrgView {
 		since = 0
 	}
 	for _, h := range r.Hosts {
-		hv := &HostView{ID: h.ID, Name: h.Name, Hub: h.Hub, You: h.ID == me, CanSend: h.CanSend, Waiting: h.Waiting, State: "not synced yet", Version: h.Version, Machine: h.Machine}
+		hv := &HostView{ID: h.ID, Name: h.Name, Hub: h.Hub, You: h.ID == me, CanSend: h.CanSend, Managed: h.Managed, Waiting: h.Waiting, State: "not synced yet", Version: h.Version, Machine: h.Machine}
 		if !hv.You {
 			hv.SSH = core.SSHLine(h.ID)
 		}
@@ -92,6 +93,9 @@ func LoadView(now time.Time) *OrgView {
 		if t, ok := parseStamp(h.Contact); ok {
 			hv.ContactAge = clampAge(hubTime.Sub(t) + since)
 			hv.State = stateOf(hv.ContactAge)
+			if h.Managed && hv.State == "stale" && hv.ContactAge < managedLiveFor {
+				hv.State = "live" // pulled every 30 seconds (§25.4)
+			}
 		}
 		if hv.You {
 			hv.State, hv.ContactAge = "live", 0
@@ -241,6 +245,9 @@ func (h *HostView) Label() string {
 		return name + " (this host)"
 	case h.State == "not synced yet":
 		return name + " (not synced yet)"
+	}
+	if h.Managed {
+		return fmt.Sprintf("%s (managed, %s, %s)", name, h.State, Age(h.ContactAge))
 	}
 	return fmt.Sprintf("%s (%s, %s)", name, h.State, Age(h.ContactAge))
 }

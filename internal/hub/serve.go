@@ -46,6 +46,9 @@ type Hello struct {
 	Version string `json:"version"`
 	HostID  string `json:"host_id"`
 	Name    string `json:"name"`
+	// A managed host's hello (§25.4) also carries these.
+	Machine string      `json:"machine,omitempty"`
+	Keys    *PublicKeys `json:"keys,omitempty"`
 }
 
 // pollEvery is how often a watch stream looks at the hub's files.
@@ -314,6 +317,9 @@ func (sv *Server) push(w http.ResponseWriter, r *http.Request, h *Host) {
 }
 
 func (sv *Server) pull(w http.ResponseWriter, r *http.Request, h *Host) {
+	if r.URL.Query().Get("refresh") == "1" {
+		sv.s.refreshManaged(12 * time.Second)
+	}
 	f, err := sv.s.pull(h.ID)
 	if err != nil {
 		httpError(w, http.StatusInternalServerError, err.Error())
@@ -411,7 +417,7 @@ func (s store) putMail(from string, m *Mail) frame {
 		return refuse("this host is not in the org", false)
 	case m.FromHost != sender.ID:
 		return refuse("the message names another sending host", true)
-	case !sender.CanSend:
+	case !sender.CanSend && !sender.Managed: // a managed host's mail comes through putManaged's reply check
 		return refuse("this host may not send (the hub's user runs sunstack hub revoke, then hub invite without --read-only, and this host joins again)", true)
 	case to == nil:
 		return refuse("no such host in the org", true)
@@ -433,6 +439,9 @@ func (s store) putMail(from string, m *Mail) frame {
 	}
 	if err := writeFile(path, append(b, '\n'), 0o600); err != nil {
 		return refuse("hub could not store the message", false)
+	}
+	if to.Managed {
+		wakeManaged()
 	}
 	return frame{Op: "stored", ID: m.ID}
 }

@@ -92,6 +92,9 @@ func main() {
 			fmt.Fprintln(os.Stderr, "Control socket connect: No such file or directory")
 			os.Exit(255)
 		}
+		if managedLogin(args) {
+			return
+		}
 		switch os.Getenv("SUNSTACK_TEST_SSH_LOGIN") {
 		case "denied":
 			fmt.Fprintln(os.Stderr, "user@host: Permission denied (publickey).")
@@ -234,4 +237,69 @@ func interactive(tool string, args []string) {
 		}
 		draw()
 	}
+}
+
+// managedLogin plays sshd for a managed host (design §25): the login's
+// host maps, in SUNSTACK_TEST_SSH_MANAGED, to a file of that host's
+// environment. The key given with -i must be in that host's
+// authorized_keys, and its forced command runs with a bare PATH, as sshd
+// runs it. It reports false when the host is not a managed one.
+func managedLogin(args []string) bool {
+	var hosts map[string]string
+	if json.Unmarshal([]byte(os.Getenv("SUNSTACK_TEST_SSH_MANAGED")), &hosts) != nil || len(args) == 0 {
+		return false
+	}
+	target := args[len(args)-1]
+	if _, h, ok := strings.Cut(target, "@"); ok {
+		target = h
+	}
+	envFile, ok := hosts[target]
+	if !ok {
+		return false
+	}
+	b, _ := os.ReadFile(envFile)
+	env := []string{"PATH=/usr/bin:/bin"}
+	home := ""
+	for _, l := range strings.Split(string(b), "\n") {
+		if k, v, ok := strings.Cut(l, "="); ok {
+			env = append(env, l)
+			if k == "HOME" {
+				home = v
+			}
+		}
+	}
+	key := ""
+	for i, a := range args {
+		if a == "-i" && i+1 < len(args) {
+			key = args[i+1]
+		}
+	}
+	pub, _ := os.ReadFile(key + ".pub")
+	f := strings.Fields(string(pub))
+	auth, _ := os.ReadFile(filepath.Join(home, ".ssh", "authorized_keys"))
+	for _, line := range strings.Split(string(auth), "\n") {
+		if len(f) < 2 || !strings.Contains(line, f[1]) {
+			continue
+		}
+		_, rest, ok := strings.Cut(line, `command="`)
+		if !ok {
+			fmt.Println("a login shell")
+			return true
+		}
+		command, _, _ := strings.Cut(rest, `"`)
+		parts := strings.Fields(command)
+		cmd := exec.Command(parts[0], parts[1:]...)
+		cmd.Env, cmd.Dir = env, home
+		cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
+		if err := cmd.Run(); err != nil {
+			if e, ok := err.(*exec.ExitError); ok {
+				os.Exit(e.ExitCode())
+			}
+			os.Exit(255)
+		}
+		return true
+	}
+	fmt.Fprintln(os.Stderr, "user@"+target+": Permission denied (publickey).")
+	os.Exit(255)
+	return true
 }

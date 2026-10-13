@@ -131,6 +131,11 @@ teams and sessions, `sunstack hub hosts` on the hub for its version and machine 
   refuses an action (`user_only`, a missing grant, a read-only host), tell the user and let them
   run it or grant it. Do not do the same thing over SSH. `sunstack ssh check`, `start` and
   `stop`, `org allow` and `deny`, and `org update` stay the user's to run, here and over SSH.
+- **A managed host** (`(managed, …)` in `sunstack org --by host`) is pulled by the hub over
+  SSH and never connects out. Work there goes only through sunstack (messages, and the user's
+  peek, spawn and update under its grants), never over SSH, even where the start-work rule
+  above would allow it. On a managed host itself, `send` to another host takes only replies
+  (`--reply-to` a message from that host); anything else is refused with `managed_host`.
 - Over SSH, run that host's own `sunstack` for its view instead of reading its files directly.
   Never print secrets. Copy secret files only with the user's approval, and never show their
   contents.

@@ -64,6 +64,7 @@ func Connect(logw io.Writer) error {
 			return err
 		}
 		fmt.Fprintf(logw, "%s hub listening on %s\n", stamp(time.Now()), l.Addr())
+		go pullLoop(c, logw) // §25.4
 		go func() {
 			if err := sv.Serve(l); err != nil {
 				fmt.Fprintf(logw, "%s hub listener stopped: %v\n", stamp(time.Now()), err)

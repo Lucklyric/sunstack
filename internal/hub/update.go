@@ -38,7 +38,7 @@ func updateHandler(_, _ string, raw json.RawMessage) (any, error) {
 	if json.Unmarshal(raw, &a) != nil {
 		return nil, errors.New("bad update request")
 	}
-	if os.Getenv("SUNSTACK_SERVICE") == "" {
+	if os.Getenv("SUNSTACK_SERVICE") == "" && !pulling() {
 		return nil, errors.New("update it by hand: its connector runs without a service to restart it")
 	}
 	if a.Version != "" && setup.Older(a.Version, Version) {
@@ -72,7 +72,8 @@ func updateHandler(_, _ string, raw json.RawMessage) (any, error) {
 			to = f[1]
 		}
 	}
-	restartAfterReply.Store(true)
+	// A managed host's next pull runs the new binary; nothing to restart.
+	restartAfterReply.Store(!pulling())
 	return UpdateResult{From: Version, To: to}, nil
 }
 

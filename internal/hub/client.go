@@ -88,6 +88,10 @@ func joined() (*Config, *client, error) {
 	if c == nil {
 		return nil, nil, failErr("no_org", "this host is in no org (sunstack org join <hub> --code <code>)")
 	}
+	if c.IsManaged() {
+		// Every call to the hub goes through here; a managed host makes none.
+		return nil, nil, managedErr("never connects to the hub")
+	}
 	return c, &client{c: c}, nil
 }
 
@@ -141,12 +145,17 @@ func PushOnce() error {
 
 // PullOnce fetches the roster and the other hosts' snapshots in one call and
 // stores them in ~/.sunstack/remote/.
-func PullOnce() (*Roster, error) {
+func PullOnce() (*Roster, error) { return pull("/v1/pull") }
+
+// RefreshOnce is PullOnce after the hub pulled its managed hosts (§25.6).
+func RefreshOnce() (*Roster, error) { return pull("/v1/pull?refresh=1") }
+
+func pull(path string) (*Roster, error) {
 	_, cl, err := joined()
 	if err != nil {
 		return nil, err
 	}
-	f, err := cl.call("GET", "/v1/pull", nil)
+	f, err := cl.call("GET", path, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -220,6 +229,11 @@ type Sent struct {
 // (§18.8, §19.4). to is "<host>:<address>"; from is "user" or
 // "<team>/<agent>".
 func Queue(to, from, typ, body, replyTo string) (*Sent, error) {
+	if replyTo == "" {
+		if err := RefuseManaged("sends to another host only a reply to a message it got from that host"); err != nil {
+			return nil, err
+		}
+	}
 	hostName, addr, ok := SplitAddress(to)
 	if !ok {
 		return nil, usageErr("address another host as <host>:<team>/<agent>[_task] or <host>:<session ID>")
@@ -287,6 +301,13 @@ func queueTo(id, name string, l *Letter, keep bool) (*Sent, error) {
 		return nil, err
 	}
 	m := Mail{ID: core.NewMessageID(l.From), FromHost: me.ID, ToHost: id}
+	if c, _ := LoadConfig(); c.IsManaged() {
+		// §25.5: a managed host only answers what it got from that host.
+		if !importedFrom(l.ReplyTo, id) {
+			return nil, managedErr("sends to another host only a reply to a message it got from that host")
+		}
+		m.InReply = l.ReplyTo
+	}
 	if err := seal(keys, pin.Keys, &m, l); err != nil {
 		return nil, err
 	}
@@ -429,6 +450,9 @@ func Deliver(m *Mail) (status, reason string, final bool) {
 	if err != nil {
 		return "refused", err.Error(), true
 	}
+	if m.InReply != "" && l.ReplyTo != m.InReply {
+		return "refused", "the letter answers another message than its envelope says", true
+	}
 	if isControl(l.Type) {
 		// §20.3: never put in an inbox.
 		if err := checkControl(l); err != nil {
@@ -437,10 +461,16 @@ func Deliver(m *Mail) (status, reason string, final bool) {
 		if isReply(l.Type) {
 			return takeReply(m, l)
 		}
+		if err := noteImported(m); err != nil {
+			return "", err.Error(), false
+		}
 		return takeRequest(m, pin, l)
 	}
 	if err := checkLetter(l); err != nil {
 		return "refused", err.Error(), true
+	}
+	if err := noteImported(m); err != nil {
+		return "", err.Error(), false
 	}
 	sum := sha256.Sum256([]byte(m.ID))
 	opts := core.SendOptions{

@@ -56,10 +56,16 @@ type Config struct {
 	HubID   string `json:"hub_id"`           // the hub's host ID
 	Token   string `json:"token"`            // this host's token
 	Listen  string `json:"listen,omitempty"` // on the hub: the address to listen on (default: its tailnet address)
+	// A managed host (§25) has no hub address and no token: the hub pulls it.
+	Mode string `json:"mode,omitempty"` // "managed", or empty
+	Path string `json:"path,omitempty"` // a managed host's PATH, restored for the hub's pulls
 }
 
 // IsHub reports whether this host is the org's hub.
 func (c *Config) IsHub() bool { return c.Hub == LocalHub }
+
+// IsManaged reports whether this host is a managed host (§25).
+func (c *Config) IsManaged() bool { return c != nil && c.Mode == ManagedMode }
 
 func configPath() string { return filepath.Join(core.Home(), "org.json") }
 
@@ -74,7 +80,8 @@ func LoadConfig() (*Config, error) {
 		return nil, err
 	}
 	var c Config
-	if err := json.Unmarshal(b, &c); err != nil || c.OrgID == "" || c.Hub == "" || c.Token == "" {
+	if err := json.Unmarshal(b, &c); err != nil || c.OrgID == "" ||
+		(c.IsManaged() && c.HubID == "") || (!c.IsManaged() && (c.Hub == "" || c.Token == "")) {
 		return nil, fmt.Errorf("%s is not a valid org file", configPath())
 	}
 	return &c, nil
@@ -117,16 +124,18 @@ type Host struct {
 	Hub     bool       `json:"hub,omitempty"`
 	Version string     `json:"version,omitempty"` // the sunstack it last reported (§20.6)
 	Machine string     `json:"machine,omitempty"` // its machine's host name, when it reported one
+	Managed bool       `json:"managed,omitempty"` // pulled by the hub over SSH (§25)
 	// Kept on the hub only, never sent: the token's hash and the tailnet
-	// address the host joined from.
+	// address the host joined from, or a managed host's SSH alias.
 	TokenHash string `json:"token_hash,omitempty"`
 	IP        string `json:"ip,omitempty"`
+	SSH       string `json:"ssh,omitempty"`
 }
 
 // public is the host as other hosts see it.
 func (h *Host) public() *Host {
 	c := *h
-	c.TokenHash, c.IP = "", ""
+	c.TokenHash, c.IP, c.SSH = "", "", ""
 	return &c
 }
 
@@ -268,7 +277,10 @@ type Mail struct {
 	ToHost   string `json:"to_host"`   // host ID
 	Eph      string `json:"eph"`       // the sender's one-time X25519 key
 	Sealed   string `json:"sealed"`    // the letter, AES-256-GCM
-	Sig      string `json:"sig"`       // Ed25519 over id, hosts, eph and sealed
+	Sig      string `json:"sig"`       // Ed25519 over id, hosts, eph and sealed, and in_reply when set
+	// InReply is the message a managed host's envelope answers (§25.5), so
+	// the hub can check it without opening the letter.
+	InReply string `json:"in_reply,omitempty"`
 }
 
 // Receipt is the final outcome of a message.

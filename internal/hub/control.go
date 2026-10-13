@@ -77,9 +77,12 @@ func Request(hostName, kind string, args any, ttl time.Duration) (string, error)
 	if !slices.Contains(ControlKinds, kind) {
 		return "", usageErr("unknown request %s", kind)
 	}
+	if err := RefuseManaged("asks no other host to " + kind); err != nil {
+		return "", err
+	}
 	// Its reply goes through the hub's can_send check (§20.3).
 	if r := cachedHosts(); r != nil {
-		if h := r.byName(hostName); h != nil && !h.CanSend {
+		if h := r.byName(hostName); h != nil && !h.CanSend && !h.Managed {
 			return "", failErr("read_only", "%s is read-only in the org, so it cannot answer requests; on the hub, revoke it and invite it again without --read-only", h.Name)
 		}
 	}
@@ -242,6 +245,12 @@ func takeRequest(m *Mail, pin *Pin, l *Letter) (string, string, bool) {
 	digest := hex.EncodeToString(sum[:])
 	journalMu.Lock()
 	j := loadJournal()
+	if e := j[m.ID]; e == nil && pulling() &&
+		(time.Now().After(pullDeadline) || pullUpdated > 0 || (l.Type == "update" && pullRequests > 0)) {
+		// §25.4: not in this pull; the hub keeps it for the next.
+		journalMu.Unlock()
+		return "", "left for the next pull", false
+	}
 	if e := j[m.ID]; e != nil {
 		journalMu.Unlock()
 		if e.Digest == digest && e.Reply != nil {
@@ -255,12 +264,24 @@ func takeRequest(m *Mail, pin *Pin, l *Letter) (string, string, bool) {
 	if err != nil {
 		return "", err.Error(), false
 	}
+	jb := job{mail: m, from: pin, kind: l.Type, args: c.Args, expires: exp}
+	if pulling() {
+		// A managed host has no worker that outlives the pull: run it now.
+		pullRequests++
+		if l.Type == "update" {
+			pullUpdated++
+		}
+		setStatus(m.ID, "running", nil)
+		res, err := runJob(jb)
+		reply(m, pin, l.Type, res, err)
+		return "delivered", "", true
+	}
 	jobsOnce.Do(func() {
 		jobs = make(chan job, 8)
 		go worker()
 	})
 	select {
-	case jobs <- job{mail: m, from: pin, kind: l.Type, args: c.Args, expires: exp}:
+	case jobs <- jb:
 	default:
 		reply(m, pin, l.Type, nil, errors.New("this host is busy with other requests; try again"))
 	}

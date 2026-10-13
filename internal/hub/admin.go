@@ -32,6 +32,9 @@ func hubConfig() (*Config, store, error) {
 	if err != nil {
 		return nil, store{}, failErr("org", "%v", err)
 	}
+	if c.IsManaged() {
+		return nil, store{}, managedErr("cannot act as the hub")
+	}
 	if c == nil || !c.IsHub() {
 		return nil, store{}, failErr("not_hub", "this host is not an org hub (sunstack hub init creates one)")
 	}
@@ -48,6 +51,8 @@ func Init(name string) (*Config, error) {
 	}
 	if c, err := LoadConfig(); err != nil {
 		return nil, failErr("org", "%v", err)
+	} else if c.IsManaged() {
+		return nil, managedErr("cannot be a hub")
 	} else if c != nil {
 		return nil, failErr("org", "this host is already in org %s (sunstack org leave first)", c.OrgName)
 	}
@@ -113,11 +118,11 @@ func (s store) inviteFile(code string) string {
 }
 
 // Revoke removes a host: its token, snapshot and mail. Its open stream ends
-// at the next check (§19.3).
-func Revoke(name string) error {
+// at the next check (§19.3); a managed host is not pulled again (§25.3).
+func Revoke(name string) (*Host, error) {
 	_, s, err := hubConfig()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	var gone *Host
 	err = s.withRoster(func(r *Roster) error {
@@ -139,13 +144,14 @@ func Revoke(name string) error {
 		return nil
 	})
 	if err != nil {
-		return err
+		return nil, err
 	}
 	os.Remove(s.snapFile(gone.ID))
 	os.Remove(s.seenFile(gone.ID))
 	os.RemoveAll(s.mailDir(gone.ID))
 	os.RemoveAll(s.receiptDir(gone.ID))
-	return nil
+	os.RemoveAll(s.managedDir(gone.ID))
+	return gone, nil
 }
 
 // Hosts lists the roster with contact times and waiting mail.
@@ -192,6 +198,8 @@ func HubURL(target string) (string, error) {
 func Join(target, code string) (*Config, error) {
 	if c, err := LoadConfig(); err != nil {
 		return nil, failErr("org", "%v", err)
+	} else if c.IsManaged() {
+		return nil, managedErr("never joins an org itself")
 	} else if c != nil {
 		return nil, failErr("org", "this host is already in org %s (sunstack org leave first)", c.OrgName)
 	}
@@ -245,6 +253,11 @@ func Leave() error {
 	}
 	if c.IsHub() {
 		return failErr("hub", "the hub cannot leave its own org")
+	}
+	if c.IsManaged() {
+		if err := setHubKey(""); err != nil {
+			return err
+		}
 	}
 	os.RemoveAll(remoteDir())
 	os.RemoveAll(outboxDir())

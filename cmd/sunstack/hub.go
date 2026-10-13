@@ -19,16 +19,18 @@ import (
 const hubUsage = `sunstack hub init <org name>                    make this host the hub of a new org (user only)
 sunstack hub invite [--read-only]               a one-time join code for another host (user only, on the hub)
 sunstack hub revoke <name>                      remove a host and end its connection (user only, on the hub)
+sunstack hub manage <name> --ssh <alias>        add a managed host the hub pulls over SSH (user only, on the hub)
+sunstack hub held [--release <id>|--drop <id>]  mail held from managed hosts (user only, on the hub)
 sunstack hub hosts [--json]                     the roster, on the hub
 sunstack hub connect [--install|--uninstall]    keep one connection to the hub open; on the hub, also listen`
 
 func hubCommand(rest []string, stdin io.Reader, stdout, stderr io.Writer) error {
 	if len(rest) == 0 {
-		return &core.Error{Code: core.ExitUsage, Reason: "usage", Msg: "sunstack hub init|invite|revoke|hosts|connect\n" + hubUsage}
+		return &core.Error{Code: core.ExitUsage, Reason: "usage", Msg: "sunstack hub init|invite|revoke|manage|held|hosts|connect\n" + hubUsage}
 	}
 	sub, rest := rest[0], rest[1:]
 	switch sub {
-	case "init", "invite", "revoke":
+	case "init", "invite", "revoke", "manage", "held":
 		if err := core.UserOnly("sunstack hub " + sub); err != nil {
 			return err
 		}
@@ -78,10 +80,79 @@ func hubCommand(rest []string, stdin io.Reader, stdout, stderr io.Writer) error 
 		if len(a.pos) < 1 {
 			return missing("host name")
 		}
-		if err := hub.Revoke(a.pos[0]); err != nil {
+		gone, err := hub.Revoke(a.pos[0])
+		if err != nil {
 			return err
 		}
+		if gone.Managed {
+			fmt.Fprintf(stdout, "sunstack: %s revoked; the hub no longer pulls it. On %s, sunstack org leave removes the hub's key line (the one ending in sunstack-managed:%s) from ~/.ssh/authorized_keys\n", gone.Name, gone.Name, hub.OrgID())
+			return nil
+		}
 		fmt.Fprintf(stdout, "sunstack: %s revoked; its token, snapshot and mail are gone\n", a.pos[0])
+		return nil
+
+	case "manage":
+		a, err := parse(rest, "ssh", "")
+		if err == nil {
+			err = a.atMost(1, "hub manage")
+		}
+		if err != nil {
+			return err
+		}
+		if len(a.pos) < 1 || a.flags["ssh"] == "" {
+			return missing("the host's name and --ssh <alias>")
+		}
+		r, err := hub.Manage(a.pos[0], a.flags["ssh"])
+		if err != nil {
+			return err
+		}
+		if r.Setup != "" {
+			why := r.Why
+			if why == "" {
+				why = "no answer"
+			}
+			fmt.Fprintf(stdout, "sunstack: %s is not set up yet (%s).\nOn %s, run:\n  %s\nThen run sunstack hub manage %s --ssh %s here again.\nThe pull checks %s's host key, so confirm it once first: ssh %s true\n",
+				r.Name, why, r.Name, r.Setup, r.Name, r.Alias, r.Alias, r.Alias)
+			return nil
+		}
+		fmt.Fprintf(stdout, "sunstack: %s is managed (host %s, sunstack %s); the hub pulls it over SSH every 30 seconds\n", r.Name, r.Hello.HostID, r.Hello.Version)
+		return nil
+
+	case "held":
+		a, err := parse(rest, "release drop", "")
+		if err == nil {
+			err = a.atMost(0, "hub held")
+		}
+		if err != nil {
+			return err
+		}
+		switch {
+		case a.has("release") && a.has("drop"):
+			return &core.Error{Code: core.ExitUsage, Reason: "usage", Msg: "--release or --drop, not both"}
+		case a.has("release"), a.has("drop"):
+			id := a.flags["release"] + a.flags["drop"]
+			if err := hub.SettleHeld(id, a.has("release")); err != nil {
+				return err
+			}
+			what := "dropped"
+			if a.has("release") {
+				what = "released to its host"
+			}
+			fmt.Fprintf(stdout, "sunstack: %s %s\n", id, what)
+			return nil
+		}
+		list, err := hub.Held()
+		if err != nil {
+			return err
+		}
+		if len(list) == 0 {
+			fmt.Fprintln(stdout, "sunstack: nothing held")
+			return nil
+		}
+		fmt.Fprintln(stdout, "Held mail from managed hosts (sealed; release delivers it, drop deletes it)")
+		for _, h := range list {
+			fmt.Fprintf(stdout, "  %s  %s -> %s  %d bytes  %s\n", h.ID, h.From, h.To, h.Size, h.At)
+		}
 		return nil
 
 	case "hosts":
@@ -107,9 +178,15 @@ func hubCommand(rest []string, stdin io.Reader, stdout, stderr io.Writer) error 
 			if h.Hub {
 				role = " (hub)"
 			}
+			if h.Managed {
+				role = " (managed)"
+			}
 			send := "read only"
 			if h.CanSend {
 				send = "can send"
+			}
+			if h.Managed {
+				send = "replies only"
 			}
 			send += ", key " + h.Keys.Fingerprint()
 			contact := h.Contact
@@ -150,12 +227,28 @@ func hubCommand(rest []string, stdin io.Reader, stdout, stderr io.Writer) error 
 // orgMembership is org join, leave, keys and trust.
 func orgMembership(rest []string, stdin io.Reader, stdout io.Writer) error {
 	switch rest[0] {
-	case "join", "leave", "trust":
+	case "join", "leave", "trust", "managed":
 		if err := core.UserOnly("sunstack org " + rest[0]); err != nil {
 			return err
 		}
 	}
 	switch rest[0] {
+	case "managed-serve":
+		// The forced command of the hub's key (§25.4): no arguments are read.
+		return hub.ManagedServe(stdin, stdout)
+	case "managed":
+		a, err := parse(rest[1:], "org org-name hub hub-key", "")
+		if err == nil {
+			err = a.atMost(0, "org managed")
+		}
+		if err != nil {
+			return err
+		}
+		if err := hub.ManagedSetup(a.flags["org"], a.flags["org-name"], a.flags["hub"], a.flags["hub-key"]); err != nil {
+			return err
+		}
+		fmt.Fprintln(stdout, "sunstack: this host is managed; the hub pulls it over SSH with its own key, limited to sunstack org managed-serve. Next: sunstack hub manage on the hub again")
+		return nil
 	case "leave":
 		a, err := parse(rest[1:], "", "")
 		if err == nil {
@@ -192,6 +285,9 @@ func orgMembership(rest []string, stdin io.Reader, stdout io.Writer) error {
 			return err
 		}
 		if err := core.UserOnly("sunstack org update"); err != nil {
+			return err
+		}
+		if err := hub.RefuseManaged("updates no other host"); err != nil {
 			return err
 		}
 		setup.RefreshLatest()
@@ -377,7 +473,9 @@ func sendRemote(p *core.Project, o core.SendOptions, stdout io.Writer) error {
 		return err
 	}
 	where := "queued; the connector takes it to the hub"
-	if !hub.ConnectorRunning() {
+	if hub.IsManagedHost() {
+		where = "queued; the hub collects it at its next pull"
+	} else if !hub.ConnectorRunning() {
 		if err := hub.FlushOnce(); err != nil {
 			where = "queued; " + err.Error() + "; it goes at the next sunstack hub connect or send"
 		} else {
