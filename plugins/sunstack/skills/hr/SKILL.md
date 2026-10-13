@@ -43,13 +43,18 @@ recent git history, and what the user has been doing in this conversation.
 Look for, in this order:
 
 - **Uncovered objectives**: an objective with no key result. Either an existing agent's role
-  fits (suggest it takes a key result; no hire), or no role fits (suggest a hire).
+  fits (suggest it takes a key result; no hire), or one almost fits (suggest extending its
+  `AGENT.md`), or no role fits (suggest a hire).
 - **Gaps**: a `needs:` or directive pointing at a role nobody has.
 - **Missing roles the project clearly calls for**: for example, code with no tests and no
   reviewer, a paper with no editor, data pipelines with no one owning data quality. Tie each
   to evidence you saw (folders, files, board entries, the user's goals).
-- **Overload**: an agent with many Now entries or waiting messages; suggest a second agent of
-  the same role (`<title>.<name>`, which copies the role) or moving key results.
+- **Overload**: an agent with many Now entries or waiting messages; suggest more sessions of
+  that agent (spawn skill) or moving key results. A second agent of the same role only when
+  its work needs separate lasting context.
+- **Overlap**: two agents whose roles cover the same work with the same pillars and no need to
+  stay independent (a verifier and the builder it checks must stay apart); suggest folding one
+  into the other: hand over its open key results and lasting context, then retire it.
 - **Idle agents**: no board entries and no activity for weeks; suggest giving them key
   results, or retiring them (fire) if their role no longer fits.
 - **Names**: unnamed agents from older versions; suggest `sunstack rename` (the checkup skill
@@ -57,15 +62,18 @@ Look for, in this order:
 
 ## 3. Propose
 
-Show a short list. For each change: what (hire `<title>.<name>`, second agent of a role,
-retire `<id>`), why (the evidence), and what it would own (one or two key results under which
+Show a short list. For each change: what (another session of `<id>`, extend `<id>`'s
+`AGENT.md`, hire `<title>.<name>`, retire `<id>`), why (the evidence), and what it would own (one or two key results under which
 objective). Mark the one you recommend most. Options per change: do it / skip.
 
 ## 4. Carry out
 
+- **Another session**: follow the spawn skill.
+- **Extend a role**: as in the recruit skill (show the exact lines, then snapshot and amend).
 - **Hire**: follow the recruit skill with the role you proposed as the description; it drafts
   and asks for approval of the exact `AGENT.md` before `sunstack hire`.
-- **Retire**: follow the fire skill.
+- **Retire**: first have its open key results and useful context handed to the agent taking
+  over (a task to that agent), then follow the fire skill.
 - **Rebalance**: suggest the moves on the boards; the agents make them at their next save.
 
 End with a one-line summary of what changed and what is left for later.

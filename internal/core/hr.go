@@ -16,7 +16,7 @@ import (
 // skill turns these facts into hire, rename or fire suggestions.
 
 const (
-	busyNow  = 5  // more Now entries than this: overloaded
+	busyNow  = 5  // more Now entries than this per live session: overloaded
 	idleDays = 14 // no board entry and no event for this long: idle
 )
 
@@ -73,7 +73,7 @@ func (p *Project) HR(today time.Time) *HRReport {
 			}
 		}
 		a.LastActive = newest
-		a.Busy = a.Now > busyNow
+		a.Busy = a.Now > busyNow*max(1, a.Sessions) // each live session carries its own share
 		if d, err := time.Parse("2006-01-02", newest); a.Now == 0 && a.Next == 0 && a.Sessions == 0 &&
 			(err != nil || today.Sub(d) > idleDays*24*time.Hour) {
 			a.Idle = true

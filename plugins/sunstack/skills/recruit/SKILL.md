@@ -36,6 +36,32 @@ sunstack library
 sunstack team
 ```
 
+```sh
+sunstack hr
+```
+
+### Does the team need a new agent?
+
+Run this whenever a hire comes up: the user asked for one, or you or another skill think one
+is needed. It is not a routine team review (that is the hr skill). An agent can run several
+sessions at once, each on its own task, kept apart on its board by
+`(by: <session>@<host>)`. So hire last. Read the candidate's own `AGENT.md` and pillars, not
+only its line in `sunstack team`, before you judge:
+
+- **An agent's role already covers the work**: no hire. Give it the task (message skill), or
+  start another session of it (spawn skill).
+- **An agent's role almost covers it**: propose the one or two `AGENT.md` lines that would
+  extend it, instead of a new agent. Show its ID and the exact lines; on the user's yes,
+  `sunstack snapshot "<id>" AGENT.md`, write the candidate where it says, and
+  `sunstack amend "<id>" AGENT.md "<candidate>" "<checksum>" --summary "<one line>"`. Do not
+  work as that agent for this. Then tell its live sessions to reread it (message skill).
+- **Hire** only when no role fits, or the work needs separate lasting context or pillars (for
+  example, checking that agent's own work). Say why in the proposal.
+
+While you look, name agents that seem no longer needed (no board entries or sessions for
+weeks, or a role another agent covers with the same pillars) as candidates for the fire skill. Never fire here.
+Show this judgement to the user before step 2; go on only if they still want a new agent.
+
 ## 2. Fill the gaps with a short Q&A
 
 You need four things: **the role** (what the agent is for), **a name** for this agent, **how
@@ -51,8 +77,9 @@ Take what the user already said; ask only for what is missing or too vague to wr
 
 ## 3. Pick the source
 
-- **A role with that title is already on the team** (`sunstack team` lists it): propose
-  another agent of the same role. `sunstack hire <title> <name>` copies the role from a
+- **A role with that title is already on the team** (`sunstack team` lists it): another
+  session of that agent comes first (step 1). Propose another agent of the same role only when
+  the user wants it kept apart. `sunstack hire <title> <name>` copies the role from a
   template if one exists, otherwise from that colleague (`--from <id>` picks which one). Show
   the `AGENT.md` it will copy and the new ID, and ask (approve / draft a different role /
   cancel).

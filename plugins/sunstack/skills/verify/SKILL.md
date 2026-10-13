@@ -92,7 +92,8 @@ sunstack team
 
 Leave out the task's owner. Rank the rest: role fit first (`verifier`, then `reviewer` or
 `qa`), then the other CLI from the work's, then idle (`sunstack org --by agent`). When none
-fits, offer to hire one with the recruit skill (`sunstack hire verifier <name>`); recruit shows
+fits, check whether an agent's role could take it with a small `AGENT.md` change (offer that
+first, as the recruit skill does it); otherwise offer to hire one with the recruit skill (`sunstack hire verifier <name>`); recruit shows
 the template it will use. When the verifier needs a new session, plan it on the other CLI
 (`--tool codex` or `--tool claude`) if that CLI is installed; if not, say so. A new session
 counts against the team's `max_sessions` (`sunstack sessions`); when the team is full, put the
