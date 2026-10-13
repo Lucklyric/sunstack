@@ -58,7 +58,8 @@ and ones this session has already taken.
    that session ID with `--reply-to`. One typed in a terminal (no `from_session`) has nowhere
    to reply to: answer it in this session's own output, where the user reads it, and carry on.
    - `task`: add a Now entry with the Goal as its text, the Done when criteria and
-     `(by: <session>@<host>)`, then do it inside its Scope. Stop at its Timebox if one is set,
+     `(by: <session>@<host>)`, and commit the board right away (save skill, board only) so other
+     sessions of this agent see it and its key. Then do it inside its Scope. Stop at its Timebox if one is set,
      and report what is done so far. Reply `done --reply-to <message id>` with what Report asks
      for and a `verified:` line naming the checks you actually ran (`verified: none, <reason>`
      when there was nothing to run). Put findings outside the scope in the reply as

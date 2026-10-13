@@ -178,6 +178,48 @@ func keyNum(key string) int {
 	return n
 }
 
+// keyClash refuses a board candidate that gives two entries one key, or
+// reuses an archived key, which sessions of one agent can do when they add
+// key results or asks at the same time and merge.
+func (p *Project) keyClash(id, path string, cand []byte) error {
+	old, _, _ := readMaybe(path)
+	had := map[string]int{}
+	oldItems, _ := parseBoard(id, old)
+	for _, it := range oldItems {
+		had[it.Key]++
+	}
+	archived := map[string]bool{}
+	top := map[string]int{}
+	note := func(key string) {
+		pre := strings.TrimRight(key, "0123456789")
+		if n := keyNum(key); n > top[pre] {
+			top[pre] = n
+		}
+	}
+	for _, m := range listNames(p.archiveDir(id), ".md") {
+		b, _, _ := readMaybe(filepath.Join(p.archiveDir(id), m))
+		items, _ := parseBoard(id, b)
+		for _, it := range items {
+			archived[it.Key] = true
+			note(it.Key)
+		}
+	}
+	items, _ := parseBoard(id, cand)
+	for _, it := range items {
+		note(it.Key)
+	}
+	// Only new clashes are refused, so a board that already has one can still be saved.
+	seen := map[string]int{}
+	for _, it := range items {
+		seen[it.Key]++
+		if (seen[it.Key] > 1 && seen[it.Key] > had[it.Key]) || (archived[it.Key] && had[it.Key] == 0) {
+			pre := strings.TrimRight(it.Key, "0123456789")
+			return fail(ExitFail, "duplicate_key", "%s is already used on %s's board or in its archive; give the newer entry %s%d and update what refers to it", it.Key, id, pre, top[pre]+1)
+		}
+	}
+	return nil
+}
+
 func (p *Project) teamBoardPath() string      { return filepath.Join(p.Dir, "BOARD.md") }
 func (p *Project) boardPath(id string) string { return filepath.Join(p.AgentDir(id), "board.md") }
 func (p *Project) archiveDir(owner string) string {

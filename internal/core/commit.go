@@ -191,6 +191,11 @@ func (p *Project) Commit(o CommitOptions) error {
 	if err != nil {
 		return err
 	}
+	if o.Rel == "board.md" && !o.Delete {
+		if err := p.keyClash(o.ID, t.path, cand); err != nil {
+			return err
+		}
+	}
 	if err := swap(t, o.Sum, cand, o.Delete, p.sessionTmp(o.ID, o.Token)); err != nil {
 		return err
 	}

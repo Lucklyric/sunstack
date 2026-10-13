@@ -154,6 +154,9 @@ archive goes first.
   someone else, do not pick one: keep both, add an Open question in context, and tell the
   user. Rewrite the candidate and commit again with the new checksum. Give up after three
   rounds and tell the user.
+- **1 `duplicate_key`**: a key you added is already used, often by another session that added
+  one at the same time, or it is in the archive. Give your entry the key the error names,
+  update your own references to it, and commit again.
 - **4 `busy`**: retry once. If it persists, tell the user (a leftover lock).
 - **4 `token`**: this session no longer holds the ID. Stop and tell the user.
 - **1 / 2**: show the error. Do not work around it.
