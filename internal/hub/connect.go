@@ -239,7 +239,9 @@ func handle(f *frame, send func(frame) error) bool {
 		}
 	case "receipt":
 		if f.Receipt != nil {
-			record(f.Receipt)
+			if err := record(f.Receipt); err != nil {
+				fmt.Fprintf(os.Stderr, "sunstack: receipt for %s not recorded: %v\n", f.Receipt.ID, err)
+			}
 		}
 	case "bye":
 		return true

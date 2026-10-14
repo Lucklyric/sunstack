@@ -285,7 +285,8 @@ func ManagedServe(in io.Reader, out io.Writer) error {
 			}
 		case "receipt":
 			if f.Receipt != nil {
-				record(f.Receipt)
+				// A receipt not recorded fails the pull, so the hub keeps it.
+				return record(f.Receipt)
 			}
 		}
 		return nil

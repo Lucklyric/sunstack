@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Lucklyric/sunstack/internal/core"
@@ -348,11 +349,17 @@ func FlushOnce() error {
 	return nil
 }
 
+// sentMu orders the hub's answer (settle) and the receiver's receipt
+// (record) for a message, so one never overwrites the other.
+var sentMu sync.Mutex
+
 // settle moves a message from the outbox to sent with the hub's answer.
 func settle(id, op, reason string) {
 	if !isFileName(id) {
 		return
 	}
+	sentMu.Lock()
+	defer sentMu.Unlock()
 	src := filepath.Join(outboxDir(), id+".json")
 	status := "at hub"
 	switch op {
@@ -386,26 +393,34 @@ func settle(id, op, reason string) {
 	}
 }
 
-// record applies a receipt to a sent message.
-func record(rc *Receipt) {
+// record applies a receipt to a sent message. A receipt that comes before
+// the hub's answer moves the mail from the outbox, removing the queued copy
+// only once the sent one is written.
+func record(rc *Receipt) error {
 	if !isFileName(rc.ID) {
-		return
+		return nil
 	}
+	sentMu.Lock()
+	defer sentMu.Unlock()
 	dst := filepath.Join(sentDir(), rc.ID+".json")
+	src := ""
 	var s Sent
 	if readJSON(dst, &s) != nil {
-		// The receipt came before the hub's answer was recorded.
-		src := filepath.Join(outboxDir(), rc.ID+".json")
+		src = filepath.Join(outboxDir(), rc.ID+".json")
 		if readJSON(src, &s) != nil {
-			return
+			return nil
 		}
-		os.Remove(src)
-	}
-	if s.Status == rc.Status && s.Reason == rc.Reason {
-		return
+	} else if s.Status == rc.Status && s.Reason == rc.Reason {
+		return nil
 	}
 	s.Status, s.Reason, s.At = rc.Status, rc.Reason, rc.At
-	_ = writeJSON(dst, &s, 0o600)
+	if err := writeJSON(dst, &s, 0o600); err != nil {
+		return err
+	}
+	if src != "" {
+		os.Remove(src)
+	}
+	return nil
 }
 
 // SentMail lists messages this host sent to other hosts, queued first.
