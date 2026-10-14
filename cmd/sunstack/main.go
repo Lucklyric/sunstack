@@ -127,7 +127,8 @@ Team (run these yourself):
 
 Org (every team and Claude Code or Codex session on this host):
   sunstack org [--by team|agent|host] [--attention] [--json] [--refresh]
-                                                  what needs you, then work by team; --by agent: people,
+                                                  how many things need you, then work by team (--attention: the same
+                                                  as sunstack next outside a team); --by agent: people,
                                                   --by host: every session including free ones; other hosts
                                                   of the org follow (--refresh fetches them from the hub first)
   sunstack peek <id_task|pane-id> [--lines N]     the end of a session's tmux pane, e.g. %12 (read only)
@@ -1289,10 +1290,6 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 		default:
 			return &core.Error{Code: core.ExitUsage, Reason: "usage", Msg: "--by must be team, agent or host"}
 		}
-		if a.has("attention") {
-			// What needs you is sunstack next's job; kept as its alias.
-			return nextCommand(a, true, stdout)
-		}
 		if a.has("refresh") {
 			if err := hub.RefuseManaged("is refreshed by the hub's pulls"); err != nil {
 				return err
@@ -1302,6 +1299,10 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 			} else if _, err := hub.RefreshOnce(); err != nil {
 				fmt.Fprintf(stderr, "sunstack: hub not reached: %v\n", err)
 			}
+		}
+		if a.has("attention") {
+			// What needs you is sunstack next's job; kept as its alias.
+			return nextCommand(a, true, stdout)
 		}
 		o := core.BuildOrg()
 		if a.has("json") {
