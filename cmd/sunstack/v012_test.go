@@ -12,6 +12,7 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 )
 
 var manageRe = regexp.MustCompile(`--org (\S+) --org-name (\S+) --hub (\S+) --hub-key "([^"]+)"`)
@@ -73,6 +74,22 @@ func newManaged(t *testing.T, hubEnv []string) (hubHost, laptop, gcloud *orgHost
 	r = hubHost.run(t, "hub", "manage", "gcloud", "--ssh", "gcloud")
 	expect(t, r, 0, "hub manage")
 	requireContains(t, r.out, "gcloud is managed")
+	// Killing the hub's connector leaves a running pull's managed-serve
+	// behind, still writing into gcloud's home while it is removed. Shut
+	// the hub out first and let the last serve finish.
+	t.Cleanup(func() {
+		os.WriteFile(auth, nil, 0o600)
+		lock := gcloud.file(filepath.Join("locks", "_hub_connect_"))
+		free := 0
+		for i := 0; i < 300 && free < 10; i++ {
+			if _, err := os.Stat(lock); err == nil {
+				free = 0
+			} else {
+				free++
+			}
+			time.Sleep(50 * time.Millisecond)
+		}
+	})
 	return hubHost, laptop, gcloud
 }
 
