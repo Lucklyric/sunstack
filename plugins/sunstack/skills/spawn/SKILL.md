@@ -1,6 +1,6 @@
 ---
 name: spawn
-description: Start a Claude Code or Codex session as a Sunstack agent, or a free session, beside this pane or in a new tmux window; list this project's live sessions; dismiss or kill one. Use for "sunstack spawn", "/sunstack:spawn", "start a session for builder.alice", "sunstack sessions", or a message waiting for an agent with no live session.
+description: Start a Claude Code or Codex session as a Sunstack agent, or a free session, beside this pane or in a new tmux window; list this project's live sessions; dismiss or kill one. Use for "sunstack spawn", "/sunstack:spawn", "start a session for builder.alice", "sunstack team --sessions", or a message waiting for an agent with no live session.
 ---
 
 # Sunstack: spawn
@@ -26,7 +26,7 @@ description: Start a Claude Code or Codex session as a Sunstack agent, or a free
 ## Where things are
 
 ```sh
-sunstack sessions
+sunstack team --sessions
 ```
 
 Lists every live session: name (`<id>_<task>`), tool, host, tmux place, and the command to
@@ -98,14 +98,14 @@ sunstack dismiss "<id or id_task>"
 ```
 
 This sends a `shutdown` message (and a nudge). The session saves and releases; it is done
-when `sunstack sessions` no longer lists it. Prefer this: nothing is lost.
+when `sunstack team --sessions` no longer lists it. Prefer this: nothing is lost.
 
 ## Close a session now (kill)
 
 Only when the user asks for it, or a session is stuck and the user agrees. It closes that
 one session's tmux pane at once; unsaved work in it is lost.
 
-1. Name the exact session (`sunstack sessions`); if the agent has several, ask which.
+1. Name the exact session (`sunstack team --sessions`); if the agent has several, ask which.
 2. Tell the user what will close and that unsaved work is lost; ask: close / cancel.
 3. On yes:
 

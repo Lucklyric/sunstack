@@ -1,6 +1,6 @@
 ---
 name: as
-description: Take on a Sunstack agent identity (for example builder.alice) in this project, alone or alongside sessions already working as it. Use for "sunstack as", "/sunstack:as", "take on the builder agent", "which Sunstack agent should I be". Only in projects with a sunstack/ folder.
+description: Take on a Sunstack agent identity (for example builder.alice) in this project, alone or alongside sessions already working as it, or recover the identity this session already holds. Use for "sunstack as", "/sunstack:as", "take on the builder agent", "which Sunstack agent should I be", "sunstack whoami", "which agent am I", or after compaction or /clear lost the session state. Only in projects with a sunstack/ folder.
 ---
 
 # Sunstack: as
@@ -111,3 +111,23 @@ the token.
 Take over another session's claim (`--takeover --expect`) only when the user confirms that
 session is gone, for example its pane closed. Never invent, guess, or reuse a token you did not
 get from `sunstack as` in this session.
+
+## Recover this session's identity
+
+When the session state (root, id, token) is lost, after compaction or `/clear`, or the user
+asks which agent this session is:
+
+```sh
+sunstack whoami
+```
+
+Add `--root <dir>` if the project is not the current folder. Run it on its own.
+
+- **0**: the output is this session's `session state`. Keep it in the conversation; save,
+  check and release need it. To reload the identity files, rerun `sunstack as` with that id and
+  `--token`; it resumes the claim and makes no new one. If it says the tmux pane matched a
+  different CLI session (for example before `/clear`), confirm with the user in one line first.
+- **1 `not_found`**: this session holds no identity here. Say so; offer to take one on.
+- **1 `no_root`**: no Sunstack team in this folder or above.
+
+Never guess or invent a token.

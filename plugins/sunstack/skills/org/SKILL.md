@@ -32,10 +32,10 @@ Pick the view from the request:
 sunstack org
 ```
 
-shows what needs the user, then work by team. Others:
+shows how many things need the user, then work by team. The items themselves are the next
+skill's: `sunstack next` outside a team lists what waits on the user across every team on this
+host and the org's other hosts (`sunstack org --attention` is the same list). Others:
 
-- `sunstack org --attention`: only what waits on the user (sessions at a prompt or blocked,
-  key results waiting on the user, broken or overdue board entries, unaligned directives).
 - `sunstack org --by agent`: each agent's Now entries, `doing:` lines and sessions.
 - `sunstack org --by host`: every session on this host, with its team or group.
 - `--json` gives the same snapshot for further processing.
@@ -56,7 +56,7 @@ then `sunstack reopen <session id>` resumes the same conversation beside this pa
 new window when it is too small (`--place window` or `--place team` to choose). An
 agent's claim follows it to the new pane. `sunstack attach <session>` goes to a session's pane.
 
-**Asks.** Agents' questions for the user show in the attention list as
+**Asks.** Agents' questions for the user show in `sunstack next` as
 `<id>#Q<n> asks the user: <question> (options: ...) (default: <answer> after <date>)`. Offer
 to go through them in one pass. For each answer the user gives, run
 `sunstack answer --root "<team root>" "<id>" Q<n> "<answer>"`. Asks "decided by default" stay
@@ -68,7 +68,7 @@ listed until archived, so the user can overrule one with an answer message.
 
 ## 2. Report
 
-Lead with what needs the user, then a short line per team (objectives moving, who is working,
+Lead with how many things need the user (the next skill lists them), then a short line per team (objectives moving, who is working,
 anything stale). For free sessions in a team's project, say which agent's role fits the work
 in its last prompt, if one does, so the user can run the as skill there. To pick what to do
 first, hand over to the next skill.
@@ -126,7 +126,7 @@ teams and sessions, `sunstack hub hosts` on the hub for its version and machine 
     host's permission rules.
   - A session started this way does not start more sessions on other hosts.
   - If that host's tmux server was not running, the new session may read as signed out (the
-    keychain note below). Check it with `sunstack sessions` there and tell the user.
+    keychain note below). Check it with `sunstack team --sessions` there and tell the user.
 - **Never route around sunstack otherwise.** Apart from spawn and send above, when sunstack
   refuses an action (`user_only`, a missing grant, a read-only host), tell the user and let them
   run it or grant it. Do not do the same thing over SSH. `sunstack ssh check`, `start` and

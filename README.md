@@ -31,7 +31,7 @@ cd your-project
 sunstack init                 # sunstack/, the AGENTS.md block, the .gitignore line
 sunstack hire builder alice   # or ask an agent to recruit one from a description
 sunstack                      # the team dashboard
-sunstack health               # checks, then a ranked list of next steps
+sunstack next                 # what to do now, ranked, each with its command
 ```
 
 Then, in Claude Code, `/sunstack:as builder.alice` (in Codex, `$sunstack:as builder.alice`).
@@ -42,7 +42,7 @@ Skills run as `/sunstack:<name>` in Claude Code and `$sunstack:<name>` in Codex.
 
 - **Set up and check:** `init`, `health`, `update`, `migrate` → skill `checkup` (also migrates an older project and suggests which agent fits the session)
 - **Work as an agent:** `as` (`--join`, `--task`) → skill `as`; `snapshot`, `commit`, `tidy` → skill `save`; `release` → skill `release`
-- **What to do next:** `next` (one ranked list: broken, waiting on you, blocked, drift, then your own next step) → skill `next`
+- **What to do next:** `next` (one ranked list: broken, waiting on you, blocked, drift, then your own next step; outside a team, every team on this host and the org) → skill `next`. `board`, `health` and `org` only count what needs you and point here
 - **Objectives and alignment:** `board`, `amend --team BOARD.md` → skill `board`; `direct` → skill `direct`; `answer` (answer an agent's ask) → skills `board` and `org`; `halt` (pause the whole team) → skills `next` and `spawn`
 - **Self-improvement:** `amend` → skill `save` (you approve every change)
 - **Team members:** `hire`, `library` → skill `recruit`; `fire` → skill `fire`; `rename` → skill `checkup`
@@ -51,8 +51,8 @@ Skills run as `/sunstack:<name>` in Claude Code and `$sunstack:<name>` in Codex.
 - **Acceptance checks:** skill `verify` (no command of its own): checks the active task against your requirements, the task's own and the standing ones from the team's history, after a short Q&A with you; a verifier agent on the other CLI drives the real app and answers per requirement with evidence
 - **Delegation:** `tasks` (tasks sent and not yet answered), `send --follows` (a follow-up round that quotes the earlier one) → skills `org` and `message`
 - **Staffing:** `hr` → skill `hr` (suggests, from the project and the boards, more sessions of an agent or a wider role before a new hire, and retirements)
-- **Your org on this machine:** `org` (what needs you, work by team, people, hosts), `teams`, `peek`, `team`, `log`, `inbox`, `pillar` → skill `org`; `tui` (also a bare `sunstack`): in a team folder it opens on the team, outside one on a picker of this host's teams; tabs Team, Next and Org, each a list on the left with the selected item's details on the right. The Team tab is that tree for the current team (each agent with its sessions; an agent shows its pillars and board), and the Org tab is a tree of teams, agents and sessions with state marks (● busy, ◐ waiting, ⧗ blocked, ○ idle, ✕ gone); a session shows its doing line, last prompt and reply, and the end of its pane, and `enter` goes to its pane, `m` messages it, `R` reopens it in tmux, `K` closes an agent's session (both ask), `/` filters and `f` shows only what needs you, busy or outside tmux; `t` switches team, `?` lists the keys, `--org` opens on the host view; it reopens on the last tab and team (`~/.sunstack/tui.json`), and a team folder always opens its own team
-- **Who am I:** `whoami` → skill `whoami`; `doing` (one line on what a session works on) → skills `as` and `save`
+- **Your org on this machine:** `org` (work by team, people, hosts), `teams`, `peek`, `team`, `log`, `inbox`, `pillar` → skill `org`; `tui` (also a bare `sunstack`): in a team folder it opens on the team, outside one on a picker of this host's teams; tabs Team, Next and Org, each a list on the left with the selected item's details on the right. The Team tab is that tree for the current team (each agent with its sessions; an agent shows its pillars and board), and the Org tab is a tree of teams, agents and sessions with state marks (● busy, ◐ waiting, ⧗ blocked, ○ idle, ✕ gone); a session shows its doing line, last prompt and reply, and the end of its pane, and `enter` goes to its pane, `m` messages it, `R` reopens it in tmux, `K` closes an agent's session (both ask), `/` filters and `f` shows only what needs you, busy or outside tmux; `t` switches team, `?` lists the keys, `--org` opens on the host view; it reopens on the last tab and team (`~/.sunstack/tui.json`), and a team folder always opens its own team
+- **Who am I:** `whoami` → skill `as`; `doing` (one line on what a session works on) → skills `as` and `save`
 
 ## How agents reach each other
 
@@ -82,11 +82,11 @@ Hosts of one org connect through one always-on host, the hub, over Tailscale. Th
 ## Keeping work honest
 
 - **Briefs.** A `task` message must say what to achieve, what it may touch, when it is done, how to check it and what to report, or it is refused.
-- **Proof of done.** A finished key result says how it was checked (`verified: go test ./... @ f51abe4`, or `verified: none` with a reason); `sunstack board` flags the ones that do not.
-- **Asks.** Questions only you can answer go on the agent's board with a default and a date. Work goes on around them, `sunstack org` lists them all in one place, `sunstack answer` replies, and an unanswered ask takes its default.
+- **Proof of done.** A finished key result says how it was checked (`verified: go test ./... @ f51abe4`, or `verified: none` with a reason); `sunstack next` flags the ones that do not.
+- **Asks.** Questions only you can answer go on the agent's board with a default and a date. Work goes on around them, `sunstack next` lists them all in one place, `sunstack answer` replies, and an unanswered ask takes its default.
 - **Rules after compaction.** The `SessionStart` hook gives a compacted session its pillars and unaligned directives back, not just its identity.
 - **Resumes.** `as` starts with what changed since the agent last saved (commits, other agents' needs, new messages), so a resumed session continues instead of redoing work.
-- **A ledger of tasks.** A task stays open until a `done` reply. `sunstack tasks` lists them, `board` flags one open for 3 days, and a task that failed twice becomes a question for you instead of a third try.
+- **A ledger of tasks.** A task stays open until a `done` reply. `sunstack tasks` lists them, `next` flags one open for 3 days, and a task that failed twice becomes a question for you instead of a third try.
 - **A halt.** `sunstack halt "<reason>"` pauses the team: work in progress saves and stops, nothing new starts, until `sunstack halt --off`.
 - **Acceptance checks.** The `verify` skill hands your manual check of a delivery to an agent: it quotes what you asked for, in the conversation and in the boards, pillars and earlier corrections, and a verifier answers met, partly, not met, changed, pending or unverifiable for each, with evidence from driving the real app through the project's `verify-<app>` skill, which it creates the first time. Adapted from pstack's verification skills.
 - **Review on the other CLI.** `tool: codex` (or `claude`) in an agent's `AGENT.md` sets the CLI `spawn` starts it on, so a reviewer can run on a different model from the builders.

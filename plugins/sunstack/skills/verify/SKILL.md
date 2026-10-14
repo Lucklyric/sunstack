@@ -97,7 +97,7 @@ fits, check whether an agent's role could take it with a small `AGENT.md` change
 first, as the recruit skill does it); otherwise offer to hire one with the recruit skill
 (`sunstack hire verifier <name>`); recruit shows the template it will use. When the verifier needs a new session, plan it on the other CLI
 (`--tool codex` or `--tool claude`) if that CLI is installed; if not, say so. A new session
-counts against the team's `max_sessions` (`sunstack sessions`); when the team is full, put the
+counts against the team's `max_sessions` (`sunstack team --sessions`); when the team is full, put the
 choice (finish an idle session, or `--over-cap`) into the step 5 question.
 
 ### Is the verifier up to date?

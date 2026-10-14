@@ -34,9 +34,9 @@ sunstack team
 ## 2. Report
 
 Give the user a short summary: whether there is a project here, who is on the team and who is
-claimed, and the numbered `next steps` list that health printed, in its order (fail, then
-warn, then next). Add one line of plain explanation per step where the fix text is not
-self-explanatory. Then add the session fit (step 3). If health says `none, all good` and the
+claimed, and the `fail` and `warn` checks that health printed with their fixes, failures
+first. Add one line of plain explanation per step where the fix text is not
+self-explanatory. Then add the session fit (step 3). If no check failed or warned and the
 session fit has nothing to suggest, say so and stop.
 
 ## 3. Session fit

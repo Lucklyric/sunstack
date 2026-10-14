@@ -20,7 +20,7 @@ Every entry you write starts with today's date: `- <YYYY-MM-DD> ...`.
 
 - You need the root, id and token from the `session state` block that `sunstack as` printed in
   this session. If you do not have them (for example after compaction or `/clear`),
-  recover them as the whoami skill says. Never guess.
+  recover them as the as skill says (Recover this session's identity). Never guess.
 - Run every `sunstack` command on its own, with nothing chained after it.
 - If a `sunstack` command exits non-zero in a way not handled below, show the error and stop.
   Do not go on to release or to removing a thread.

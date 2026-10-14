@@ -23,7 +23,7 @@ in tmux; otherwise the message waits and shows at that session's next prompt.
 ## 1. Who and what
 
 - **Recipient**: an agent ID, a title with one agent, or a session name `<id>_<task>` (to reach
-  one specific session). `sunstack sessions` lists live sessions; `sunstack team` lists agents.
+  one specific session). `sunstack team --sessions` lists live sessions; `sunstack team` lists agents.
   If it is unclear who should get it, rank by role against the request and ask the user.
   - **Another team on this machine**: `<team>/<id>` or `<team>/<id>_<task>` (`sunstack teams`
     lists team names).

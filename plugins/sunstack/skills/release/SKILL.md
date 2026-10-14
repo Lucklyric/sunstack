@@ -22,5 +22,5 @@ sunstack release --root "<root>" "<id>" --token "<token>"
 - **4 `busy`**: retry once, then tell the user.
 - **1 / 2**: show the error. Do not work around it.
 
-If you do not have the token, recover it as the whoami skill says; if that finds nothing, stop
+If you do not have the token, recover it as the as skill says (Recover this session's identity); if that finds nothing, stop
 and tell the user. Never guess one.
