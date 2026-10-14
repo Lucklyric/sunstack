@@ -335,3 +335,88 @@ func TestSnapshotNulls(t *testing.T) {
 	}()
 	OrgCounts(hv.Org)
 }
+
+// A receipt that arrives before the hub's answer moves the queued mail to
+// sent only once the sent copy is written; a failed write keeps it queued
+// and reports the error.
+func TestReceiptKeepsOutboxOnWriteFailure(t *testing.T) {
+	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
+		t.Skip("needs directory modes that deny writing")
+	}
+	t.Setenv("SUNSTACK_HOME", t.TempDir())
+	m := &Mail{ID: core.NewMessageID("user"), FromHost: "aaaaaaaaaaaaaaaa", ToHost: "bbbbbbbbbbbbbbbb"}
+	src := filepath.Join(outboxDir(), m.ID+".json")
+	must := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	must(os.MkdirAll(sentDir(), 0o700))
+	must(writeJSON(src, &Sent{Mail: *m, Status: "queued"}, 0o600))
+	must(os.Chmod(sentDir(), 0o500))
+	t.Cleanup(func() { os.Chmod(sentDir(), 0o700) })
+
+	if err := record(&Receipt{ID: m.ID, Status: "delivered", At: stamp(time.Now())}); err == nil {
+		t.Error("record reported success without a sent copy")
+	}
+	if _, err := os.Stat(src); err != nil {
+		t.Fatal("the queued mail is gone and no sent copy was written")
+	}
+	must(os.Chmod(sentDir(), 0o700))
+	must(record(&Receipt{ID: m.ID, Status: "delivered", At: stamp(time.Now())}))
+	var s Sent
+	if readJSON(filepath.Join(sentDir(), m.ID+".json"), &s) != nil || s.Status != "delivered" {
+		t.Errorf("sent copy: %+v", s)
+	}
+	if _, err := os.Stat(src); err == nil {
+		t.Error("the outbox still holds a delivered mail")
+	}
+	// The hub's late "stored" answer does not undo the receipt.
+	settle(m.ID, "stored", "")
+	if readJSON(filepath.Join(sentDir(), m.ID+".json"), &s) != nil || s.Status != "delivered" {
+		t.Errorf("after settle: %+v", s)
+	}
+}
+
+// A request queued under a host's old key does not run on a grant made
+// later for that host's new key.
+func TestQueuedRequestKeepsItsKey(t *testing.T) {
+	t.Setenv("SUNSTACK_HOME", t.TempDir())
+	k1, _ := LoadKeys()
+	t.Setenv("SUNSTACK_HOME", t.TempDir())
+	k2, _ := LoadKeys()
+	t.Setenv("SUNSTACK_HOME", t.TempDir())
+	must := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	r := &Roster{Hosts: []*Host{{ID: "aaaaaaaaaaaaaaaa", Name: "laptop", Keys: k1.Public()}}}
+	must(pinRoster(r))
+	oldPin := *loadPins()["aaaaaaaaaaaaaaaa"]
+	_, err := Allow("laptop", []string{"peek"})
+	must(err)
+	// The key changes, the user trusts it and grants peek again.
+	r.Hosts[0].Keys = k2.Public()
+	must(pinRoster(r))
+	_, err = Trust("laptop")
+	must(err)
+	_, err = Allow("laptop", []string{"peek"})
+	must(err)
+
+	ran := false
+	old := handlers["peek"]
+	handlers["peek"] = func(_, _ string, _ json.RawMessage) (any, error) { ran = true; return nil, nil }
+	defer func() { handlers["peek"] = old }()
+	jb := job{mail: &Mail{ID: core.NewMessageID("user"), FromHost: "aaaaaaaaaaaaaaaa"}, from: &oldPin, kind: "peek", expires: time.Now().Add(time.Hour)}
+	if _, err := runJob(jb); err == nil || ran {
+		t.Errorf("an old-key request ran under the new key's grant: %v", err)
+	}
+	newPin := *loadPins()["aaaaaaaaaaaaaaaa"]
+	jb.from = &newPin
+	if _, err := runJob(jb); err != nil || !ran {
+		t.Errorf("a new-key request: ran=%v, %v", ran, err)
+	}
+}

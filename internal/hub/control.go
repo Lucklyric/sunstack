@@ -300,13 +300,15 @@ func worker() {
 }
 
 // runJob runs one request, unless it expired while queued or its grant
-// was taken back.
+// was taken back. The grant must be for the key that signed the request:
+// one made later for a new key does not cover it.
 func runJob(jb job) (any, error) {
 	h := handlers[jb.kind]
+	cur := loadPins()[jb.mail.FromHost]
 	switch {
 	case time.Now().After(jb.expires.Add(skew)):
 		return nil, errors.New("the request expired before this host got to it")
-	case !Allowed(jb.mail.FromHost, jb.kind):
+	case !Allowed(jb.mail.FromHost, jb.kind) || cur == nil || cur.Keys.Fingerprint() != jb.from.Keys.Fingerprint():
 		return nil, notAllowed(jb.from.Name, jb.kind)
 	case h == nil:
 		return nil, errors.New(jb.kind + " is not available on this host")
