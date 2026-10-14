@@ -132,10 +132,11 @@ teams and sessions, `sunstack hub hosts` on the hub for its version and machine 
   run it or grant it. Do not do the same thing over SSH. `sunstack ssh check`, `start` and
   `stop`, `org allow` and `deny`, and `org update` stay the user's to run, here and over SSH.
 - **A managed host** (`(managed, …)` in `sunstack org --by host`) is pulled by the hub over
-  SSH and never connects out. Work there goes only through sunstack (messages, and the user's
-  peek, spawn and update under its grants), never over SSH, even where the start-work rule
-  above would allow it. On a managed host itself, `send` to another host takes only replies
-  (`--reply-to` a message from that host); anything else is refused with `managed_host`.
+  SSH and never connects out. Sunstack work there (messages, and the user's peek, spawn and
+  update under its grants) goes through the hub, never over the user's own SSH, even where the
+  start-work rule above would allow it. Host administration over SSH stays as above, when the
+  user asks for it or approves it. On a managed host itself, `send` to another host takes only
+  replies (`--reply-to` a message from that host); anything else is refused with `managed_host`.
 - Over SSH, run that host's own `sunstack` for its view instead of reading its files directly.
   Never print secrets. Copy secret files only with the user's approval, and never show their
   contents.
