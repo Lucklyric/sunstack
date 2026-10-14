@@ -747,7 +747,10 @@ func (p *Project) Tidy(owner string) (int, error) {
 		if err := p.noSymlink(ap); err != nil {
 			return 0, err
 		}
-		cur, _, _ := readMaybe(ap)
+		cur, _, err := readMaybe(ap)
+		if err != nil {
+			return 0, fail(ExitFail, "fs", "%v", err)
+		}
 		for _, l := range lines {
 			cur = appendToSection(cur, "Board", l)
 		}
