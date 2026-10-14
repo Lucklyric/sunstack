@@ -22,7 +22,6 @@ type Check struct {
 func ok(area, msg string) Check          { return Check{"ok", area, msg, ""} }
 func warn(area, msg, fix string) Check   { return Check{"warn", area, msg, fix} }
 func failed(area, msg, fix string) Check { return Check{"fail", area, msg, fix} }
-func next(area, msg, fix string) Check   { return Check{"next", area, msg, fix} }
 
 // Health runs the read-only project, file and runtime checks (design §6
 // health). It never changes anything.
@@ -138,27 +137,10 @@ func (p *Project) Health() []Check {
 	for _, id := range boards.Missing {
 		cs = append(cs, warn("migrate", id+" has no board.md", "sunstack tidy "+id))
 	}
-	for _, is := range p.IssueTexts(time.Now()) {
-		cs = append(cs, next("board", is, "see sunstack board; the agent updates its board at its next save"))
-	}
-
-	// Next steps: nothing is wrong, but something is waiting on the user.
-	status := p.Status()
-	if len(status) == 0 {
-		cs = append(cs, next("team", "no agents hired yet", "use the recruit skill, or sunstack hire <title> (see sunstack library)"))
-	}
-	for _, s := range status {
+	for _, s := range p.Status() {
 		if !strings.Contains(s.ID, ".") {
 			cs = append(cs, warn("migrate", s.ID+" has no name; every agent is now <title>.<name>",
 				"sunstack rename "+s.ID+" "+s.ID+".<name>"))
-		}
-		if n := len(s.Proposals); n > 0 {
-			cs = append(cs, next("team", fmt.Sprintf("%s has %d rule change(s) waiting for your approval", s.ID, n),
-				"take on "+s.ID+" and save; the save skill asks you about each one"))
-		}
-		if s.Inbox > 0 && len(s.Claims) == 0 {
-			cs = append(cs, next("team", fmt.Sprintf("%s has %d unread message(s) and no session", s.ID, s.Inbox),
-				"take on "+s.ID+" to handle them (sunstack inbox "+s.ID+" lists them)"))
 		}
 	}
 	return cs

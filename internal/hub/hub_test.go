@@ -207,7 +207,7 @@ func TestSplitSharedTeams(t *testing.T) {
 		{ID: "x2", Name: "laptop", You: true, State: "live"},
 	}}
 	text := v.Text("", local)
-	for _, want := range []string{"ops.night", "shop", "also on this host: alpha", "deploy waits for you"} {
+	for _, want := range []string{"ops.night", "shop", "also on this host: alpha", "Needs you on server: 2 thing(s) (sunstack next)"} {
 		if !strings.Contains(text, want) {
 			t.Errorf("org text lacks %q:\n%s", want, text)
 		}

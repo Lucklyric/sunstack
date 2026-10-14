@@ -82,12 +82,3 @@ func (p *Project) Findings(today time.Time) []Issue {
 	out = append(out, p.LoadBoards().Findings(today)...)
 	return append(out, p.taskFindings(today)...)
 }
-
-// IssueTexts is the text of Findings.
-func (p *Project) IssueTexts(today time.Time) []string {
-	var out []string
-	for _, is := range p.Findings(today) {
-		out = append(out, is.Text)
-	}
-	return out
-}

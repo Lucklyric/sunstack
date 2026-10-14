@@ -230,7 +230,7 @@ func freeFolder(o FreeOptions) (string, error) {
 		case len(found) == 0:
 			return "", fail(ExitFail, "not_found", "no session %s on this host", o.Beside)
 		case len(found) > 1:
-			return "", fail(ExitUsage, "ambiguous", "%d sessions are called %s; use its session ID (sunstack sessions)", len(found), o.Beside)
+			return "", fail(ExitUsage, "ambiguous", "%d sessions are called %s; use its session ID (sunstack team --sessions)", len(found), o.Beside)
 		case found[0].Cwd == "":
 			return "", fail(ExitFail, "not_found", "could not tell which folder %s runs in", o.Beside)
 		}

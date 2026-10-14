@@ -38,6 +38,7 @@ type OrgTeam struct {
 	Agents     []*OrgAgent    `json:"agents"`
 	Free       []*HostSession `json:"free"` // sessions in this project that hold no claim
 	project    *Project
+	todo       []Issue // what waits on someone, for Next
 }
 
 // OrgObjective is a team objective with the open key results serving it.
@@ -100,7 +101,9 @@ func BuildOrg() *Org {
 		groups[g].Sessions = append(groups[g].Sessions, s)
 	}
 	sort.Slice(o.Free, func(i, j int) bool { return o.Free[i].Group < o.Free[j].Group })
-	o.Attention = o.attention()
+	for _, is := range o.Next() {
+		o.Attention = append(o.Attention, is.Text+" ("+is.Do+")")
+	}
 	o.fillEmpty()
 	return o
 }
@@ -250,7 +253,11 @@ func (p *Project) orgTeam(sessions []*HostSession, byAgent map[string][]*HostSes
 		t.ID = p.Root
 	}
 	boards := p.LoadBoards()
-	t.Issues = p.IssueTexts(today)
+	findings := p.Findings(today)
+	for _, is := range findings {
+		t.Issues = append(t.Issues, is.Text)
+	}
+	t.todo = append(p.waiting(), findings...)
 	for _, it := range boards.Team {
 		if it.Section != "Objectives" || it.Done {
 			continue
@@ -303,55 +310,56 @@ func sortedKeys(m map[string][]Item) []string {
 	return keys
 }
 
-// attention lists what waits on the user.
-func (o *Org) attention() []string {
-	var out []string
+// Next is what waits on the user across this host, ranked as sunstack next
+// ranks a team: sessions at a prompt or blocked, mail they will not see
+// until their next prompt, and each team's work that waits on someone. Board
+// drift is left to sunstack next inside the team.
+func (o *Org) Next() []Issue {
+	var out []Issue
 	seen := map[*HostSession]bool{}
 	waiting := func(s *HostSession, team string) {
 		if seen[s] || (s.Status != "waiting" && s.Status != "blocked") {
 			return
 		}
 		seen[s] = true
-		out = append(out, fmt.Sprintf("%s: %s is %s for you (%s)", team, sessionName(s), s.Status, placeOf(s)))
-	}
-	outside := func(s *HostSession) string {
-		if s.SessionID != "" && s.Reach == "next prompt" {
-			return fmt.Sprintf("; or move it into tmux: exit it, then sunstack reopen %s", s.SessionID)
+		do := "answer it where it runs"
+		switch {
+		case s.Where != "":
+			do = "sunstack attach " + sessionName(s)
+		case s.Reach == "background":
+			do = "answer it in Claude Code's background sessions (claude agents)"
 		}
-		return ""
+		out = append(out, Issue{"user", "user", fmt.Sprintf("%s: %s is %s for you (%s)", team, sessionName(s), s.Status, placeOf(s)), do})
+	}
+	outside := func(s *HostSession, team, who string, n int) {
+		do := "it sees them at its next prompt"
+		if s.SessionID != "" && s.Reach == "next prompt" {
+			do = "exit it, then sunstack reopen " + s.SessionID + " to move it into tmux"
+		}
+		out = append(out, Issue{"blocked", "user", fmt.Sprintf("%s: %d message(s) wait for %s, which is outside tmux", team, n, who), do})
 	}
 	for _, t := range o.Teams {
 		for _, a := range t.Agents {
-			for _, s := range a.Sessions {
-				waiting(s, t.Name)
-			}
-			if a.Pending == 0 {
-				continue
-			}
 			reachable := false
 			for _, s := range a.Sessions {
+				waiting(s, t.Name)
 				reachable = reachable || s.Reach == "nudge"
 			}
-			switch {
-			case len(a.Sessions) == 0:
-				out = append(out, fmt.Sprintf("%s: %d message(s) wait for %s, which has no live session (sunstack spawn %s starts one)", t.Name, a.Pending, a.ID, a.ID))
-			case !reachable:
-				out = append(out, fmt.Sprintf("%s: %d message(s) wait for %s; its sessions are outside tmux, so they see them at their next prompt%s", t.Name, a.Pending, a.ID, outside(a.Sessions[0])))
-			}
-		}
-		for _, s := range t.Free {
-			if s.Pending > 0 && s.Reach != "nudge" {
-				out = append(out, fmt.Sprintf("%s: %d message(s) wait for %s; it is outside tmux, so it sees them at its next prompt%s", t.Name, s.Pending, sessionName(s), outside(s)))
+			if a.Pending > 0 && len(a.Sessions) > 0 && !reachable {
+				outside(a.Sessions[0], t.Name, a.ID, a.Pending)
 			}
 		}
 		for _, s := range t.Free {
 			waiting(s, t.Name)
+			if s.Pending > 0 && s.Reach != "nudge" {
+				outside(s, t.Name, sessionName(s), s.Pending)
+			}
 		}
-		for _, is := range t.Issues {
-			if strings.Contains(is, "user") || strings.Contains(is, "decided by default") || strings.Contains(is, " was due ") ||
-				strings.Contains(is, "is halted") || strings.Contains(is, "failed twice") || strings.Contains(is, "has been open since") || strings.Contains(is, "not aligned") ||
-				strings.Contains(is, "does not exist") || strings.Contains(is, "is not an objective") {
-				out = append(out, t.Name+": "+is)
+		for _, is := range t.todo {
+			if is.Kind != "drift" {
+				is.Text = t.Name + ": " + is.Text
+				is.Do = "in " + t.Root + ": " + is.Do
+				out = append(out, is)
 			}
 		}
 	}
@@ -359,10 +367,11 @@ func (o *Org) attention() []string {
 		for _, s := range g.Sessions {
 			waiting(s, g.Group)
 			if s.Pending > 0 && s.Reach != "nudge" {
-				out = append(out, fmt.Sprintf("%s: %d message(s) wait for %s; it is outside tmux, so it sees them at its next prompt%s", g.Group, s.Pending, sessionName(s), outside(s)))
+				outside(s, g.Group, sessionName(s), s.Pending)
 			}
 		}
 	}
+	Rank(out, "")
 	return out
 }
 
@@ -430,12 +439,10 @@ func (o *Org) Text(view string) string {
 }
 
 func (o *Org) writeAttention(b *strings.Builder) {
-	fmt.Fprintf(b, "Needs you (%s)\n", o.Host.Name)
-	if len(o.Attention) == 0 {
-		b.WriteString("  nothing\n")
-	}
-	for _, a := range o.Attention {
-		fmt.Fprintf(b, "  %s\n", a)
+	if n := len(o.Attention); n > 0 {
+		fmt.Fprintf(b, "Needs you on %s: %d thing(s) (sunstack next)\n", o.Host.Name, n)
+	} else {
+		fmt.Fprintf(b, "Needs you on %s: nothing\n", o.Host.Name)
 	}
 }
 
@@ -506,7 +513,7 @@ func (o *Org) writeWork(b *strings.Builder) {
 			fmt.Fprintf(b, "  free %s\n", freeLine(s))
 		}
 		if n := len(t.Issues); n > 0 {
-			fmt.Fprintf(b, "  %d board item(s) need attention (sunstack board --root %s)\n", n, t.Root)
+			fmt.Fprintf(b, "  %d board item(s) need attention (sunstack next --root %s)\n", n, t.Root)
 		}
 		b.WriteString("\n")
 	}

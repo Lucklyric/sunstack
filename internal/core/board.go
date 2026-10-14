@@ -291,15 +291,6 @@ type Issue struct {
 	Do    string `json:"do"`
 }
 
-// Issues is the text of Findings, for board, health and org.
-func (b *Boards) Issues(today time.Time) []string {
-	var out []string
-	for _, is := range b.Findings(today) {
-		out = append(out, is.Text)
-	}
-	return out
-}
-
 // Findings finds what needs attention: stale, overdue, undated or unaligned
 // entries, key results without a known objective, broken dependencies,
 // unverified Done entries and asks.
@@ -537,11 +528,8 @@ func (p *Project) BoardText(id string) (string, error) {
 	if len(b.Missing) > 0 {
 		fmt.Fprintf(&s, "\nNo board yet: %s (sunstack tidy <id> creates one)\n", strings.Join(b.Missing, ", "))
 	}
-	if is := p.IssueTexts(today); len(is) > 0 {
-		s.WriteString("\nNeeds attention\n")
-		for _, i := range is {
-			s.WriteString("  " + i + "\n")
-		}
+	if n := len(p.Findings(today)); n > 0 {
+		fmt.Fprintf(&s, "\n%d item(s) need attention (sunstack next)\n", n)
 	}
 	return s.String(), nil
 }

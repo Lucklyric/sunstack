@@ -190,7 +190,7 @@ func (p *Project) resolveRecipient(to string) (id, session string, err error) {
 					return id, to, nil
 				}
 			}
-			return "", "", fail(ExitFail, "not_found", "no live session %s (sunstack sessions lists them)", to)
+			return "", "", fail(ExitFail, "not_found", "no live session %s (sunstack team --sessions lists them)", to)
 		}
 	}
 	id, err = p.resolve(to)
@@ -694,7 +694,7 @@ func exists(path string) bool {
 	return err == nil
 }
 
-// SessionInfo describes one live session for `sunstack sessions`.
+// SessionInfo describes one live session for `sunstack team --sessions`.
 type SessionInfo struct {
 	Name, ID, Tool, Host, Where, Pane, Session, LastContact, Resume string
 	Spawned                                                         bool

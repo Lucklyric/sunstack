@@ -674,7 +674,7 @@ func (m *model) details2(n treeNode, w int) []string {
 			}
 		}
 		if len(t.Issues) > 0 {
-			out = append(out, "", fmt.Sprintf("%d board item(s) need attention (Next tab, or sunstack board)", len(t.Issues)))
+			out = append(out, "", fmt.Sprintf("%d board item(s) need attention (Next tab, or sunstack next)", len(t.Issues)))
 		}
 		for _, a := range m.teamWarnings(n) {
 			out = append(out, cWarn.Render(wrap("• "+a, w)))

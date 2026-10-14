@@ -95,7 +95,7 @@ func TestVerifiedDone(t *testing.T) {
 	must(t, os.WriteFile(cand, []byte(doc), 0o644))
 	expect(t, sh(t, p, home, "commit", "builder.alice", "board.md", cand, field(sumRe, r.out), "--token", tok), 0, "commit board")
 
-	r = sh(t, p, home, "board")
+	r = sh(t, p, home, "next", "--all")
 	requireContains(t, r.out, "builder.alice#KR3 is done without a verified: line")
 	for _, kr := range []string{"KR1 is done without", "KR2 is done without"} {
 		if strings.Contains(r.out, kr) {
@@ -177,7 +177,7 @@ func TestAsks(t *testing.T) {
 		"## Done\n"+
 		"- 2026-10-04 Q4 Use UTC? (answered: default)\n")
 
-	r := sh(t, p, home, "board")
+	r := sh(t, p, home, "next", "--all")
 	requireContains(t, r.out,
 		"builder.alice#Q1 asks the user: CSV or Parquet for the export? (options: csv | parquet) (default: csv after 2999-01-01)",
 		"builder.alice#KR1 is waiting on the user (Q1)",
@@ -189,7 +189,7 @@ func TestAsks(t *testing.T) {
 			t.Errorf("board should not say %q:\n%s", bad, r.out)
 		}
 	}
-	r = sh(t, p, home, "org", "--attention")
+	r = sh(t, p, home, "org", "--attention", "--all")
 	requireContains(t, r.out, "builder.alice#Q1 asks the user", "builder.alice#Q4 was decided by default")
 
 	// answer sends the agent a message; the agent edits its own board.

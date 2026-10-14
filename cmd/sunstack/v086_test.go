@@ -62,8 +62,17 @@ func TestNext(t *testing.T) {
 	if len(tiers) < 6 {
 		t.Fatalf("want at least 6 items for the cut: %s", r.out)
 	}
-	if r := sh(t, p, env, "next"); len(nextLineRe.FindAllString(r.out, -1)) != 5 || !strings.Contains(r.out, "more: sunstack next --all") {
-		t.Errorf("next shows the top five:\n%s", r.out)
+	// The short list folds the drift tier into one line and shows at most five.
+	r = sh(t, p, env, "next")
+	short := nextLineRe.FindAllStringSubmatch(r.out, -1)
+	drift := 0
+	for _, m := range short {
+		if m[1] == "drift" {
+			drift++
+		}
+	}
+	if len(short) > 5 || drift != 1 || !strings.Contains(r.out, "6 board or setup item(s) have drifted") {
+		t.Errorf("next shows the top five, drift as one line:\n%s", r.out)
 	}
 
 	// A session that holds an agent sees its own items first in each tier,
@@ -84,7 +93,11 @@ func TestNext(t *testing.T) {
 	var items []struct{ Tier, Owner, Text, Do string }
 	r = sh(t, p, env, "next", "--json")
 	must(t, json.Unmarshal([]byte(r.out), &items))
-	if len(items) != len(tiers) || items[0].Tier != "user" || items[0].Do == "" {
+	// This host's install problems rank first where the CLIs are installed.
+	for len(items) > 0 && items[0].Tier == "broken" && strings.Contains(items[0].Text, "rules") {
+		items = items[1:]
+	}
+	if items[0].Tier != "user" || items[0].Do == "" {
 		t.Errorf("json: %+v", items)
 	}
 }
@@ -120,7 +133,7 @@ func TestTaskLedger(t *testing.T) {
 
 	// Two failed rounds in one chain: send no third, make it an ask.
 	expect(t, sh(t, p, env, "send", "builder.alice", "Still blocked.", "--type", "done", "--reply-to", t2, "--from", "builder.bob", "--token", tb), 0, "reply 2")
-	requireContains(t, sh(t, p, env, "board").out, "failed twice")
+	requireContains(t, sh(t, p, env, "next", "--all").out, "failed twice")
 	requireContains(t, sh(t, p, env, "tasks", "--all").out, t2, "follows "+t1)
 
 	// A verified reply is a success; an old open task is flagged.
@@ -131,7 +144,7 @@ func TestTaskLedger(t *testing.T) {
 	b, err := os.ReadFile(path)
 	must(t, err)
 	must(t, os.WriteFile(path, regexp.MustCompile(`(?m)^at: .*$`).ReplaceAll(b, []byte("at: 2026-01-01T00:00:00Z")), 0o644))
-	requireContains(t, sh(t, p, env, "board").out, "task "+t3+" from builder.alice to reviewer.rita has been open since 2026-01-01")
+	requireContains(t, sh(t, p, env, "next", "--all").out, "task "+t3+" from builder.alice to reviewer.rita has been open since 2026-01-01")
 	requireContains(t, sh(t, p, env, "tasks", "--from", "builder.alice").out, t3)
 	if r := sh(t, p, env, "tasks", "--from", "builder.bob"); strings.Contains(r.out, t3) {
 		t.Errorf("--from filters by sender:\n%s", r.out)

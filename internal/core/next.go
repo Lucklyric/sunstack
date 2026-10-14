@@ -28,29 +28,13 @@ func tierRank(t string) int {
 func (p *Project) Next(caller string, today time.Time) []Issue {
 	var out []Issue
 	for _, c := range p.Health() {
-		switch {
-		case c.Area == "board":
-			// The same findings come typed below.
-		case c.Level == "fail":
-			out = append(out, Issue{"broken", "user", c.Msg, c.Fix})
-		case c.Level == "warn" && c.Area == "migrate":
-			out = append(out, Issue{"user", "user", c.Msg, "checkup skill (" + c.Fix + ")"})
-		case c.Level == "warn":
-			out = append(out, Issue{"drift", "user", c.Msg, c.Fix})
-		case c.Level == "next" && strings.Contains(c.Msg, "unread message"):
-			out = append(out, Issue{"blocked", agentOf(c.Msg), c.Msg, c.Fix})
-		case c.Level == "next":
-			out = append(out, Issue{"user", agentOf(c.Msg), c.Msg, c.Fix})
+		if is, ok := CheckIssue(c); ok {
+			out = append(out, is)
 		}
 	}
+	out = append(out, p.waiting()...)
 	out = append(out, p.Findings(today)...)
-	sort.SliceStable(out, func(i, j int) bool {
-		ri, rj := tierRank(out[i].Kind), tierRank(out[j].Kind)
-		if ri != rj {
-			return ri < rj
-		}
-		return caller != "" && out[i].Owner == caller && out[j].Owner != caller
-	})
+	Rank(out, caller)
 	if caller != "" {
 		if it, ok := p.ownNext(caller); ok {
 			out = append(out, Issue{"yours", caller, fmt.Sprintf("%s: %s %s", caller, it.Key, it.Text), "work on it as " + caller + ", then save"})
@@ -59,12 +43,53 @@ func (p *Project) Next(caller string, today time.Time) []Issue {
 	return out
 }
 
-// agentOf takes the agent ID that starts a health message, if any.
-func agentOf(msg string) string {
-	if f := strings.Fields(msg); len(f) > 0 && strings.Contains(f[0], ".") {
-		return f[0]
+// CheckIssue turns a failed or warning health check into an action; a
+// warning with nothing to do is only health's.
+func CheckIssue(c Check) (Issue, bool) {
+	switch {
+	case c.Fix == "":
+		return Issue{}, false
+	case c.Level == "fail":
+		return Issue{"broken", "user", c.Msg, c.Fix}, true
+	case c.Level == "warn" && c.Area == "migrate":
+		return Issue{"user", "user", c.Msg, c.Fix}, true
+	case c.Level == "warn" && c.Area == "install":
+		return Issue{"broken", "user", c.Msg, c.Fix}, true
+	case c.Level == "warn":
+		return Issue{"drift", "user", c.Msg, c.Fix}, true
 	}
-	return "user"
+	return Issue{}, false
+}
+
+// Rank sorts actions by tier, the caller's own first within a tier.
+func Rank(items []Issue, caller string) {
+	sort.SliceStable(items, func(i, j int) bool {
+		ri, rj := tierRank(items[i].Kind), tierRank(items[j].Kind)
+		if ri != rj {
+			return ri < rj
+		}
+		return caller != "" && items[i].Owner == caller && items[j].Owner != caller
+	})
+}
+
+// waiting is the team's work that waits on the user or on a session.
+func (p *Project) waiting() []Issue {
+	var out []Issue
+	status := p.Status()
+	if len(status) == 0 {
+		out = append(out, Issue{"user", "user", "no agents hired yet", "recruit skill, or sunstack hire <title> <name> (sunstack library lists titles)"})
+	}
+	for _, s := range status {
+		if n := len(s.Proposals); n > 0 {
+			out = append(out, Issue{"user", s.ID, fmt.Sprintf("%s has %d rule change(s) waiting for your approval", s.ID, n),
+				"sunstack as " + s.ID + ", then the save skill asks you about each"})
+		}
+		if s.Inbox > 0 && len(s.Claims) == 0 {
+			out = append(out, Issue{"blocked", s.ID, fmt.Sprintf("%s has %d unread message(s) and no session", s.ID, s.Inbox),
+				"sunstack spawn " + s.ID})
+		}
+	}
+	return out
 }
 
 // ownNext is the caller's first open Now entry, else its first Next entry.
@@ -87,6 +112,9 @@ func NextText(items []Issue, max int) string {
 		return "Nothing needs doing: no problems, nothing waiting on the user, no open work on the boards.\n"
 	}
 	var b strings.Builder
+	if max > 0 {
+		items = collapseDrift(items)
+	}
 	shown := items
 	if max > 0 && len(items) > max {
 		shown = items[:max]
@@ -98,4 +126,25 @@ func NextText(items []Issue, max int) string {
 		fmt.Fprintf(&b, "(%d more: sunstack next --all)\n", len(items)-len(shown))
 	}
 	return b.String()
+}
+
+// collapseDrift folds the drift tier into one line, so housekeeping the
+// agents do at their next save never pushes real actions off the list.
+func collapseDrift(items []Issue) []Issue {
+	var out []Issue
+	n, at := 0, -1
+	for _, it := range items {
+		if it.Kind != "drift" {
+			out = append(out, it)
+			continue
+		}
+		if n++; at < 0 {
+			at = len(out)
+			out = append(out, it)
+		}
+	}
+	if n > 1 {
+		out[at] = Issue{"drift", "user", fmt.Sprintf("%d board or setup item(s) have drifted; the agents fix theirs at their next save", n), "sunstack next --all lists them"}
+	}
+	return out
 }

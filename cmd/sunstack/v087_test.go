@@ -36,7 +36,7 @@ func TestBareNeedIsOwnKeyResult(t *testing.T) {
 		"- 2026-10-05 KR1 [O1] Ship it (needs: KR2)\n"+
 		"- 2026-10-05 KR3 [O1] Announce it (needs: KR9)\n"+
 		"## Next\n- 2026-10-05 KR2 [O1] Build it\n## Done\n")
-	r := sh(t, p, env, "board")
+	r := sh(t, p, env, "next", "--all")
 	requireContains(t, r.out, "builder.alice#KR1 is waiting on builder.alice#KR2 (next)", "builder.alice#KR3 needs builder.alice#KR9, which does not exist")
 	if strings.Contains(r.out, "needs KR2, which does not exist") {
 		t.Errorf("a bare need is resolved on the agent's own board:\n%s", r.out)

@@ -442,9 +442,11 @@ func TestTeamCommands(t *testing.T) {
 	if b, _ := os.ReadFile(filepath.Join(p, "sunstack", "PROTOCOL.md")); string(b) != "old\n" {
 		t.Error("plain init must not replace PROTOCOL.md")
 	}
-	if r := sh(t, p, home, "health"); !strings.Contains(r.out, "PROTOCOL.md differs") ||
-		!strings.Contains(r.out, "next steps:") || !strings.Contains(r.out, "[next] no agents hired yet") {
-		t.Errorf("health should flag the old protocol and suggest hiring: %q", r.out)
+	if r := sh(t, p, home, "health"); !strings.Contains(r.out, "PROTOCOL.md differs") || !strings.Contains(r.out, "sunstack next") {
+		t.Errorf("health should flag the old protocol and point to next: %q", r.out)
+	}
+	if r := sh(t, p, home, "next", "--all"); !strings.Contains(r.out, "[user] no agents hired yet") {
+		t.Errorf("next should suggest hiring: %q", r.out)
 	}
 	// Staging files of an unclaimed agent are reported as leftovers.
 	must(t, os.MkdirAll(filepath.Join(p, "sunstack", "_local", "tmp", "builder.gone"), 0o755))
@@ -758,8 +760,9 @@ func TestBoards(t *testing.T) {
 
 	r = sh(t, p, home, "board")
 	expect(t, r, 0, "board")
+	requireContains(t, r.out, "O1 2026-09-24 Ship v1", "builder.alice#KR1", "user#KR1", "sunstack next")
+	r = sh(t, p, home, "next", "--all")
 	for _, want := range []string{
-		"O1 2026-09-24 Ship v1", "builder.alice#KR1", "user#KR1",
 		"builder.alice#KR1 needs reviewer.bob#KR1, which does not exist",
 		"builder.alice#KR2 serves O9, which is not an objective",
 		"builder.alice#KR2 has not been updated since " + old,
@@ -1034,8 +1037,9 @@ func TestOrg(t *testing.T) {
 	}
 	r = sh(t, p, env, "org")
 	expect(t, r, 0, "org")
-	for _, want := range []string{"Needs you", "builder.alice#KR1 is waiting on the user", "claude helper is waiting for you",
-		"bg job is blocked for you", "O1 Ship the API", "builder.alice#KR1 auth endpoints", "session builder.alice_api@",
+	requireContains(t, sh(t, p, env, "org", "--attention", "--all").out, "builder.alice#KR1 is waiting on the user", "claude helper is waiting for you",
+		"bg job is blocked for you", "background sessions (claude agents)")
+	for _, want := range []string{"Needs you", "O1 Ship the API", "builder.alice#KR1 auth endpoints", "session builder.alice_api@",
 		"doing: wiring the auth routes", "free claude helper", "Sessions outside teams"} {
 		if !strings.Contains(r.out, want) {
 			t.Errorf("org missing %q:\n%s", want, r.out)
@@ -1180,10 +1184,12 @@ func TestReachAndReopen(t *testing.T) {
 	// A session outside tmux still gets the message, and org says how it will see it.
 	expect(t, sh(t, free, running, "send", sid, "ping"), 0, "send")
 	r := sh(t, free, running, "org")
-	if !strings.Contains(r.out, "outside tmux (messages wait for its next prompt)") ||
-		!strings.Contains(r.out, "1 message(s) wait for claude helper; it is outside tmux") ||
-		!strings.Contains(r.out, "sunstack reopen "+sid) {
+	if !strings.Contains(r.out, "outside tmux (messages wait for its next prompt)") {
 		t.Errorf("org reach: %s", r.out)
+	}
+	r = sh(t, free, running, "org", "--attention", "--all")
+	if !strings.Contains(r.out, "1 message(s) wait for claude helper, which is outside tmux") || !strings.Contains(r.out, "sunstack reopen "+sid) {
+		t.Errorf("next reach: %s", r.out)
 	}
 	r = sh(t, free, running, "reopen", sid)
 	expect(t, r, 1, "reopen refuses a session that is still open")

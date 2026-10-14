@@ -230,7 +230,7 @@ func FindAttach(p *Project, t string) (*AttachPlace, error) {
 		case len(found) == 0:
 			return nil, fail(ExitFail, "not_found", "no session %s on this host", t)
 		case len(found) > 1:
-			return nil, fail(ExitFail, "ambiguous", "%d sessions are called %s; use a session ID (sunstack sessions)", len(found), t)
+			return nil, fail(ExitFail, "ambiguous", "%d sessions are called %s; use a session ID (sunstack team --sessions)", len(found), t)
 		case found[0].Pane == "":
 			return nil, fail(ExitFail, "no_pane", "session %s runs outside tmux (%s); sunstack reopen moves it into tmux", t, placeOf(found[0]))
 		}

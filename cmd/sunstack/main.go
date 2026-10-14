@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -24,6 +25,29 @@ import (
 
 // version is set at release time with -ldflags "-X main.version=...".
 var version = "dev"
+
+// shortUsage lists the commands people run; usage (help all) lists every
+// one, including those the plugin's skills run.
+const shortUsage = `sunstack — agent-team layer for Claude Code and Codex
+
+  sunstack next [--all]                 what to do now, ranked, each with the command that does it
+  sunstack                              dashboard (also sunstack tui)
+  sunstack org [--by team|agent|host]   every team and session on this host, and the org's other hosts
+  sunstack board [id]                   objectives, key results and directives
+  sunstack team [--sessions]            who is on the team; --sessions: every live session
+  sunstack send <to> "<text>"           message an agent, a session or another host
+  sunstack spawn <id|title>             start a session as that agent
+  sunstack attach <session>             go to a session's tmux pane
+  sunstack peek <session> [--lines N]   the end of a session's pane, read only
+  sunstack direct "<text>"              add a directive for the team
+  sunstack answer <id> Q<n> "<answer>"  answer an agent's ask
+  sunstack hire <title> <name>          add an agent (sunstack library lists the titles)
+  sunstack init                         set up a team in this folder
+  sunstack health                       check the project and the install
+  sunstack update                       update this binary and the plugin
+
+The plugin's skills run the rest. Every command and flag: sunstack help all
+`
 
 const usage = `sunstack — agent-team layer for Claude Code and Codex
 
@@ -55,7 +79,7 @@ Boards:
   sunstack tidy <id> | --team | --all             archive old finished entries by month; creates a missing board
 
 Sessions and messages:
-  sunstack sessions [--json]                      every live session: name, tool, host, tmux place, resume command
+  sunstack team --sessions [--json]               every live session (also: sunstack sessions): name, tool, host, tmux place, resume command
   sunstack send <id|title|id_task|team/id|pane-id|session-id> "<text>"|--file F [--type task|question|handoff|fyi|done|shutdown]
                 [--reply-to MSG] [--from ID --token T] [--no-nudge] [--op ID] [--follows TASK]
                                                   a task carries a brief: Goal, Scope, Done when, Verify, Report
@@ -288,7 +312,11 @@ func run(argv []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		}
 	}
 	if len(argv) == 0 || argv[0] == "help" || argv[0] == "--help" || argv[0] == "-h" {
-		fmt.Fprint(stdout, usage)
+		if len(argv) > 1 && argv[1] == "all" {
+			fmt.Fprint(stdout, usage)
+		} else {
+			fmt.Fprint(stdout, shortUsage)
+		}
 		return 0
 	}
 	err := dispatch(argv[0], argv[1:], stdin, stdout, stderr)
@@ -608,6 +636,9 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 		return nil
 
 	case "team", "log", "inbox", "pillar":
+		if cmd == "team" && slices.Contains(rest, "--sessions") {
+			return dispatch("sessions", slices.DeleteFunc(slices.Clone(rest), func(s string) bool { return s == "--sessions" }), stdin, stdout, stderr)
+		}
 		a, err := parse(rest, "root id", "follow team")
 		if err != nil {
 			return err
@@ -694,30 +725,7 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 		if err != nil {
 			return err
 		}
-		p, err := core.FindProject(a.flags["root"])
-		if err != nil {
-			return err
-		}
-		_, session := detectTool()
-		caller := ""
-		if held := p.HeldBy(session, os.Getenv("TMUX_PANE"), tmuxSocket()); len(held) > 0 {
-			caller = held[0].ID
-		}
-		items := p.Next(caller, time.Now())
-		if a.has("json") {
-			if items == nil {
-				items = []core.Issue{}
-			}
-			b, _ := json.MarshalIndent(items, "", "  ")
-			fmt.Fprintln(stdout, string(b))
-			return nil
-		}
-		max := 5
-		if a.has("all") {
-			max = 0
-		}
-		fmt.Fprint(stdout, core.NextText(items, max))
-		return nil
+		return nextCommand(a, false, stdout)
 
 	case "tasks":
 		// The delegation ledger (§17.2), derived from messages.
@@ -1180,7 +1188,7 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 			return err
 		}
 		if len(a.pos) < 1 {
-			return missing("session name (sunstack sessions lists them)")
+			return missing("session name (sunstack team --sessions lists them)")
 		}
 		p, perr := core.FindProject(a.flags["root"])
 		scope := ""
@@ -1268,7 +1276,7 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 		if len(rest) > 0 && (rest[0] == "join" || rest[0] == "leave" || rest[0] == "keys" || rest[0] == "trust" || rest[0] == "allow" || rest[0] == "deny" || rest[0] == "update" || rest[0] == "managed" || rest[0] == "managed-serve") {
 			return orgMembership(rest, stdin, stdout)
 		}
-		a, err := parse(rest, "by", "attention json refresh")
+		a, err := parse(rest, "by", "attention all json refresh")
 		if err == nil {
 			err = a.atMost(0, "org")
 		}
@@ -1282,7 +1290,8 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 			return &core.Error{Code: core.ExitUsage, Reason: "usage", Msg: "--by must be team, agent or host"}
 		}
 		if a.has("attention") {
-			view = "attention"
+			// What needs you is sunstack next's job; kept as its alias.
+			return nextCommand(a, true, stdout)
 		}
 		if a.has("refresh") {
 			if err := hub.RefuseManaged("is refreshed by the hub's pulls"); err != nil {
@@ -1762,6 +1771,28 @@ func health(root string, out io.Writer) error {
 	} else {
 		cs = append(cs, core.Check{Level: "fail", Area: "project", Msg: "no sunstack/ here or above", Fix: "sunstack init (sets up sunstack/ in the current folder)"})
 	}
+	cs = append(cs, installChecks()...)
+	failedN := 0
+	for _, c := range cs {
+		fmt.Fprintf(out, "%-4s %-8s %s\n", c.Level, c.Area, c.Msg)
+		if c.Fix != "" {
+			fmt.Fprintf(out, "              fix: %s\n", c.Fix)
+		}
+		if c.Level == "fail" {
+			failedN++
+		}
+	}
+	fmt.Fprintf(out, "\nwhat to do next: sunstack next\n")
+	if failedN > 0 {
+		return &core.Error{Code: core.ExitFail, Reason: "health", Msg: fmt.Sprintf("%d check(s) failed", failedN)}
+	}
+	return nil
+}
+
+// installChecks checks this host's install: the version and the CLIs'
+// permission rules. health prints them; next ranks the failing ones.
+func installChecks() []core.Check {
+	var cs []core.Check
 	cs = append(cs, core.Check{Level: "ok", Area: "install", Msg: "sunstack " + version})
 	if _, err := exec.LookPath("claude"); err == nil {
 		if setup.HasClaudeRules() {
@@ -1789,38 +1820,66 @@ func health(root string, out io.Writer) error {
 			cs = append(cs, core.Check{Level: "warn", Area: "install", Msg: "Codex approvals_reviewer sends approval prompts to an automatic reviewer; rule changes rely on the skill asking you"})
 		}
 	}
-	failedN := 0
-	for _, c := range cs {
-		fmt.Fprintf(out, "%-4s %-8s %s\n", c.Level, c.Area, c.Msg)
-		if c.Fix != "" {
-			fmt.Fprintf(out, "              fix: %s\n", c.Fix)
-		}
-		if c.Level == "fail" {
-			failedN++
-		}
+	return cs
+}
+
+// nextCommand prints sunstack next: inside a team (or with --root) that
+// team's ranked list; otherwise, or for hostWide, what waits on the user
+// across this host and the other hosts of its org. Both add this host's
+// install problems, a newer release and mail held on the hub.
+func nextCommand(a *args, hostWide bool, stdout io.Writer) error {
+	var items []core.Issue
+	caller := ""
+	p, err := core.FindProject(a.flags["root"])
+	if err != nil && a.flags["root"] != "" {
+		return err
 	}
-	// Ranked summary: failures first, then warnings, then waiting work.
-	var steps []string
-	seen := map[string]bool{}
-	for _, level := range []string{"fail", "warn", "next"} {
-		for _, c := range cs {
-			if c.Level == level && c.Fix != "" && !seen[c.Msg+c.Fix] {
-				seen[c.Msg+c.Fix] = true
-				steps = append(steps, fmt.Sprintf("[%s] %s: %s", level, c.Msg, c.Fix))
+	if err == nil && !hostWide {
+		_, session := detectTool()
+		if held := p.HeldBy(session, os.Getenv("TMUX_PANE"), tmuxSocket()); len(held) > 0 {
+			caller = held[0].ID
+		}
+		items = p.Next(caller, time.Now())
+	} else {
+		o := core.BuildOrg()
+		items = o.Next()
+		if v := hub.LoadView(time.Now()); v != nil {
+			for _, h := range v.Hosts {
+				if h.You || h.Org == nil {
+					continue
+				}
+				own, _ := hub.Split(h.Org, o)
+				for _, t := range own.Attention {
+					items = append(items, core.Issue{Kind: "user", Owner: "user", Text: t, Do: "on " + h.Name})
+				}
 			}
 		}
 	}
-	if len(steps) == 0 {
-		fmt.Fprintf(out, "\nnext steps: none, all good\n")
-	} else {
-		fmt.Fprintf(out, "\nnext steps:\n")
-		for i, s := range steps {
-			fmt.Fprintf(out, "%d. %s\n", i+1, s)
+	for _, c := range installChecks() {
+		if is, ok := core.CheckIssue(c); ok {
+			items = append(items, is)
 		}
 	}
-	if failedN > 0 {
-		return &core.Error{Code: core.ExitFail, Reason: "health", Msg: fmt.Sprintf("%d check(s) failed", failedN)}
+	if latest := setup.CachedLatest(); latest != "" && setup.Older(version, latest) {
+		items = append(items, core.Issue{Kind: "user", Owner: "user", Text: "sunstack " + latest + " is out; this host runs " + version, Do: "sunstack update"})
 	}
+	if held, err := hub.Held(); err == nil && len(held) > 0 {
+		items = append(items, core.Issue{Kind: "user", Owner: "user", Text: fmt.Sprintf("%d message(s) from managed hosts are held on the hub", len(held)), Do: "sunstack hub held"})
+	}
+	core.Rank(items, caller)
+	if a.has("json") {
+		if items == nil {
+			items = []core.Issue{}
+		}
+		b, _ := json.MarshalIndent(items, "", "  ")
+		fmt.Fprintln(stdout, string(b))
+		return nil
+	}
+	max := 5
+	if a.has("all") {
+		max = 0
+	}
+	fmt.Fprint(stdout, core.NextText(items, max))
 	return nil
 }
 
