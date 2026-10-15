@@ -410,7 +410,7 @@ func remoteAddress(s *core.HostSession) string {
 
 // realRemoteSend sends a message to another host through the hub.
 func realRemoteSend(to, text string) string {
-	s, err := hub.Queue(to, "user", "fyi", text, "")
+	s, err := hub.Queue(to, "user", "fyi", text, "", "")
 	if err != nil {
 		return err.Error()
 	}

@@ -271,7 +271,7 @@ func (p *Project) Send(o SendOptions) (*SendResult, error) {
 	if err != nil {
 		return nil, err
 	}
-	if o.FromSession != "" && !IsSessionID(o.FromSession) {
+	if o.FromSession != "" && !IsReplySession(o.FromSession) {
 		o.FromSession = ""
 	}
 	if o.Op != "" && !opRe.MatchString(o.Op) {

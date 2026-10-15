@@ -468,7 +468,7 @@ func sendRemote(p *core.Project, o core.SendOptions, stdout io.Writer) error {
 	if o.Follows != "" {
 		return &core.Error{Code: core.ExitUsage, Reason: "usage", Msg: "--follows is for tasks within this host's teams"}
 	}
-	s, err := hub.Queue(o.To, from, o.Type, o.Body, o.ReplyTo)
+	s, err := hub.Queue(o.To, from, o.Type, o.Body, o.ReplyTo, o.FromSession)
 	if err != nil {
 		return err
 	}

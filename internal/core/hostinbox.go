@@ -19,6 +19,17 @@ var sessionIDRe = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a
 // IsSessionID reports whether s looks like a Claude session or Codex thread ID.
 func IsSessionID(s string) bool { return sessionIDRe.MatchString(s) }
 
+var replyHostRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$`)
+
+// IsReplySession accepts what a message's from_session may hold: a session
+// ID on this host, or <host>:<session ID> for one on another host.
+func IsReplySession(s string) bool {
+	if h, id, ok := strings.Cut(s, ":"); ok {
+		return replyHostRe.MatchString(h) && IsSessionID(id)
+	}
+	return IsSessionID(s)
+}
+
 func hostInboxDir(sid string) string { return filepath.Join(Home(), "inbox", sid) }
 func hostTakenDir(sid string) string { return filepath.Join(hostInboxDir(sid), ".taken") }
 func hostArchive() string            { return filepath.Join(Home(), "log", "messages") }
@@ -79,7 +90,7 @@ func SendToSession(s *HostSession, o SendOptions) (*SendResult, error) {
 	if o.ReplyTo != "" && !msgIDRe.MatchString(o.ReplyTo) {
 		return nil, fail(ExitUsage, "usage", "invalid --reply-to message id: %s", o.ReplyTo)
 	}
-	if o.FromSession != "" && !IsSessionID(o.FromSession) {
+	if o.FromSession != "" && !IsReplySession(o.FromSession) {
 		o.FromSession = ""
 	}
 	from := "user"

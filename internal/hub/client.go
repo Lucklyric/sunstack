@@ -228,8 +228,9 @@ type Sent struct {
 
 // Queue seals a message for another host and puts it in the outbox
 // (§18.8, §19.4). to is "<host>:<address>"; from is "user" or
-// "<team>/<agent>".
-func Queue(to, from, typ, body, replyTo string) (*Sent, error) {
+// "<team>/<agent>". fromSession, the sending CLI session, is kept only for
+// the user, so a reply can reach a session that works as no agent.
+func Queue(to, from, typ, body, replyTo, fromSession string) (*Sent, error) {
 	if replyTo == "" {
 		if err := RefuseManaged("sends to another host only a reply to a message it got from that host"); err != nil {
 			return nil, err
@@ -246,6 +247,9 @@ func Queue(to, from, typ, body, replyTo string) (*Sent, error) {
 		typ = "fyi"
 	}
 	l := &Letter{From: from, To: addr, Type: typ, ReplyTo: replyTo, Body: body}
+	if from == "user" && core.IsSessionID(fromSession) {
+		l.FromSession = fromSession
+	}
 	if err := checkLetter(l); err != nil {
 		return nil, usageErr("%v", err)
 	}
@@ -492,6 +496,9 @@ func Deliver(m *Mail) (status, reason string, final bool) {
 		Body: l.Body, Type: l.Type, ReplyTo: l.ReplyTo,
 		FromLabel: pin.Name + ":" + l.From, FromHost: pin.Name,
 		ID: m.ID, Op: "x" + hex.EncodeToString(sum[:16]),
+	}
+	if l.From == "user" && l.FromSession != "" {
+		opts.FromSession = pin.Name + ":" + l.FromSession
 	}
 	if core.IsSessionID(l.To) {
 		var s *core.HostSession
