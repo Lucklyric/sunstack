@@ -1,6 +1,6 @@
 ---
 name: checkup
-description: Check this project's Sunstack setup and health, set it up or migrate it, and fix what is off (install, cleanup, pending rule changes). Use for "sunstack checkup", "/sunstack:checkup", "sunstack health", "set up sunstack", "migrate sunstack", or whether Sunstack works. Not for what to work on next (next skill).
+description: Check this project's Sunstack setup and health, set it up or migrate it, and fix what is off (install, cleanup, pending rule changes). Use for "sunstack checkup", "/sunstack:checkup", "sunstack health", "set up sunstack", "migrate sunstack", "upgrade sunstack", "update sunstack", or whether Sunstack works. Not for what to work on next (next skill).
 ---
 
 # Sunstack: checkup
@@ -17,6 +17,21 @@ Find out where this project stands and walk the user through the next steps, one
 - Ask with AskUserQuestion if you have it, otherwise as numbered options in the conversation;
   then end your turn and wait. No answer, a cancel, or the user moving on is not approval.
 - Never delete, commit, hire, fire or amend without an explicit yes for that step.
+
+## Upgrade only
+
+When the user asks only to upgrade or update Sunstack, skip the full checkup:
+
+1. `sunstack update`. It updates the CLI and the Claude Code and Codex rules, and runs the
+   `[auto]` steps. The user may need to run it in a terminal, and a second time if the first
+   run updated the binary.
+2. `sunstack migrate --host` lists the `[ask ]` steps for every team on this machine. Show
+   them; on yes run `sunstack migrate --host --apply all`, then show `git diff --stat` of the
+   changed `sunstack/` folders.
+3. Run `sunstack health` and show that no `migrate` lines are left. Suggest committing the
+   changed files and reloading the session to pick up the new skills.
+
+Each other machine of the user (`sunstack org --by host` lists them) runs the same steps there.
 
 ## 1. Look
 
