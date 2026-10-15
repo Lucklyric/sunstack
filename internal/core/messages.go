@@ -277,6 +277,18 @@ func (p *Project) Send(o SendOptions) (*SendResult, error) {
 	if o.Op != "" && !opRe.MatchString(o.Op) {
 		return nil, fail(ExitUsage, "usage", "invalid --op: letters, digits, . _ - only, at most 64")
 	}
+	// Publish under the recipient's lock, which fire and rename also take,
+	// so a message never lands in a removed agent's inbox. Two senders with
+	// the same --op deliver once. The nudge runs after the lock is freed.
+	unlock, err := p.lock(id)
+	if err != nil {
+		return nil, err
+	}
+	release := unlock
+	defer func() { release() }()
+	if again, s2, err := p.resolveRecipient(o.To); err != nil || again != id || s2 != session {
+		return nil, fail(ExitFail, "not_found", "%s was removed while waiting", o.To)
+	}
 	dir := p.inboxDir(id)
 	if err := p.noSymlink(dir); err != nil {
 		return nil, err
@@ -288,26 +300,14 @@ func (p *Project) Send(o SendOptions) (*SendResult, error) {
 	if from == "user" {
 		m.Via = o.Via
 	}
-	release := func() {}
 	if o.Op != "" {
-		// Check and write under the recipient's lock, so two senders with
-		// the same --op deliver once. The nudge runs after the lock is freed.
-		unlock, err := p.lock(id)
-		if err != nil {
-			return nil, err
-		}
-		prev := findOp(m, p.inboxDir(id), p.messageArchive(), p.local("inbox", id, ".taken"))
-		if prev != nil {
-			unlock()
+		if prev := findOp(m, p.inboxDir(id), p.messageArchive(), p.local("inbox", id, ".taken")); prev != nil {
 			return &SendResult{ID: prev.ID, To: id, Session: prev.Session, Note: "already sent with this --op; not sent again"}, nil
 		}
 		if o.ID != "" && idUsed(o.ID, p.inboxDir(id), p.messageArchive(), p.local("inbox", id, ".taken")) {
-			unlock()
 			return nil, fail(ExitFail, "conflict", "a different message with id %s is already here", o.ID)
 		}
-		release = unlock
 	}
-	defer func() { release() }()
 	// Create the temporary file exclusively, so two senders never share a
 	// name; readers only see the .md after the rename.
 	var tmp string

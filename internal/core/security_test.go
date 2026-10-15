@@ -197,3 +197,30 @@ func TestResolveTitleNeedsValidID(t *testing.T) {
 		t.Errorf("title resolved to %q", id)
 	}
 }
+
+// A send that waits on the recipient's lock while it is fired fails, and
+// leaves no orphan inbox behind (plain sends and --op sends alike).
+func TestSendRacesFire(t *testing.T) {
+	for _, op := range []string{"", "op1"} {
+		p := secTeam(t)
+		unlock, err := p.lock("builder.ann")
+		if err != nil {
+			t.Fatal(err)
+		}
+		done := make(chan error, 1)
+		go func() {
+			_, err := p.Send(SendOptions{To: "builder.ann", Body: "hi", Type: "fyi", Op: op, NoNudge: true})
+			done <- err
+		}()
+		time.Sleep(3 * lockWait)
+		os.RemoveAll(p.AgentDir("builder.ann"))
+		os.RemoveAll(p.local("inbox", "builder.ann"))
+		unlock()
+		if err := <-done; err == nil || !strings.Contains(err.Error(), "not_found") {
+			t.Errorf("op %q: send into a fired agent: %v", op, err)
+		}
+		if _, err := os.Stat(p.inboxDir("builder.ann")); err == nil {
+			t.Errorf("op %q: orphan inbox left", op)
+		}
+	}
+}
