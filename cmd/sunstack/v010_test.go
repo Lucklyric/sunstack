@@ -118,7 +118,10 @@ func TestOrgAllow(t *testing.T) {
 	}
 	expect(t, hubHost.run(t, "org", "deny", "laptop", "peek", "--agents"), 0, "deny agent peek")
 	// Explicit peek teams work without a spawn agent grant.
-	expect(t, hubHost.run(t, "org", "allow", "laptop", "peek", "--agents", "--teams", "alpha"), 0, "explicit peek teams")
+	r = hubHost.run(t, "org", "allow", "laptop", "peek", "--agents", "--teams", "alpha")
+	expect(t, r, 0, "explicit peek teams")
+	// Agent requests are not built yet: the grant says it has no effect.
+	requireContains(t, r.out, "no effect for now")
 }
 
 // Remote peek (§20.5): granted on the host that has the session, asked by

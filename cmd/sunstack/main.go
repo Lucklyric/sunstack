@@ -160,7 +160,8 @@ Hosts (an org: several hosts connected through one hub, over Tailscale):
   sunstack org allow [<host> peek|spawn|update…]   let a host peek, spawn or update here (none by default); no host: list
   sunstack org deny <host> peek|spawn|update…      take that back
   sunstack org allow <host> spawn --agents --teams <team>[,<team>…] [--max N]
-                                                let that host's agents start sessions here in these teams; max 1 to 10 (default 2)
+                                                record that host's agents may start sessions here in these teams; max 1 to 10 (default 2);
+                                                reserved: agent requests are not built yet, so agent grants have no effect
   sunstack org allow <host> peek --agents [--teams <team>[,<team>…]]
                                                 let its agents peek in these teams; without --teams, copy its spawn agent grant's teams
   sunstack org deny <host> spawn|peek --agents    remove only that agent grant; allow and deny are user-only

@@ -391,7 +391,7 @@ func orgMembership(rest []string, stdin io.Reader, stdout io.Writer) error {
 			if err != nil {
 				return err
 			}
-			fmt.Fprintf(stdout, "sunstack: %s (key %s) may now %s here, teams %s, max %d. Check the key on %s with sunstack org keys. This allows:\n%s",
+			fmt.Fprintf(stdout, "sunstack: recorded an agent grant for %s (key %s): %s here, teams %s, max %d. Agent requests are not built yet, so it has no effect for now; that host's user requests work through sunstack org allow without --agents. Check the key on %s with sunstack org keys. Once agent requests exist, it allows:\n%s",
 				g.Name, g.Fingerprint, strings.Join(g.Kinds, ", "), strings.Join(g.Teams, ", "), g.Max, g.Name, hub.GrantWarning(g.Kinds))
 			return nil
 		}
