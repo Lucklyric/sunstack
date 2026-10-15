@@ -58,7 +58,7 @@ agent's claim follows it to the new pane. `sunstack attach <session>` goes to a 
 
 **Asks.** Agents' questions for the user show in `sunstack next` as
 `<id>#Q<n> asks the user: <question> (options: ...) (default: <answer> after <date>)`. Offer
-to go through them in one pass. For each answer the user gives, run
+to go through them in one pass. For each answer the user gives, pass on their exact choice (never choose for them) with
 `sunstack answer --root "<team root>" "<id>" Q<n> "<answer>"`. Asks "decided by default" stay
 listed until archived, so the user can overrule one with an answer message.
 

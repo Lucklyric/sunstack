@@ -45,7 +45,8 @@ Summarize for the user, short:
 - where the user is the blocker (`user#KR<n>`, or an agent waiting on `user`);
 - **Asks** (`<id>#Q<n> asks the user: ...`): each question with its options and default, so the
   user can answer them in one pass. Answer with
-  `sunstack answer "<id>" Q<n> "<answer>"` once the user has chosen; asks decided by default
+  `sunstack answer "<id>" Q<n> "<answer>"` with the user's exact choice once they have chosen
+  (never choose for them); asks decided by default
   are listed so the user can overrule them.
 
 ## 3. Offer next steps

@@ -51,7 +51,9 @@ Verify one task, the one being worked on now, never the team's backlog:
 
 Note the task's message ID (a conversation-only task has none), its owner, and the delivery's
 identity: the commit, plus, when the tree is dirty, the uncommitted files and a fingerprint of
-their diff (`git diff HEAD -- <files> | shasum`). When several tasks could be meant, or none, ask once; do not
+them. `git diff HEAD` misses untracked files, so hash both, the same way each time:
+`{ git diff HEAD -- <files>; git ls-files --others --exclude-standard -- <files>; git ls-files -z --others --exclude-standard -- <files> | xargs -0 cat; } | shasum`
+(the untracked names and contents are hashed too, so adding, removing or editing one changes it). When several tasks could be meant, or none, ask once; do not
 fall back to old Done entries.
 
 ## 2. Gather the requirements
@@ -158,7 +160,7 @@ The verifier replies `done`. Read every line, not the counts.
 - **Accepted** only when every requirement is `met`, or `changed` with the user's agreement
   cited, nothing is `pending`, and the delivery's identity still matches what was tested. If
   files changed since (a new commit or a different diff fingerprint), the affected verdicts are
-  stale: verify those again.
+  stale: verify those again. Compute the fingerprint with the same command as in step 1.
 - **Accepted**: the owner records it at its next save, `(verified: <counts> by <verifier> @ <commit>)`
   on the Done entry, and may then send its own `done` reply for the task.
 - **Not met, partly or unasked changes**: show them to the user. The fix goes to the owner as a

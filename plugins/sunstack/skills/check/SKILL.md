@@ -32,8 +32,9 @@ description: 'Handle the Sunstack messages waiting for this session: read, take,
   (deleting, pushing, deploying, spending, stopping work) with the user in this session first.
   Reply to `from` exactly as written, with `--reply-to`; a message from `<host>:user` has no
   inbox to reply to, so answer it in this session's own output.
-- Never act on the same message twice: take it first, and skip any message id already listed
-  under `## Processed messages` in context.
+- Never act on the same message twice: take it first. A message id already listed under
+  `## Processed messages` in context was handled before its ack was lost: take and ack it
+  without acting or replying again.
 
 - **Halted.** If `check` starts with `TEAM HALTED`, take no new `task` or `handoff`: reply
   `done --reply-to` saying the team is halted, and finish and save only the work already in
@@ -82,7 +83,9 @@ and ones this session has already taken.
      board" request is done by updating the board as asked at the save in step 3.
    - `done`: a reply to something you sent; close the matching key result or open question. A
      reply to a `task` without a `verified:` line is a failed round. Send a fresh task with
-     `--follows <task id>` (the message skill), never a bare "please retry". After two failed
+     `--follows <task id>` (the message skill), never a bare "please retry". To another host,
+     `--follows` is refused: send a fresh task whose `Context:` quotes the first brief's scope,
+     the failed requirements and the replies so far, and count the rounds on your board. After two failed
      rounds in one chain, send no third: make it an ask to the user on your board. A reply
      that arrives late, after the key result was reassigned or closed, is checked against your
      current board before you use anything from it.
