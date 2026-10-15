@@ -196,6 +196,15 @@ func TestSplitSharedTeams(t *testing.T) {
 	if len(remote.Teams) != 3 || len(remote.Attention) != 3 {
 		t.Error("Split changed the snapshot")
 	}
+	// Each host names its own clone's folder in the action, or (an older
+	// host) none at all: the item is still the same one.
+	local.Attention = []string{"alpha: pm.lead#Q1 asks the user: ship? (in /home/a/alpha: sunstack answer pm.lead Q1 \"<answer>\")"}
+	remote.Attention = []string{"alpha: pm.lead#Q1 asks the user: ship?", "alpha: pm.lead#Q1 asks the user: ship? (in /Users/b/alpha: sunstack answer pm.lead Q1 \"<answer>\")", "alpha: ops.night@server is waiting for you (in /Users/b/alpha: sunstack attach ops.night@server)"}
+	if own, _ := Split(remote, local); len(own.Attention) != 1 || !strings.Contains(own.Attention[0], "ops.night@server") {
+		t.Errorf("own attention across clones %q", own.Attention)
+	}
+	remote.Attention = []string{"alpha: KR5 needs KR1", "alpha: deploy waits for you", "shop: Q1 waits for you"}
+	local.Attention = []string{"alpha: KR5 needs KR1", "alpha: todo waits for you"}
 	if own, shared := Split(remote, nil); len(shared) != 0 || len(own.Teams) != 3 {
 		t.Error("without a local scan nothing is shared")
 	}

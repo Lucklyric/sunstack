@@ -299,7 +299,7 @@ func Split(remote, local *core.Org) (own *core.Org, shared []*core.OrgTeam) {
 			here[t.ID] = t.ID != ""
 		}
 		for _, a := range local.Attention {
-			seen[a] = true
+			seen[sameItem(a)] = true
 		}
 	}
 	for _, t := range remote.Teams {
@@ -310,11 +310,21 @@ func Split(remote, local *core.Org) (own *core.Org, shared []*core.OrgTeam) {
 		}
 	}
 	for _, a := range remote.Attention {
-		if !seen[a] {
+		if !seen[sameItem(a)] {
 			o.Attention = append(o.Attention, a)
 		}
 	}
 	return &o, shared
+}
+
+// sameItem drops the "(in <folder>: ...)" action from an attention line. A
+// team cloned on two hosts reports the same item with each host's own
+// folder, and an older host reports it with no action at all.
+func sameItem(a string) string {
+	if i := strings.LastIndex(a, " (in "); i > 0 && strings.HasSuffix(a, ")") {
+		return a[:i]
+	}
+	return a
 }
 
 // Text renders the other hosts for `sunstack org`, in the same views as the
