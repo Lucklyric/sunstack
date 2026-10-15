@@ -532,6 +532,24 @@ func (s store) pullManaged(c *Config, name, alias string, register bool) (*Hello
 		return nil, fmt.Errorf("%s's sunstack key changed; revoke it and manage it again after checking its key (sunstack org keys there)", name)
 	}
 
+	// A revoke ends the SSH call within a second, not only at the next
+	// frame: requests the host already started may still finish there.
+	go func() {
+		t := time.NewTicker(time.Second)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				if r, _ := s.roster(); r == nil || r.byID(me.ID) == nil {
+					cancel()
+					return
+				}
+			}
+		}
+	}()
+
 	// The hub's turn.
 	if r, _ := s.roster(); r == nil || r.byID(me.ID) == nil {
 		return nil, errors.New("revoked during the pull")
@@ -550,6 +568,9 @@ func (s store) pullManaged(c *Config, name, alias string, register bool) (*Hello
 		}
 		if size += int(fi.Size()); size > pullBytes {
 			break
+		}
+		if r, _ := s.roster(); r == nil || r.byID(me.ID) == nil {
+			return nil, errors.New("revoked during the pull")
 		}
 		// Recorded first: a reply in this same pull may answer it.
 		if err := writeJSON(s.deliveredFile(me.ID, m.ID), map[string]string{"from_host": m.FromHost, "at": stamp(time.Now())}, 0o600); err != nil {
