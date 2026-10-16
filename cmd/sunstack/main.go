@@ -102,6 +102,8 @@ Sessions and messages:
                                                   and while the team is halted; the tool defaults to tool: in AGENT.md
   sunstack dismiss <id|id_task>                   ask a session to finish (a shutdown message)
   sunstack kill <id_task|id> [--yes]              close that one session's tmux pane now (asks first; unsaved work is lost)
+  sunstack kill --idle [--yes]                    close every agent session at its prompt over 24h with nothing taken
+                                                  or staged (one confirmation for the list; next shows them)
   sunstack hr                                     staffing facts: load, idle agents, uncovered objectives, gaps,
                                                   unused templates, what the project is made of
 
@@ -1185,12 +1187,18 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 		return nil
 
 	case "kill":
-		a, err := parse(rest, "root", "yes")
+		a, err := parse(rest, "root", "yes idle")
 		if err == nil {
 			err = a.atMost(1, "kill")
 		}
 		if err != nil {
 			return err
+		}
+		if a.has("idle") {
+			if len(a.pos) > 0 {
+				return &core.Error{Code: core.ExitUsage, Reason: "usage", Msg: "kill --idle takes no session name"}
+			}
+			return killIdle(a, stdin, stdout)
 		}
 		if len(a.pos) < 1 {
 			return missing("session name (sunstack team --sessions lists them)")
@@ -1848,6 +1856,10 @@ func nextCommand(a *args, hostWide bool, stdout io.Writer) error {
 			caller = held[0].ID
 		}
 		items = p.Next(caller, time.Now())
+		sessions, _ := core.ScanSessions()
+		if is, ok := core.IdleIssue(p.IdleSessions(sessions, time.Now())); ok {
+			items = append(items, is)
+		}
 	case hostWide:
 		items, all = orgNext(), "sunstack org --attention --all"
 	default:
@@ -1886,6 +1898,48 @@ func nextCommand(a *args, hostWide bool, stdout io.Writer) error {
 	}
 	if elsewhere > 0 {
 		fmt.Fprintf(stdout, "%d more item(s) in the teams on this host and the org's other hosts: sunstack org --attention\n", elsewhere)
+	}
+	return nil
+}
+
+// killIdle closes every idle agent session of the team (§16) after one
+// confirmation for the whole list.
+func killIdle(a *args, stdin io.Reader, stdout io.Writer) error {
+	p, err := core.FindProject(a.flags["root"])
+	if err != nil {
+		return err
+	}
+	sessions, _ := core.ScanSessions()
+	idle := p.IdleSessions(sessions, time.Now())
+	if len(idle) == 0 {
+		fmt.Fprintln(stdout, "sunstack: no idle agent sessions (idle: at the prompt over 24h, nothing taken or staged)")
+		return nil
+	}
+	var names []string
+	for _, s := range idle {
+		names = append(names, fmt.Sprintf("%s (pane %s, idle %dd)", s.Label, s.Pane, int(s.For.Hours())/24))
+	}
+	plan := "close " + strconv.Itoa(len(idle)) + " idle agent session(s): " + strings.Join(names, ", ")
+	if !a.has("yes") {
+		if !setup.IsTerminal(os.Stdin) {
+			return &core.Error{Code: core.ExitUsage, Reason: "confirm", Msg: "this will " + plan + "; rerun with --yes once the user has confirmed"}
+		}
+		if !setup.Confirm(stdin, stdout, "This will "+plan+". Continue?", false) {
+			fmt.Fprintln(stdout, "sunstack: nothing closed")
+			return nil
+		}
+	}
+	var failed []string
+	for _, s := range idle {
+		msg, err := p.Kill(s.Label)
+		if err != nil {
+			failed = append(failed, s.Label+": "+err.Error())
+			continue
+		}
+		fmt.Fprintf(stdout, "sunstack: %s\n", msg)
+	}
+	if len(failed) > 0 {
+		return &core.Error{Code: core.ExitFail, Reason: "kill", Msg: "not closed: " + strings.Join(failed, "; ")}
 	}
 	return nil
 }
