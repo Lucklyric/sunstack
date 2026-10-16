@@ -33,8 +33,9 @@ sunstack org
 ```
 
 shows how many things need the user, then work by team. The items themselves are the next
-skill's: `sunstack next` outside a team lists what waits on the user across every team on this
-host and the org's other hosts (`sunstack org --attention` is the same list). Others:
+skill's: `sunstack org --attention` lists what waits on the user across every team on this
+host and the org's other hosts, ranked like next (plain `sunstack next` is local: one team, or
+outside a team this session only). Others:
 
 - `sunstack org --by agent`: each agent's Now entries, `doing:` lines and sessions.
 - `sunstack org --by host`: every session on this host, with its team or group.
