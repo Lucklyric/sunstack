@@ -35,15 +35,16 @@ func TestNextIsTheOnlyList(t *testing.T) {
 		t.Errorf("health keeps its own ranked list:\n%s", r.out)
 	}
 
-	// Outside any team: every team on this host, each item named by team.
+	// Outside any team: org --attention lists every team on this host, each
+	// item named by team; plain next only counts them (v0.12.6).
 	out := t.TempDir()
-	r = sh(t, out, home, "next")
-	expect(t, r, 0, "next outside a team")
+	r = sh(t, out, home, "org", "--attention")
+	expect(t, r, 0, "org --attention")
 	if !strings.Contains(r.out, finding) || !strings.Contains(r.out, filepath.Base(p)) {
-		t.Errorf("host-wide next:\n%s", r.out)
+		t.Errorf("host-wide list:\n%s", r.out)
 	}
-	if a := sh(t, out, home, "org", "--attention"); a.out != r.out {
-		t.Errorf("org --attention is not next:\n%s\n---\n%s", a.out, r.out)
+	if n := sh(t, out, home, "next"); strings.Contains(n.out, finding) || !strings.Contains(n.out, "sunstack org --attention") {
+		t.Errorf("next outside a team:\n%s", n.out)
 	}
 
 	// A newer release is something to do (a dev build is never behind).

@@ -20,6 +20,7 @@ const openDays = 3
 // TaskInfo is one task message and what came of it.
 type TaskInfo struct {
 	ID, From, To, Session, At, Goal, Follows string
+	FromSession                              string // the CLI session that sent it, for one with no agent
 	State                                    string // pending, taken, acked
 	Replies                                  []TaskReply
 	Open                                     bool
@@ -107,7 +108,7 @@ func (p *Project) Tasks() []*TaskInfo {
 		if m.Type != "task" {
 			continue
 		}
-		t := &TaskInfo{ID: m.ID, From: m.From, To: m.To, Session: m.Session, At: m.At, Follows: m.Follows, State: m.State, Replies: replies[m.ID]}
+		t := &TaskInfo{ID: m.ID, From: m.From, To: m.To, Session: m.Session, FromSession: m.FromSession, At: m.At, Follows: m.Follows, State: m.State, Replies: replies[m.ID]}
 		for _, l := range strings.Split(m.Body, "\n") {
 			if strings.HasPrefix(strings.ToLower(l), "goal:") {
 				t.Goal = strings.TrimSpace(l)

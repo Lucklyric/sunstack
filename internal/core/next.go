@@ -2,6 +2,7 @@ package core
 
 import (
 	"fmt"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -38,6 +39,33 @@ func (p *Project) Next(caller string, today time.Time) []Issue {
 	if caller != "" {
 		if it, ok := p.ownNext(caller); ok {
 			out = append(out, Issue{"yours", caller, fmt.Sprintf("%s: %s %s", caller, it.Key, it.Text), "work on it as " + caller + ", then save"})
+		}
+	}
+	return out
+}
+
+// SessionNext is what waits on one session that works as no agent: the
+// messages in its host inbox, and the tasks it sent that are still open in
+// any team on this host.
+func SessionNext(sid string) []Issue {
+	if !IsSessionID(sid) {
+		return nil
+	}
+	var out []Issue
+	ms, _ := HostCheck(sid)
+	for _, m := range ms {
+		out = append(out, Issue{"yours", "user", fmt.Sprintf("%s %s from %s waits for this session (%s)", m.Type, m.ID, m.From, m.State), "sunstack check --session"})
+	}
+	for _, p := range IndexedProjects() {
+		name := filepath.Base(p.Root)
+		if tf, ok := p.Team(); ok && tf.Name != "" {
+			name = tf.Name
+		}
+		for _, t := range p.Tasks() {
+			if t.Open && t.FromSession == sid {
+				out = append(out, Issue{"blocked", "user", fmt.Sprintf("task %s from this session to %s/%s has no reply yet (%s since %s)", t.ID, name, t.To, t.State, strings.SplitN(t.At, "T", 2)[0]),
+					"wait for the done reply; sunstack tasks --root " + p.Root + " shows it"})
+			}
 		}
 	}
 	return out
@@ -107,7 +135,11 @@ func (p *Project) ownNext(id string) (Item, bool) {
 }
 
 // NextText renders the list, the first max items unless max is 0.
-func NextText(items []Issue, max int) string {
+// all is the command that lists every item; empty means a team's own.
+func NextText(items []Issue, max int, all string) string {
+	if all == "" {
+		all = "sunstack next --all"
+	}
 	if len(items) == 0 {
 		return "Nothing needs doing: no problems, nothing waiting on the user, no open work on the boards.\n"
 	}
@@ -123,7 +155,7 @@ func NextText(items []Issue, max int) string {
 		fmt.Fprintf(&b, "%d. [%s] %s\n   do: %s\n", i+1, it.Kind, it.Text, it.Do)
 	}
 	if len(shown) < len(items) {
-		fmt.Fprintf(&b, "(%d more: sunstack next --all)\n", len(items)-len(shown))
+		fmt.Fprintf(&b, "(%d more: %s)\n", len(items)-len(shown), all)
 	}
 	return b.String()
 }

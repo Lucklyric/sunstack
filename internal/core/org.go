@@ -440,7 +440,7 @@ func (o *Org) Text(view string) string {
 
 func (o *Org) writeAttention(b *strings.Builder) {
 	if n := len(o.Attention); n > 0 {
-		fmt.Fprintf(b, "Needs you on %s: %d thing(s) (sunstack next)\n", o.Host.Name, n)
+		fmt.Fprintf(b, "Needs you on %s: %d thing(s) (sunstack org --attention)\n", o.Host.Name, n)
 	} else {
 		fmt.Fprintf(b, "Needs you on %s: nothing\n", o.Host.Name)
 	}

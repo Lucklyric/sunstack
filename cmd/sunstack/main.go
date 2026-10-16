@@ -30,7 +30,7 @@ var version = "dev"
 // one, including those the plugin's skills run.
 const shortUsage = `sunstack — agent-team layer for Claude Code and Codex
 
-  sunstack next [--all]                 what to do now, ranked, each with the command that does it
+  sunstack next [--all]                 what to do now here: this team, or outside a team this session
   sunstack                              dashboard (also sunstack tui)
   sunstack org [--by team|agent|host]   every team and session on this host, and the org's other hosts
   sunstack board [id]                   objectives, key results and directives
@@ -72,8 +72,10 @@ Boards:
                                                   needs attention (stale, overdue, blocked, not aligned)
   sunstack direct "<text>" [--to ID,TITLE,...]    add a dated directive from the user to BOARD.md (default: all)
   sunstack answer <id> Q<n> "<answer>"            answer an agent's ask (its board's Asks); the agent records it
-  sunstack next [--all] [--json]                  what to do now, ranked: broken, waiting on you, blocked, drift,
-                                                  then this session's own next step; each with the command to run
+  sunstack next [--all] [--json] [--root DIR]     what to do now, ranked: broken, waiting on you, blocked, drift,
+                                                  then this session's own next step; each with the command to run.
+                                                  In a team (or --root): that team. Outside a team: this session's
+                                                  inbox and open tasks only, plus a count of the rest (org --attention)
   sunstack tasks [--all] [--from ID]              open tasks (a task stays open until a done reply), with replies
   sunstack halt "<reason>" | --off                pause the whole team: work in progress saves, nothing new starts
   sunstack tidy <id> | --team | --all             archive old finished entries by month; creates a missing board
@@ -127,8 +129,9 @@ Team (run these yourself):
 
 Org (every team and Claude Code or Codex session on this host):
   sunstack org [--by team|agent|host] [--attention] [--json] [--refresh]
-                                                  how many things need you, then work by team (--attention: the same
-                                                  as sunstack next outside a team); --by agent: people,
+                                                  how many things need you, then work by team; --attention:
+                                                  what waits on you in every team and host, ranked like next;
+                                                  --by agent: people,
                                                   --by host: every session including free ones; other hosts
                                                   of the org follow (--refresh fetches them from the hub first)
   sunstack peek <id_task|pane-id> [--lines N]     the end of a session's tmux pane, e.g. %12 (read only)
@@ -1826,36 +1829,31 @@ func installChecks() []core.Check {
 }
 
 // nextCommand prints sunstack next: inside a team (or with --root) that
-// team's ranked list; otherwise, or for hostWide, what waits on the user
-// across this host and the other hosts of its org. Both add this host's
-// install problems, a newer release and mail held on the hub.
+// team's ranked list; outside a team, what waits on this session (its host
+// inbox and the tasks it sent) and a count of the rest; for hostWide (org
+// --attention), what waits on the user across this host and the other hosts
+// of its org. All add this host's install problems, a newer release and mail
+// held on the hub.
 func nextCommand(a *args, hostWide bool, stdout io.Writer) error {
 	var items []core.Issue
-	caller := ""
+	caller, all, elsewhere := "", "", 0
 	p, err := core.FindProject(a.flags["root"])
 	if err != nil && a.flags["root"] != "" {
 		return err
 	}
-	if err == nil && !hostWide {
+	switch {
+	case err == nil && !hostWide:
 		_, session := detectTool()
 		if held := p.HeldBy(session, os.Getenv("TMUX_PANE"), tmuxSocket()); len(held) > 0 {
 			caller = held[0].ID
 		}
 		items = p.Next(caller, time.Now())
-	} else {
-		o := core.BuildOrg()
-		items = o.Next()
-		if v := hub.LoadView(time.Now()); v != nil {
-			for _, h := range v.Hosts {
-				if h.You || h.Org == nil {
-					continue
-				}
-				own, _ := hub.Split(h.Org, o)
-				for _, t := range own.Attention {
-					items = append(items, core.Issue{Kind: "user", Owner: "user", Text: t, Do: "on " + h.Name})
-				}
-			}
-		}
+	case hostWide:
+		items, all = orgNext(), "sunstack org --attention --all"
+	default:
+		_, session := detectTool()
+		items, all = core.SessionNext(session), "sunstack next --all"
+		elsewhere = len(orgNext())
 	}
 	for _, c := range installChecks() {
 		if is, ok := core.CheckIssue(c); ok {
@@ -1881,8 +1879,34 @@ func nextCommand(a *args, hostWide bool, stdout io.Writer) error {
 	if a.has("all") {
 		max = 0
 	}
-	fmt.Fprint(stdout, core.NextText(items, max))
+	if len(items) == 0 && all == "sunstack next --all" {
+		fmt.Fprint(stdout, "Nothing waits on this session.\n")
+	} else {
+		fmt.Fprint(stdout, core.NextText(items, max, all))
+	}
+	if elsewhere > 0 {
+		fmt.Fprintf(stdout, "%d more item(s) in the teams on this host and the org's other hosts: sunstack org --attention\n", elsewhere)
+	}
 	return nil
+}
+
+// orgNext is what waits on the user across this host's teams and the org's
+// other hosts.
+func orgNext() []core.Issue {
+	o := core.BuildOrg()
+	items := o.Next()
+	if v := hub.LoadView(time.Now()); v != nil {
+		for _, h := range v.Hosts {
+			if h.You || h.Org == nil {
+				continue
+			}
+			own, _ := hub.Split(h.Org, o)
+			for _, t := range own.Attention {
+				items = append(items, core.Issue{Kind: "user", Owner: "user", Text: t, Do: "on " + h.Name})
+			}
+		}
+	}
+	return items
 }
 
 // whoamiText prints the session state of each claim this session holds.
