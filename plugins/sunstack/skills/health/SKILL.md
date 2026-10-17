@@ -71,7 +71,7 @@ Suggest what this session should be, from what the user has been doing in this c
   task labels) and suggest joining it for a different key result: one agent runs several
   sessions at once.
 - **No agent fits**: check whether one almost fits and could be extended (hire skill);
-  otherwise suggest recruiting one, with a one-line role idea.
+  otherwise suggest hiring one (hire skill), with a one-line role idea.
 - **Nothing to go on** (a fresh session): skip this step, or ask in one question what the user
   is about to work on.
 

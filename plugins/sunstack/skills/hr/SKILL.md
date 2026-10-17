@@ -1,6 +1,6 @@
 ---
 name: hr
-description: Review the Sunstack team's staffing against the project (uncovered objectives, missing roles, overloaded or idle agents) and carry out the changes the user approves. Use for "sunstack hr", "/sunstack:hr", "does the team need another agent", "what roles is the team missing". Only in projects with a sunstack/ folder.
+description: Review the Sunstack team's staffing against the project (uncovered objectives, missing roles, overloaded or idle agents) and carry out the changes the user approves. Use for "sunstack hr", "/sunstack:hr", "review the team's staffing", "what roles is the team missing". Only in projects with a sunstack/ folder.
 ---
 
 # Sunstack: hr

@@ -1,6 +1,6 @@
 ---
 name: board
-description: Show and align the Sunstack team's objectives and key results across the user and every agent, with dependencies, stale or overdue entries and unfollowed directives. Use for "sunstack board", "/sunstack:board", "the team's OKRs", "which agent is blocked", "align the team". Not the ranked to-do list (next skill).
+description: Show and align the Sunstack team's objectives and key results across the user and every agent, with dependencies, stale or overdue entries and unfollowed directives. Use for "sunstack board", "/sunstack:board", "the team's OKRs", "the team's dependencies", "align the team". Not the ranked to-do list (next skill).
 ---
 
 # Sunstack: board
@@ -47,9 +47,9 @@ Summarize for the user, short:
 - where the user is the blocker (`user#KR<n>`, or an agent waiting on `user`);
 - **Asks** (`<id>#Q<n> asks the user: ...`): each question with its options and default, so the
   user can answer them in one pass. Answer with
-  `sunstack answer "<id>" Q<n> "<answer>"` with the user's exact choice once they have chosen
-  (never choose for them); asks decided by default
-  are listed so the user can overrule them.
+  `sunstack answer "<id>" Q<n> "<answer>"` (add `--root "<team root>"` for another team) with
+  the user's exact choice once they have chosen (never choose for them); asks decided by
+  default stay listed until archived, so the user can overrule them.
 
 ## 3. Offer next steps
 

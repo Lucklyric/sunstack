@@ -1,11 +1,11 @@
 ---
 name: org
-description: Show the user's whole Sunstack org across teams and hosts (what needs the user, work by team, people, hosts) and inspect or summarize any session, and how to work on another host. Use for "sunstack org", "/sunstack:org", "what needs me", "show all my sessions", "peek at a session", "work on another host". Starting sessions is the spawn skill.
+description: Show the user's whole Sunstack org across teams and hosts (what needs the user, work by team, people, hosts) and inspect or summarize any session, and how to work on another host. Use for "sunstack org", "/sunstack:org", "what needs me across all teams", "show all my sessions", "peek at a session", "work on another host". Starting sessions is the spawn skill.
 ---
 
 # Sunstack: org
 
-Command: `sunstack org` (also `teams`, `team`, `peek`, `log`, `inbox`, `pillar`, `tasks`, `answer`). Skill: `/sunstack:org` in Claude Code, `$sunstack:org` in Codex.
+Command: `sunstack org` (also `teams`, `team`, `peek`, `log`, `inbox`, `pillar`, `tasks`). Skill: `/sunstack:org` in Claude Code, `$sunstack:org` in Codex.
 
 The org view covers this host: every team in its index (`~/.sunstack/teams.json`), their
 agents and boards, and every running Claude Code and Codex session, found from the processes
@@ -61,11 +61,8 @@ then `sunstack reopen <session id>` resumes the same conversation beside this pa
 new window when it is too small (`--place window` or `--place team` to choose). An
 agent's claim follows it to the new pane. `sunstack attach <session>` goes to a session's pane.
 
-**Asks.** Agents' questions for the user show in `sunstack next` as
-`<id>#Q<n> asks the user: <question> (options: ...) (default: <answer> after <date>)`. Offer
-to go through them in one pass. For each answer the user gives, pass on their exact choice (never choose for them) with
-`sunstack answer --root "<team root>" "<id>" Q<n> "<answer>"`. Asks "decided by default" stay
-listed until archived, so the user can overrule one with an answer message.
+**Asks.** Agents' questions for the user (`<id>#Q<n> asks the user: ...`) are answered with the
+board skill, `--root` for another team.
 
 **Open tasks.** `sunstack tasks` lists tasks sent and not yet answered, with replies;
 `--all` shows closed ones too, `--from <id>` one sender's. Check progress read-only (tasks,

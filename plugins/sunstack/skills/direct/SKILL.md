@@ -34,7 +34,7 @@ Check the IDs and titles against `sunstack team`. If the instruction is vague (n
 action, or unclear who it is for), ask one question with 2 to 4 concrete suggestions.
 
 A directive sets direction for whole roles. If the user instead wants one agent to do one
-piece of work with a result, that is a task: offer to send it as a task brief with the message
+piece of work with a result, that is a task: offer to send it as a task brief with the send
 skill (Goal, Scope, Done when, Verify, Report), so the agent knows its limits and how to prove
 it is done.
 

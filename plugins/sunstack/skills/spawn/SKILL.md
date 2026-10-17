@@ -45,7 +45,7 @@ resume it. `sunstack team` shows the same per agent.
    - `--place window`, a new window in this tmux session, when the user asked for one;
    - `--place team`, the team's home (a tmux session `ss-<team>-<id>` with one window per
      agent), when the user wants it out of sight; `sunstack attach <session>` finds it later.
-   If the new session is for a piece of work with a result, write a task brief (the message
+   If the new session is for a piece of work with a result, write a task brief (the send
    skill's template: Goal, Scope, Done when, Verify, Report) to a file and pass it with
    `--brief`; the session finds it in its inbox as its first task.
 3. Show the plan (agent, tool, task, first instruction, brief, place) and ask:

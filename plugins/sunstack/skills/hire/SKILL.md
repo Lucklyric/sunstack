@@ -59,7 +59,7 @@ only its line in `sunstack team`, before you judge:
   show its ID and the exact before and after, and on the user's yes
   run `sunstack amend "<id>" AGENT.md "<candidate>" "<checksum>" --summary "<one line>"` with
   that unchanged candidate. On a mismatch, snapshot again and show the change again. Do not
-  work as that agent for this. Then send its live sessions an `fyi` to reread it (message
+  work as that agent for this. Then send its live sessions an `fyi` to reread it (send
   skill; this approval covers it), and stop here.
 - **Hire** only when no role fits, or the work needs separate lasting context or pillars (for
   example, checking that agent's own work). Say why in the proposal.
@@ -99,7 +99,7 @@ Only after an explicit approve, go to step 5.
 ## 4. Draft a new role
 
 Pick a `title` (`[a-z][a-z0-9-]`, 2 to 32 characters, not `review`, not starting with `_`).
-Write the draft to a new file for this recruit only, for example
+Write the draft to a new file for this hire only, for example
 `sunstack/_local/tmp/_recruit/<title>-<time>.md`, in English and in this shape:
 
 ```md

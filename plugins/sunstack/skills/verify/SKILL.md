@@ -99,7 +99,7 @@ Leave out the task's owner and agents of its role (the same title). Rank the res
 `qa`), then the other CLI from the work's, then idle (`sunstack org --by agent`). When none
 fits, check whether an agent's role could take it with a small `AGENT.md` change (offer that
 first, as the hire skill does it); otherwise offer to hire one with the hire skill
-(`sunstack hire verifier <name>`); recruit shows the template it will use. When the verifier needs a new session, plan it on the other CLI
+(`sunstack hire verifier <name>`); the hire skill shows the template it will use. When the verifier needs a new session, plan it on the other CLI
 (`--tool codex` or `--tool claude`) if that CLI is installed; if not, say so. A new session
 counts against the team's `max_sessions` (`sunstack team --sessions`); when the team is full, put the
 choice (finish an idle session, or `--over-cap`) into the step 5 question.
@@ -150,7 +150,7 @@ Not: Fixing what you find. Real sends from the app (mail, posts, payments), depl
 ```
 
 Show the requirements, the recipient (and a hire or spawn, if any) and the brief together, and
-ask once (send / edit / cancel). That approval covers the send in the message or spawn skill.
+ask once (send / edit / cancel). That approval covers the send in the send or spawn skill.
 Send with `sunstack send "<verifier>" --type task --file "<brief>"` (add `--from` and `--token`
 when this session holds an agent), or start the verifier with the spawn skill and
 `--brief "<brief>"`.

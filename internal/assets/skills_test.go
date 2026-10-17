@@ -82,16 +82,31 @@ func TestSkillReferencesExist(t *testing.T) {
 			return nil
 		})
 	}
-	ref := regexp.MustCompile("(?:(?:the |use |\\()([a-z]+) skill\\b|skills? `([a-z]+)`|[/$]sunstack:([a-z]+))")
+	ref := regexp.MustCompile("(?:(?:the |use |\\()([a-z]+) skill\\b|skills `([a-z]+)` and `([a-z]+)`|skills? `([a-z]+)`|[/$]sunstack:([a-z]+)|(?:the |\\()([a-z]+) or [a-z]+ skill\\b)")
 	for _, f := range files {
 		b, err := os.ReadFile(f)
 		if err != nil {
 			t.Fatal(err)
 		}
-		for _, m := range ref.FindAllStringSubmatch(string(b), -1) {
-			name := m[1] + m[2] + m[3]
+		text := strings.Join(strings.Fields(string(b)), " ") // a name wrapped over two lines
+		for _, m := range ref.FindAllStringSubmatch(text, -1) {
+			name := m[1] + m[3] + m[4] + m[5] + m[6]
+			if m[2] != "" && !have[m[2]] {
+				t.Errorf("%s names a skill that does not exist: %q", f, m[0])
+			}
 			if !have[name] {
 				t.Errorf("%s names a skill that does not exist: %q", f, m[0])
+			}
+		}
+	}
+	// Old skill names stay only as trigger words in a description.
+	old := regexp.MustCompile(`\b(?:checkup|recruit(?:s|ing|ed)?)\b`)
+	for _, f := range dirs {
+		b, _ := os.ReadFile(f)
+		parts := strings.SplitN(string(b), "---", 3)
+		if len(parts) == 3 {
+			if m := old.FindString(parts[2]); m != "" {
+				t.Errorf("%s uses the old name %q", f, m)
 			}
 		}
 	}
