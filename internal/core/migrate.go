@@ -11,7 +11,7 @@ import (
 // Migration (v0.8.1): bring a team made by an older version up to this one.
 // Steps that only add something are safe and run on their own, from update
 // and as. Steps that rewrite a committed file the agents read wait for the
-// user's yes, which the as and checkup skills ask for.
+// user's yes, which the as and health skills ask for.
 
 // MigrateStep is one change a team needs.
 type MigrateStep struct {

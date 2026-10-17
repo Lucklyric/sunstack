@@ -5,6 +5,8 @@ description: Save the current Sunstack agent's work and lessons into its board a
 
 # Sunstack: save
 
+Skill only: `/sunstack:save` in Claude Code, `$sunstack:save` in Codex. It runs `sunstack snapshot`, `commit`, `tidy` and `amend`.
+
 Two kinds of change, handled differently:
 
 - **Plan and experience** (`board.md`, `context.md`, threads, archive) are written
@@ -72,7 +74,7 @@ Every entry you write starts with today's date: `- <YYYY-MM-DD> ...`.
 - **repeats**: compare this session's new Pitfalls with the ones already in context, and look
   for a correction the user gave twice in this session. Each repeat gets one proposal, the
   strongest that works, in this order: a check that catches it (a test, lint or script in the
-  project, or a `checkup` check when it is about Sunstack itself), then a pillar line, then a
+  project, or a `health` check when it is about Sunstack itself), then a pillar line, then a
   line in `AGENT.md`. A check is ordinary project work: offer it to the user. A pillar or
   `AGENT.md` line goes through step 2. Record a declined proposal under Proposals with
   `declined` and the date, and do not propose that repeat again.
@@ -116,7 +118,7 @@ For each rule change, and for any still-pending line under `## Proposals` in con
    - **exit 3 `mismatch`**: the file changed; snapshot again, redo the candidate, ask again.
 
 Never run amend without first showing the change. Change another agent's rules only when the
-user asks for it, or approves a change you showed them (the recruit skill's role extension).
+user asks for it, or approves a change you showed them (the hire skill's role extension).
 
 ## 3. Snapshot each file you will write
 

@@ -29,7 +29,7 @@ func (p *Project) Health() []Check {
 	var cs []Check
 	// Project.
 	// Checks in the "migrate" area are what an older project needs to match
-	// this version; the checkup skill offers them together.
+	// this version; the health skill offers them together.
 	if b, err := os.ReadFile(filepath.Join(p.Dir, "PROTOCOL.md")); err != nil {
 		cs = append(cs, failed("project", "sunstack/PROTOCOL.md is missing", "sunstack init"))
 	} else if !bytes.Equal(b, assets.Protocol()) {

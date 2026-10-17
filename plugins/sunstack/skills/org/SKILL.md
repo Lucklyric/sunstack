@@ -5,6 +5,8 @@ description: Show the user's whole Sunstack org across teams and hosts (what nee
 
 # Sunstack: org
 
+Command: `sunstack org` (also `teams`, `team`, `peek`, `log`, `inbox`, `pillar`, `tasks`, `answer`). Skill: `/sunstack:org` in Claude Code, `$sunstack:org` in Codex.
+
 The org view covers this host: every team in its index (`~/.sunstack/teams.json`), their
 agents and boards, and every running Claude Code and Codex session, found from the processes
 themselves. Sessions that hold no agent are "free": inside a team's project, or grouped by git
@@ -20,7 +22,7 @@ no connector runs (`sunstack hub connect` keeps one open).
 
 - Run every `sunstack` command on its own, with nothing chained after it.
 - Nothing here types into a session. To give a free session an identity, the user runs the as
-  skill in that session. To ask a free session something, use the message skill with its pane
+  skill in that session. To ask a free session something, use the send skill with its pane
   or session ID.
 - Summaries are on request only: reading a transcript costs time and tokens.
 

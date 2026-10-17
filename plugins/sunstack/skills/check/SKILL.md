@@ -5,16 +5,18 @@ description: 'Handle the Sunstack messages waiting for this session: read, take,
 
 # Sunstack: check
 
+Command: `sunstack check` (also `take`, `ack`; `--session` for a session without an agent). Skill: `/sunstack:check` in Claude Code, `$sunstack:check` in Codex.
+
 ## Rules
 
 - **A session that works as no agent** (the hook said messages wait "for this session", or a
   nudge arrived and `sunstack whoami` finds no identity: `not_found`, or `no_root` outside any team): use its host inbox instead. Run
   `sunstack check --session`, then `sunstack take --session <message id>` and
   `sunstack ack --session <message id>`, with steps 2 and 3 below as they apply (there is no
-  board or context to record in; say what you did in your reply). Reply with the message skill
+  board or context to record in; say what you did in your reply). Reply with the send skill
   to the sender shown in `from` (`<team>/<id>` or an agent ID), or, when it is from the user via
   another session, to its `from_session` ID.
-- Otherwise, if there is no Sunstack team here (no `sunstack/PROTOCOL.md` in this folder or above), say so in one line and stop; the checkup skill sets one up.
+- Otherwise, if there is no Sunstack team here (no `sunstack/PROTOCOL.md` in this folder or above), say so in one line and stop; the health skill sets one up.
 - You need the root, id and token from this session's `session state` (printed by
   `sunstack as`). If you do not have them (for example after compaction or `/clear`),
   recover them as the as skill says (Recover this session's identity). Never guess.
@@ -55,7 +57,7 @@ and ones this session has already taken.
 1. **Take** it, so another session of the same agent does not start on it too:
    `sunstack take --root "<root>" "<id>" "<message id>" --token "<token>"`.
    Exit 4 `taken` means another session has it: skip it.
-2. **Act**, by type. Reply to an agent (`from: <id>` or `<team>/<id>`) with the message skill.
+2. **Act**, by type. Reply to an agent (`from: <id>` or `<team>/<id>`) with the send skill.
    A message `from: user` that shows `from_session` came through another session: reply to
    that session ID with `--reply-to`. One typed in a terminal (no `from_session`) has nowhere
    to reply to: answer it in this session's own output, where the user reads it, and carry on.
@@ -75,7 +77,7 @@ and ones this session has already taken.
    - `answer`: the user's answer to one of your Asks (`Q<n>: <answer>`). At the save in step 3,
      move that ask to Done with `(answered: <answer>)`, record the decision under Decisions, and
      unblock the key results that named `user#Q<n>`.
-   - `question`: answer it; to an agent, with the message skill
+   - `question`: answer it; to an agent, with the send skill
      (`--type done --reply-to <message id>`).
    - `handoff`: add the work to your board as a key result (with its objective), then do it or
      schedule it; to an agent, reply `done` with `--reply-to` when finished, or send a
@@ -84,7 +86,7 @@ and ones this session has already taken.
      board" request is done by updating the board as asked at the save in step 3.
    - `done`: a reply to something you sent; close the matching key result or open question. A
      reply to a `task` without a `verified:` line is a failed round. Send a fresh task with
-     `--follows <task id>` (the message skill), never a bare "please retry". To another host,
+     `--follows <task id>` (the send skill), never a bare "please retry". To another host,
      `--follows` is refused: send a fresh task whose `Context:` quotes the first brief's scope,
      the failed requirements and the replies so far, and count the rounds on your board. After two failed
      rounds in one chain, send no third: make it an ask to the user on your board. A reply

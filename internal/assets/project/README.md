@@ -14,16 +14,18 @@ This folder holds the project's agent team, managed by [Sunstack](https://github
 
 Every entry starts with a date, so you can see how fresh it is. Agents update their own boards and context automatically. Changes to objectives, `PILLARS.md`, `pillars.md` or `AGENT.md` happen only after you approve them.
 
-Commands and skills (Claude Code `/sunstack:<skill>`, Codex `$sunstack:<skill>`):
+Commands and skills: each skill has the name of the command it runs, `sunstack <name>` in a terminal, `/sunstack:<name>` in Claude Code, `$sunstack:<name>` in Codex. `save` and `verify` are skills only.
 
-- What to do next: `sunstack next` (this team; every team: `sunstack org --attention`), skill `next`; check the setup: `sunstack health`, skill `checkup`
-- Take on an agent: `sunstack as`, skill `as`; save and hand back: skills `save` and `release`
-- See and align the team's work: `sunstack board`, skill `board`
-- Give the team a directive: `sunstack direct`, skill `direct`
-- Add, rename or remove an agent: `sunstack hire`, `rename`, `fire`; skills `recruit` and `fire`
-- Talk between agents: `sunstack send`, `check`, `take`, `ack`; skills `message` and `check`
-- Start or stop agent sessions in tmux: `sunstack team --sessions`, `spawn`, `dismiss`, `kill`, and `kill --idle` for sessions idle over 24h; skill `spawn`
-- Review staffing and suggest hires: `sunstack hr`, skill `hr`
+- What to do next: `next` (this team; every team: `sunstack org --attention`)
+- Set up, check and upgrade: `health` (also `init`, `update`, `migrate`)
+- Take on an agent: `as`; save and hand back: `save`, `release`
+- See and align the team's work: `board`
+- Give the team a directive: `direct`
+- Add or remove an agent: `hire`, `fire` (rename: `sunstack rename`, skill `health`)
+- Send work or a question to an agent or session: `send`; read your inbox: `check` (with `take`, `ack`)
+- Start or stop agent sessions in tmux: `spawn` (also `team --sessions`, `dismiss`, `kill`, and `kill --idle` for sessions idle over 24h)
+- Review staffing and suggest hires: `hr`
+- Check a task against your requirements before you accept it: `verify`
 - Watch the team: `sunstack team`, `sunstack log`, `sunstack tui`
 
 Review changes to this folder like code: pillars, boards and context shape how the agents behave.

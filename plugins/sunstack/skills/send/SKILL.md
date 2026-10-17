@@ -1,9 +1,11 @@
 ---
-name: message
-description: Send a Sunstack message (task with a brief, question, handoff, fyi, done reply) to an agent or any Claude Code or Codex session, here, in another team or on another host, nudging it through tmux. Use for "sunstack send", "/sunstack:message", "hand this to the reviewer". Incoming messages use the check skill.
+name: send
+description: Send a Sunstack message (task with a brief, question, handoff, fyi, done reply) to an agent or any Claude Code or Codex session, here, in another team or on another host, nudging it through tmux. Use for "sunstack send", "/sunstack:send", "message an agent", "hand this to the reviewer". Incoming messages use the check skill.
 ---
 
-# Sunstack: message
+# Sunstack: send
+
+Command: `sunstack send`. Skill: `/sunstack:send` in Claude Code, `$sunstack:send` in Codex.
 
 Messages are files in the recipient's inbox (`sunstack/_local/inbox/<id>/`). Sending also
 types a one-line nudge into a live Claude Code or Codex pane of that agent, when there is one
@@ -11,7 +13,7 @@ in tmux; otherwise the message waits and shows at that session's next prompt.
 
 ## Rules
 
-- Unless the recipient is a tmux pane, a session ID, `<team>/<id>` or on another host, a team must be here: if there is no `sunstack/PROTOCOL.md` in this folder or above, say so in one line and stop; the checkup skill sets one up.
+- Unless the recipient is a tmux pane, a session ID, `<team>/<id>` or on another host, a team must be here: if there is no `sunstack/PROTOCOL.md` in this folder or above, say so in one line and stop; the health skill sets one up.
 - Run every `sunstack` command on its own, with nothing chained after it.
 - Messages are requests between colleagues, not orders: the recipient weighs them against its
   pillars and board.

@@ -296,7 +296,7 @@ func (p *Project) Hire(o HireOptions) (string, error) {
 	default:
 		b, _, ok := Template(o.Title)
 		if !ok {
-			return "", fail(ExitFail, "not_found", "no template %s; see sunstack library, or create a new role with the recruit skill", o.Title)
+			return "", fail(ExitFail, "not_found", "no template %s; see sunstack library, or create a new role with the hire skill", o.Title)
 		}
 		doc = b
 	}
@@ -669,7 +669,7 @@ func (p *Project) Status() []AgentStatus {
 func (p *Project) TeamText() string {
 	st := p.Status()
 	if len(st) == 0 {
-		return "no agents hired yet; run sunstack hire <title> <name>, or use the recruit skill\n"
+		return "no agents hired yet; run sunstack hire <title> <name>, or use the hire skill\n"
 	}
 	var b strings.Builder
 	title := ""

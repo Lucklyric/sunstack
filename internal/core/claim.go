@@ -201,7 +201,7 @@ func (p *Project) resolve(arg string) (string, error) {
 	if arg == "" {
 		r := p.Roster("")
 		if r == "" {
-			return "", fail(ExitFail, "empty_team", "no agents hired yet; use the recruit skill, or sunstack hire <title> <name>")
+			return "", fail(ExitFail, "empty_team", "no agents hired yet; use the hire skill, or sunstack hire <title> <name>")
 		}
 		return "", &Error{Code: ExitUsage, Reason: "missing_arguments", Msg: "choose an id", Stdout: "missing_arguments: id\n" + r}
 	}

@@ -353,14 +353,14 @@ func (b *Boards) Findings(today time.Time) []Issue {
 			}
 			dep, ok := byRef[n]
 			if !ok && (strings.HasPrefix(n, "user ") || strings.HasPrefix(n, "user:")) {
-				add("user", it.Owner, "tell "+it.Owner+" (message skill), or act on it yourself", "%s is waiting on the user (%s)", it.Ref(), n)
+				add("user", it.Owner, "tell "+it.Owner+" (send skill), or act on it yourself", "%s is waiting on the user (%s)", it.Ref(), n)
 				continue
 			}
 			switch {
 			case !ok:
 				add("drift", it.Owner, fix, "%s needs %s, which does not exist", it.Ref(), n)
 			case !dep.Done:
-				add("blocked", it.Owner, "sunstack tasks, or ask "+dep.Owner+" with the message skill", "%s is waiting on %s (%s)", it.Ref(), n, strings.ToLower(dep.Section))
+				add("blocked", it.Owner, "sunstack tasks, or ask "+dep.Owner+" with the send skill", "%s is waiting on %s (%s)", it.Ref(), n, strings.ToLower(dep.Section))
 			}
 		}
 		if _, err := time.Parse("2006-01-02", it.Due); err == nil && it.Due < today.Format("2006-01-02") {

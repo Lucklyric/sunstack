@@ -126,7 +126,7 @@ func (m *model) tasksView() string {
 	}
 	rightW := m.w - min(46, m.w/2) - 6
 	if len(rows) == 0 {
-		msg := "No open tasks. Agents hand work to each other with the message skill (type task)."
+		msg := "No open tasks. Agents hand work to each other with the send skill (type task)."
 		if !m.tasks.all {
 			msg += " a shows closed ones."
 		}

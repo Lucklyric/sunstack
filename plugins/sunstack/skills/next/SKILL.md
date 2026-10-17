@@ -5,6 +5,8 @@ description: Rank the best next actions for this Sunstack team across setup, wha
 
 # Sunstack: next
 
+Command: `sunstack next`. Skill: `/sunstack:next` in Claude Code, `$sunstack:next` in Codex.
+
 ## Rules
 
 - Plain `sunstack next` is local to where this session runs. Choose the scope by what the user
@@ -50,10 +52,10 @@ Ask: do it / pick another / stop. On yes, hand over to the skill that owns it, b
 
 - `sunstack answer ...`, asks, approvals of rule changes: the board skill (asks) or the save
   skill (Proposals, run by the agent that owns them)
-- migration, install, health fixes, `sunstack update`: the checkup skill
+- migration, install, health fixes, `sunstack update`: the health skill
 - `sunstack kill --idle` (agent sessions idle over 24h): the spawn skill's "Close idle sessions"
 - `sunstack attach ...`, `sunstack hub held`, another host: the org skill
-- `sunstack tasks`, blocked work, a session to reach: the org skill, or the message skill for
+- `sunstack tasks`, blocked work, a session to reach: the org skill, or the send skill for
   a question to the owner
 - drift on boards (one line in the short list; `--all` lists them): the board skill's align step
 - a halt: tell the user what the halt says; only the user runs `sunstack halt --off`

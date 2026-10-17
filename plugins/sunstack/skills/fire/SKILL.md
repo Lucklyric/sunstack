@@ -5,14 +5,16 @@ description: Remove an agent from this project's Sunstack team after the user ap
 
 # Sunstack: fire
 
+Command: `sunstack fire`. Skill: `/sunstack:fire` in Claude Code, `$sunstack:fire` in Codex.
+
 Deleting an agent deletes its folder: `AGENT.md`, pillars, board, context, threads and
 archive. It needs the user's explicit approval.
 
 ## Rules
 
-- If there is no Sunstack team here (no `sunstack/PROTOCOL.md` in this folder or above), say so in one line and stop; the checkup skill sets one up.
+- If there is no Sunstack team here (no `sunstack/PROTOCOL.md` in this folder or above), say so in one line and stop; the health skill sets one up.
 - Act only on this folder's team (its sessions on other hosts included). Work for a different
-  team is delegated: send it as a task (message skill) to its agent that owns that work, else
+  team is delegated: send it as a task (send skill) to its agent that owns that work, else
   to its lead (its `pm` agent; none: ask the user), as `<team>/<id>` or `<host>:<team>/<id>`,
   and stop. Hiring, firing, spawning, dismissing or directing in a different team yourself
   needs the user's explicit yes first.

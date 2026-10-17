@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-// Next (§17.1) merges what checkup, org and board each report into one
+// Next (§17.1) merges what health, org and board each report into one
 // ranked list of actions, each with the command or skill that acts on it.
 // It only reads: the health checks, the findings and the caller's board.
 
@@ -105,7 +105,7 @@ func (p *Project) waiting() []Issue {
 	var out []Issue
 	status := p.Status()
 	if len(status) == 0 {
-		out = append(out, Issue{"user", "user", "no agents hired yet", "recruit skill, or sunstack hire <title> <name> (sunstack library lists titles)"})
+		out = append(out, Issue{"user", "user", "no agents hired yet", "hire skill, or sunstack hire <title> <name> (sunstack library lists titles)"})
 	}
 	for _, s := range status {
 		if n := len(s.Proposals); n > 0 {

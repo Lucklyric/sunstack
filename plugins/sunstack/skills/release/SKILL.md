@@ -5,6 +5,8 @@ description: Release this session's claim on its Sunstack agent ID so another se
 
 # Sunstack: release
 
+Command: `sunstack release`. Skill: `/sunstack:release` in Claude Code, `$sunstack:release` in Codex.
+
 Run the save skill first if there is anything worth keeping. If save failed or its result is
 unclear, do not release: tell the user.
 

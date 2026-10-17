@@ -1,9 +1,11 @@
 ---
-name: checkup
-description: Check this project's Sunstack setup and health, set it up or migrate it, and fix what is off (install, cleanup, pending rule changes). Use for "sunstack checkup", "/sunstack:checkup", "sunstack health", "set up sunstack", "migrate sunstack", "upgrade sunstack", "update sunstack", or whether Sunstack works. Not for what to work on next (next skill).
+name: health
+description: Check this project's Sunstack setup and health, set it up or migrate it, and fix what is off (install, cleanup, pending rule changes). Use for "sunstack health", "/sunstack:health", "sunstack checkup", "set up sunstack", "migrate sunstack", "upgrade sunstack", "update sunstack", or whether Sunstack works. Not for what to work on next (next skill).
 ---
 
-# Sunstack: checkup
+# Sunstack: health
+
+Command: `sunstack health` (also `init`, `update`, `migrate`, `rename`). Skill: `/sunstack:health` in Claude Code, `$sunstack:health` in Codex.
 
 Find out where this project stands and walk the user through the next steps, one at a time.
 
@@ -20,7 +22,7 @@ Find out where this project stands and walk the user through the next steps, one
 
 ## Upgrade only
 
-When the user asks only to upgrade or update Sunstack, skip the full checkup:
+When the user asks only to upgrade or update Sunstack, skip the full health pass:
 
 1. `sunstack update`. It updates the CLI and the Claude Code and Codex rules, and runs the
    `[auto]` steps. The user may need to run it in a terminal, and a second time if the first
@@ -68,7 +70,7 @@ Suggest what this session should be, from what the user has been doing in this c
 - **The fitting agent already has sessions**: say where (`sunstack team` shows them and their
   task labels) and suggest joining it for a different key result: one agent runs several
   sessions at once.
-- **No agent fits**: check whether one almost fits and could be extended (recruit skill);
+- **No agent fits**: check whether one almost fits and could be extended (hire skill);
   otherwise suggest recruiting one, with a one-line role idea.
 - **Nothing to go on** (a fresh session): skip this step, or ask in one question what the user
   is about to work on.
@@ -131,7 +133,7 @@ How to do each kind of step:
   commit only if the user asks.
 - **context.md too long**: suggest taking on that agent and saving, which compacts it.
 - **no agents hired yet**: run `sunstack library`, ask what the user needs, then follow the
-  recruit skill (`/sunstack:recruit`, Codex: `$sunstack:recruit`).
+  hire skill (`/sunstack:hire`, Codex: `$sunstack:hire`).
 - **board lines** (blocked, stale, overdue, not aligned, no objective): summarize them and
   hand over to the board skill.
 - **rule changes waiting for approval / unread messages**: suggest taking on that agent

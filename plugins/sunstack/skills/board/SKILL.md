@@ -5,6 +5,8 @@ description: Show and align the Sunstack team's objectives and key results acros
 
 # Sunstack: board
 
+Command: `sunstack board` (also `answer`, `amend --team BOARD.md`). Skill: `/sunstack:board` in Claude Code, `$sunstack:board` in Codex.
+
 The team board (`sunstack/BOARD.md`) holds the user's objectives, the user's own key results
 and the user's directives. Each agent's `board.md` holds its key results in Now / Next / Done,
 each serving an objective, with `needs:` pointing at what it waits on. Every entry starts with
@@ -12,9 +14,9 @@ the date it last changed.
 
 ## Rules
 
-- If there is no Sunstack team here (no `sunstack/PROTOCOL.md` in this folder or above), say so in one line and stop; the checkup skill sets one up.
+- If there is no Sunstack team here (no `sunstack/PROTOCOL.md` in this folder or above), say so in one line and stop; the health skill sets one up.
 - Act only on this folder's team (its sessions on other hosts included). Work for a different
-  team is delegated: send it as a task (message skill) to its agent that owns that work, else
+  team is delegated: send it as a task (send skill) to its agent that owns that work, else
   to its lead (its `pm` agent; none: ask the user), as `<team>/<id>` or `<host>:<team>/<id>`,
   and stop. Hiring, firing, spawning, dismissing or directing in a different team yourself
   needs the user's explicit yes first.

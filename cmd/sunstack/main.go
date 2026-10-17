@@ -32,11 +32,13 @@ const shortUsage = `sunstack — agent-team layer for Claude Code and Codex
 
   sunstack next [--all]                 what to do now here: this team, or outside a team this session
   sunstack                              dashboard (also sunstack tui)
-  sunstack org [--by team|agent|host]   every team and session on this host, and the org's other hosts
+  sunstack org [--attention]            every team and session on this host and the org; --attention: what waits on you
   sunstack board [id]                   objectives, key results and directives
   sunstack team [--sessions]            who is on the team; --sessions: every live session
   sunstack send <to> "<text>"           message an agent, a session or another host
+  sunstack check [--session]            your inbox: messages waiting for this agent or session
   sunstack spawn <id|title>             start a session as that agent
+  sunstack kill --idle                  close agent sessions idle over 24h (asks once)
   sunstack attach <session>             go to a session's tmux pane
   sunstack peek <session> [--lines N]   the end of a session's pane, read only
   sunstack direct "<text>"              add a directive for the team
@@ -46,10 +48,15 @@ const shortUsage = `sunstack — agent-team layer for Claude Code and Codex
   sunstack health                       check the project and the install
   sunstack update                       update this binary and the plugin
 
-The plugin's skills run the rest. Every command and flag: sunstack help all
+Skills have the command's name: /sunstack:<name> in Claude Code, $sunstack:<name> in Codex
+(as, board, check, direct, fire, health, hire, hr, next, org, release, send, spawn; save and
+verify are skills only). Every command and flag: sunstack help all
 `
 
 const usage = `sunstack — agent-team layer for Claude Code and Codex
+
+Each skill has the name of the command it runs: sunstack <name>, /sunstack:<name> in Claude Code,
+$sunstack:<name> in Codex; save and verify are skills only.
 
 Agent identity (used by the plugin's skills):
   sunstack as <id|title> [--task LABEL] [--join] [--token T] [--takeover --expect CLAIM] [--tool claude|codex] [--root DIR]
@@ -1723,7 +1730,7 @@ func lifecycle(cmd string, t setup.Targets, yes, skipBinary bool, args []string,
 			}
 		}
 		// Bring the teams on this host up to this version: safe steps now,
-		// the rest is offered by the as and checkup skills.
+		// the rest is offered by the as and health skills.
 		core.ThisHost()
 		asks := 0
 		for _, p := range core.IndexedProjects() {
@@ -1738,7 +1745,7 @@ func lifecycle(cmd string, t setup.Targets, yes, skipBinary bool, args []string,
 			asks += len(p.PendingAsks())
 		}
 		if asks > 0 {
-			fmt.Fprintf(out, "%d team change(s) wait for your OK (protocol, README, AGENTS.md): run sunstack migrate --host, or /sunstack:checkup\n", asks)
+			fmt.Fprintf(out, "%d team change(s) wait for your OK (protocol, README, AGENTS.md): run sunstack migrate --host, or /sunstack:health\n", asks)
 		}
 	case "uninstall":
 		if t.Claude {

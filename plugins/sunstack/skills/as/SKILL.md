@@ -5,13 +5,15 @@ description: Take on a Sunstack agent identity (for example builder.alice) in th
 
 # Sunstack: as
 
+Command: `sunstack as` (also `whoami`, `doing`). Skill: `/sunstack:as` in Claude Code, `$sunstack:as` in Codex.
+
 Claim a Sunstack agent ID for this session and load its identity. Several sessions may work
 as the same agent, like one person on several tasks; each has its own claim and token. The
 `sunstack` command does the claiming; you decide what to ask the user and how to act after.
 
 ## Before you start
 
-- If there is no Sunstack team here (no `sunstack/PROTOCOL.md` in this folder or above), say so in one line and stop; the checkup skill sets one up.
+- If there is no Sunstack team here (no `sunstack/PROTOCOL.md` in this folder or above), say so in one line and stop; the health skill sets one up.
 - If this session already holds a Sunstack identity, finish it first: run the save skill if
   there is anything worth keeping, then the release skill. Then take on the new one.
 - Run every `sunstack` command on its own, with nothing chained after it (no `; echo ...`),
@@ -33,7 +35,7 @@ If the user named an ID or a title, use it. If not (a bare `/sunstack:as`, "be w
   at most four.
 - If nothing has happened in this session yet, ask in one question what the user is about to
   work on, then rank.
-- If no agent fits, say so and offer the recruit skill instead of a poor match.
+- If no agent fits, say so and offer the hire skill instead of a poor match.
 
 This is a question, not a decision: end your turn and wait for the choice.
 
@@ -104,7 +106,7 @@ the token.
   the current claim lines and ask again.
 - **4 `token`**: the token you passed is no longer valid (released or taken over). Do not retry
   with a guessed token; tell the user and ask whether to claim again.
-- **1 `empty_team`**: nobody is hired yet; offer the recruit skill.
+- **1 `empty_team`**: nobody is hired yet; offer the hire skill.
 - **1**: show the error (for example merge conflict markers, or no `sunstack/` folder). Do not
   work around it.
 

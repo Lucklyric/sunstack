@@ -1,9 +1,11 @@
 ---
 name: direct
-description: Give the Sunstack team, a role or an agent a dated directive from the user (a priority, focus or constraint), or pause the team (halt). Use for "sunstack direct", "/sunstack:direct", "from now on every agent should ...", "pause the team". One piece of work for one agent goes through the message skill.
+description: Give the Sunstack team, a role or an agent a dated directive from the user (a priority, focus or constraint), or pause the team (halt). Use for "sunstack direct", "/sunstack:direct", "from now on every agent should ...", "pause the team". One piece of work for one agent goes through the send skill.
 ---
 
 # Sunstack: direct
+
+Command: `sunstack direct` (also `halt`). Skill: `/sunstack:direct` in Claude Code, `$sunstack:direct` in Codex.
 
 A directive is the user's instruction to the team, recorded as a dated line in
 `sunstack/BOARD.md` (`- <date> D<n> <text> (to: all | <ids or titles>)`). Addressed agents
@@ -11,9 +13,9 @@ check their boards against it at their next `as` or save and record `aligned: D<
 
 ## Rules
 
-- If there is no Sunstack team here (no `sunstack/PROTOCOL.md` in this folder or above), say so in one line and stop; the checkup skill sets one up.
+- If there is no Sunstack team here (no `sunstack/PROTOCOL.md` in this folder or above), say so in one line and stop; the health skill sets one up.
 - Act only on this folder's team (its sessions on other hosts included). Work for a different
-  team is delegated: send it as a task (message skill) to its agent that owns that work, else
+  team is delegated: send it as a task (send skill) to its agent that owns that work, else
   to its lead (its `pm` agent; none: ask the user), as `<team>/<id>` or `<host>:<team>/<id>`,
   and stop. Hiring, firing, spawning, dismissing or directing in a different team yourself
   needs the user's explicit yes first.

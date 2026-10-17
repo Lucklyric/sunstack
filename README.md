@@ -38,16 +38,16 @@ Then, in Claude Code, `/sunstack:as builder.alice` (in Codex, `$sunstack:as buil
 
 ## Commands and skills
 
-Skills run as `/sunstack:<name>` in Claude Code and `$sunstack:<name>` in Codex. Each core command has a skill that drives it with the right questions:
+Skills run as `/sunstack:<name>` in Claude Code and `$sunstack:<name>` in Codex. Each skill has the name of the command it runs and drives it with the right questions (`save` and `verify` are skills only):
 
-- **Set up and check:** `init`, `health`, `update`, `migrate` → skill `checkup` (also migrates an older project and suggests which agent fits the session)
+- **Set up and health:** `init`, `health`, `update`, `migrate` → skill `health` (also migrates an older project and suggests which agent fits the session)
 - **Work as an agent:** `as` (`--join`, `--task`) → skill `as`; `snapshot`, `commit`, `tidy` → skill `save`; `release` → skill `release`
-- **What to do next:** `next` (one ranked list: broken, waiting on you, blocked, drift, then your own next step; outside a team, every team on this host and the org) → skill `next`. `board`, `health` and `org` only count what needs you and point here
+- **What to do next:** `next` (one ranked list: broken, waiting on you, blocked, drift, then your own next step; in a team that team, outside a team this session only; every team: `org --attention`) → skill `next`. `board`, `health` and `org` only count what needs you and point here
 - **Objectives and alignment:** `board`, `amend --team BOARD.md` → skill `board`; `direct` → skill `direct`; `answer` (answer an agent's ask) → skills `board` and `org`; `halt` (pause the whole team) → skills `next` and `spawn`
 - **Self-improvement:** `amend` → skill `save` (you approve every change)
-- **Team members:** `hire`, `library` → skill `recruit`; `fire` → skill `fire`; `rename` → skill `checkup`
-- **Messages:** `send` → skill `message` (a `task` carries a brief: Goal, Scope, Done when, Verify, Report; to an agent, `<team>/<id>` in another team, or any Claude Code or Codex session by pane or session ID); `check`, `take`, `ack` → skill `check` (with `--session` for a session without an agent)
-- **Sessions:** `sessions`, `spawn` (`--brief` for a first task, the agent's own `tool:`, refused at the team's `max_sessions` and while halted), `dismiss`, `kill` → skill `spawn`
+- **Team members:** `hire`, `library` → skill `hire`; `fire` → skill `fire`; `rename` → skill `health`
+- **Messages:** `send` → skill `send` (a `task` carries a brief: Goal, Scope, Done when, Verify, Report; to an agent, `<team>/<id>` in another team, or any Claude Code or Codex session by pane or session ID); `check`, `take`, `ack` → skill `check` (with `--session` for a session without an agent)
+- **Sessions:** `sessions`, `spawn` (`--brief` for a first task, the agent's own `tool:`, refused at the team's `max_sessions` and while halted), `dismiss`, `kill`, `kill --idle` (sessions at their prompt over 24h, one confirmation) → skill `spawn`
 - **Acceptance checks:** skill `verify` (no command of its own): checks the active task against your requirements, the task's own and the standing ones from the team's history, after a short Q&A with you; a verifier agent on the other CLI drives the real app and answers per requirement with evidence
 - **Delegation:** `tasks` (tasks sent and not yet answered), `send --follows` (a follow-up round that quotes the earlier one) → skills `org` and `message`
 - **Staffing:** `hr` → skill `hr` (suggests, from the project and the boards, more sessions of an agent or a wider role before a new hire, and retirements)

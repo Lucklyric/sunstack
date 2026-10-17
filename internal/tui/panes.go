@@ -131,7 +131,7 @@ func (m *model) setUp() {
 	_ = p.Register()
 	m.p, m.teamSel = p, 0
 	m.view = viewTeam
-	m.note = "team created; hire a first agent with sunstack hire, or the recruit skill"
+	m.note = "team created; hire a first agent with sunstack hire, or the hire skill"
 	m.reload()
 }
 

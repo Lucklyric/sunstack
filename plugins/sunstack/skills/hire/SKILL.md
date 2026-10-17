@@ -1,9 +1,11 @@
 ---
-name: recruit
-description: Add an agent to this project's Sunstack team from a short description, after checking whether an existing agent, another session of it, or a small role change covers the work, by hiring from a template, copying a teammate's role, or drafting a new role for the user to approve. Use for "sunstack recruit", "/sunstack:recruit", "hire a Sunstack agent that ...", "add another researcher". Offers sunstack init when there is no team.
+name: hire
+description: Add an agent to this project's Sunstack team from a short description, after checking whether an existing agent, another session of it, or a small role change covers the work, by hiring from a template, copying a teammate's role, or drafting a new role for the user to approve. Use for "sunstack hire", "/sunstack:hire", "recruit an agent", "hire a Sunstack agent that ...", "add another researcher". Offers sunstack init when there is no team.
 ---
 
-# Sunstack: recruit
+# Sunstack: hire
+
+Command: `sunstack hire` (also `library`). Skill: `/sunstack:hire` in Claude Code, `$sunstack:hire` in Codex.
 
 Turn the user's description into a new agent. A new agent's `AGENT.md` is its prompt, so the
 user approves it before it exists.
@@ -16,7 +18,7 @@ context.
 
 - Run every `sunstack` command on its own, with nothing chained after it.
 - Act only on this folder's team (its sessions on other hosts included). Work for a different
-  team is delegated: send it as a task (message skill) to its agent that owns that work, else
+  team is delegated: send it as a task (send skill) to its agent that owns that work, else
   to its lead (its `pm` agent; none: ask the user), as `<team>/<id>` or `<host>:<team>/<id>`,
   and stop. Hiring, firing, spawning, dismissing or directing in a different team yourself
   needs the user's explicit yes first.
@@ -50,7 +52,7 @@ sessions at once, each on its own task, kept apart on its board by
 only its line in `sunstack team`, before you judge:
 
 - **An agent's role already covers the work**: no hire. On the user's yes, give it the task
-  (message skill) or start another session of it (spawn skill), and stop here.
+  (send skill) or start another session of it (spawn skill), and stop here.
 - **An agent's role almost covers it**: propose the one or two `AGENT.md` lines that would
   extend it, instead of a new agent. Run `sunstack snapshot "<id>" AGENT.md`, write the whole
   file with its frontmatter unchanged as a new file directly in the `candidate_dir` it prints,

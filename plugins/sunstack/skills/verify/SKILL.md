@@ -5,6 +5,8 @@ description: Have a Sunstack agent check the active task against everything the 
 
 # Sunstack: verify
 
+Skill only: `/sunstack:verify` in Claude Code, `$sunstack:verify` in Codex. It has no command of its own.
+
 The user checks deliveries by hand: does it run, and is it what they asked for, given
 everything they said before. This skill hands that check to an agent. The requester (this
 session) collects the requirements, because it heard the conversation. The verifier, a
@@ -14,9 +16,9 @@ Verifier's procedure at the end of this skill, using the project's verify skill
 
 ## Rules
 
-- If there is no Sunstack team here (no `sunstack/PROTOCOL.md` in this folder or above), say so in one line and stop; the checkup skill sets one up.
+- If there is no Sunstack team here (no `sunstack/PROTOCOL.md` in this folder or above), say so in one line and stop; the health skill sets one up.
 - Act only on this folder's team (its sessions on other hosts included). Work for a different
-  team is delegated: send it as a task (message skill) to its agent that owns that work, else
+  team is delegated: send it as a task (send skill) to its agent that owns that work, else
   to its lead (its `pm` agent; none: ask the user), as `<team>/<id>` or `<host>:<team>/<id>`,
   and stop. Hiring, firing, spawning, dismissing or directing in a different team yourself
   needs the user's explicit yes first.
@@ -44,7 +46,7 @@ Verify one task, the one being worked on now, never the team's backlog:
   (`sunstack check --session`), or else the work the user and this session are doing in this
   conversation.
 - **The user names another session's task**: ask that session for its task ID, brief and the
-  user's requirements with a `question` message (message skill), or ask the user. Never ask for
+  user's requirements with a `question` message (send skill), or ask the user. Never ask for
   its token. When this session never heard that task's conversation, it is the wrong requester:
   send the verification as a task to the session that set the task, or else to the team's lead
   (`pm` role), with whatever the user settled here, and stop.
@@ -96,7 +98,7 @@ sunstack team
 Leave out the task's owner and agents of its role (the same title). Rank the rest: role fit first (`verifier`, then `reviewer` or
 `qa`), then the other CLI from the work's, then idle (`sunstack org --by agent`). When none
 fits, check whether an agent's role could take it with a small `AGENT.md` change (offer that
-first, as the recruit skill does it); otherwise offer to hire one with the recruit skill
+first, as the hire skill does it); otherwise offer to hire one with the hire skill
 (`sunstack hire verifier <name>`); recruit shows the template it will use. When the verifier needs a new session, plan it on the other CLI
 (`--tool codex` or `--tool claude`) if that CLI is installed; if not, say so. A new session
 counts against the team's `max_sessions` (`sunstack team --sessions`); when the team is full, put the
@@ -212,7 +214,7 @@ For the agent that received a verification task. Do not run the steps above.
    the app breaks an agreed requirement, report it and keep the requirement: never rewrite the
    map to match a regression. Edit nothing outside the brief's Scope.
 6. **Reply** with a `done` message to the verification task you received
-   (`--reply-to <its message ID>`, never the product task's; message skill) in the brief's
+   (`--reply-to <its message ID>`, never the product task's; send skill) in the brief's
    Report shape, with the identity you tested (commit, diff fingerprint, build or config when
    relevant) and
    `verified: <n> met, <n> partly, <n> not met, <n> changed, <n> pending, <n> unverifiable by <your id>`.
