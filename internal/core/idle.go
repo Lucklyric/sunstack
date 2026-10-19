@@ -115,7 +115,9 @@ func (p *Project) exitedPanes() []IdleSession {
 			if strings.TrimSpace(string(mark)) != p.Root+"|"+id || !paneExited(c.TmuxSocket, c.TmuxPane) {
 				continue
 			}
-			seen[c.TmuxPane] = true
+			if onDefaultServer(c.TmuxSocket) {
+				seen[c.TmuxPane] = true
+			}
 			name := c.Label(id)
 			out = append(out, IdleSession{Kind: IdleExited, Label: name, Name: name + " (" + c.Tool + " exited)", Pane: c.TmuxPane})
 		}
