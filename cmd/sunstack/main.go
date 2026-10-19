@@ -1951,8 +1951,22 @@ func killIdle(a *args, stdin io.Reader, stdout io.Writer) error {
 			return nil
 		}
 	}
+	// The user may have taken a while: close each only if it is still on the list.
+	stillIdle := func(s core.IdleSession) bool {
+		sessions, _ := core.ScanSessions()
+		for _, n := range p.IdleSessions(sessions, time.Now()) {
+			if n.Kind == s.Kind && n.Pane == s.Pane && n.Label == s.Label {
+				return true
+			}
+		}
+		return false
+	}
 	var failed []string
 	for _, s := range idle {
+		if !stillIdle(s) {
+			fmt.Fprintf(stdout, "sunstack: left alone %s (no longer idle)\n", s.Name)
+			continue
+		}
 		msg, err := p.CloseIdle(s)
 		if err != nil {
 			failed = append(failed, s.Name+": "+err.Error())

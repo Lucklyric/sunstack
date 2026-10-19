@@ -271,7 +271,10 @@ func takeRequest(m *Mail, pin *Pin, l *Letter) (string, string, bool) {
 		if l.Type == "update" {
 			pullUpdated++
 		}
-		setStatus(m.ID, "running", nil)
+		if err := setStatus(m.ID, "running", nil); err != nil {
+			reply(m, pin, l.Type, nil, errors.New("not run: could not record it: "+err.Error()))
+			return "delivered", "", true
+		}
 		res, err := runJob(jb)
 		reply(m, pin, l.Type, res, err)
 		return "delivered", "", true
@@ -292,7 +295,11 @@ func takeRequest(m *Mail, pin *Pin, l *Letter) (string, string, bool) {
 // just before acting.
 func worker() {
 	for jb := range jobs {
-		setStatus(jb.mail.ID, "running", nil)
+		if err := setStatus(jb.mail.ID, "running", nil); err != nil {
+			reply(jb.mail, jb.from, jb.kind, nil, errors.New("not run: could not record it: "+err.Error()))
+			afterReply()
+			continue
+		}
 		res, err := runJob(jb)
 		reply(jb.mail, jb.from, jb.kind, res, err)
 		afterReply()
@@ -316,7 +323,7 @@ func runJob(jb job) (any, error) {
 	return h(jb.from.Name, jb.mail.ID, jb.args)
 }
 
-func setStatus(id, status string, r *Mail) {
+func setStatus(id, status string, r *Mail) error {
 	journalMu.Lock()
 	defer journalMu.Unlock()
 	j := loadJournal()
@@ -325,8 +332,12 @@ func setStatus(id, status string, r *Mail) {
 		if r != nil {
 			e.Reply = r
 		}
-		_ = saveJournal(j)
+		return saveJournal(j)
 	}
+	if status == "running" {
+		return errors.New("its journal entry is missing")
+	}
+	return nil
 }
 
 // reply seals the outcome to the asking host and queues it; the outbox and
@@ -344,7 +355,7 @@ func reply(req *Mail, to *Pin, kind string, res any, err error) {
 	if qerr != nil {
 		return
 	}
-	setStatus(req.ID, "done", &s.Mail)
+	_ = setStatus(req.ID, "done", &s.Mail)
 }
 
 // requeue sends a recorded reply again.

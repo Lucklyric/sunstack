@@ -84,7 +84,7 @@ func (p *Project) idleFree(sessions []*HostSession, now time.Time) []IdleSession
 			continue
 		}
 		for _, s := range sessions {
-			if s.Pane != fp.pane || s.Status != "idle" || s.SessionID == "" {
+			if s.Pane != fp.pane || !onDefaultServer(s.socket) || s.Status != "idle" || s.SessionID == "" {
 				continue
 			}
 			if len(listNames(hostTakenDir(s.SessionID), ".md")) > 0 {

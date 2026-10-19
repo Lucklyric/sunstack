@@ -294,7 +294,7 @@ func FindFree(t, scope string) (pane, socket, label string, err error) {
 		for _, s := range sessions {
 			if s.SessionID == t && s.Pane != "" {
 				for _, fp := range ps {
-					if fp.pane == s.Pane {
+					if fp.pane == s.Pane && onDefaultServer(s.socket) {
 						match = append(match, fp)
 					}
 				}

@@ -90,7 +90,8 @@ sunstack spawn --free --tool <claude|codex> [--name <label>] [--note "<first pro
 
 It opens where an agent session would (beside this pane by default; `--place window` or
 `--place team` as above), working in the team root, in `--dir` (relative to the team root),
-or in the folder of the session named by `--beside`. Its label (`--name`, else `<tool>-<n>`)
+or in the folder of the session named by `--beside`. Started from a tmux server other than the
+default one, it always opens in the team's home, where free sessions are found and counted. Its label (`--name`, else `<tool>-<n>`)
 names it in the org view, in `sunstack attach` and in `sunstack kill`. It counts toward
 `max_sessions` like any session. Confirm with the user first: it starts a paid session.
 

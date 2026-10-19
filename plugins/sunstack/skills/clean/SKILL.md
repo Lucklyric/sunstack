@@ -28,17 +28,21 @@ not by you:
   Claude or Codex has exited and the pane is back at its shell with nothing running. An agent's
   claim on such a pane is dropped too. A window or tmux home closes with its last pane.
 
-It never closes this session's own pane, a pane you opened yourself, or a pane running anything
-but its shell. A session with unsaved or taken work is never idle; dismiss it instead (spawn
-skill), so it saves first.
+It never closes this session's own pane, and it closes an exited pane only when sunstack opened
+it and it runs nothing but its shell. An idle session is closed even in a pane you opened, so
+check the list. It checks only taken messages and staged saves for unfinished work: a session
+with other work (a Now entry on its board, files it has not saved) should be dismissed instead
+(spawn skill), so it saves first. Right before closing, it checks the list again and leaves alone
+anything no longer on it.
 
 1. Run `sunstack clean` (no `--yes`). It changes nothing: it exits 2 and lists exactly
    what would close, or says there is nothing to close.
 2. Show the list and ask once: close all / cancel. To keep one open, dismiss or leave it and
    close the others one by one with `sunstack kill "<id_task>"` (or `sunstack kill <label>` for
    a free session) instead.
-3. On yes: `sunstack clean --yes`. Each one prints `closed <name>`. Errors name the ones
-   not closed (the reasons are as for `sunstack kill`).
+3. On yes: `sunstack clean --yes`. Each one prints `closed <name>`, or `left alone <name>`
+   when it is no longer idle. Errors name the ones not closed (the reasons are as for
+   `sunstack kill`).
 
 Agents never run it for themselves; a lead or PM session runs it only on the user's yes. It
 covers this team only: for free sessions outside a team, list them with `sunstack org --by host`

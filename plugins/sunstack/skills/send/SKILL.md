@@ -77,7 +77,8 @@ For a `task`, or any long text, pass the file instead of the text:
 Leave out `--from` and `--token` when this session has no identity. Add
 `--reply-to "<message id>"` for a reply. If you may send the same message again (a retry after
 an unclear result, or a step that can run twice), add `--op "<short id>"`: the same id and text
-return the earlier message instead of a second one.
+return the earlier message instead of a second one. `--op` works within this host only; it is
+refused for a recipient on another host.
 
 - **0**: tell the user the message id and whether a session was nudged or it waits. If it
   waits because the session is outside tmux, give the options in one line: it sees the message

@@ -54,8 +54,8 @@ Verify one task, the one being worked on now, never the team's backlog:
 Note the task's message ID (a conversation-only task has none), its owner, and the delivery's
 identity: the commit, plus, when the tree is dirty, the uncommitted files and a fingerprint of
 them. `git diff HEAD` misses untracked files, so hash both, the same way each time:
-`{ git diff HEAD -- <files>; git ls-files --others --exclude-standard -- <files>; git ls-files -z --others --exclude-standard -- <files> | xargs -0 cat; } | shasum`
-(the untracked names and contents are hashed too, so adding, removing or editing one changes it). When several tasks could be meant, or none, ask once; do not
+`{ git diff HEAD -- <files>; git ls-files -z --others --exclude-standard -- <files> | xargs -0 shasum --; } | shasum`
+(each untracked file is hashed on its own line with its name, so adding, removing or editing one changes it). When several tasks could be meant, or none, ask once; do not
 fall back to old Done entries.
 
 ## 2. Gather the requirements
@@ -112,7 +112,8 @@ candidates to look at, not proof: git history does not record what the verifier 
 
 Run every `git` here from the team root (`git -C "<team root>" ...`), with paths relative to it.
 
-- **Directives**: `sunstack board` lists `<verifier> has not aligned with D<n>`. This one is exact.
+- **Directives**: `sunstack board` lists the verifier after `not aligned yet:` on each directive
+  it has not aligned with. This one is exact.
 - **Rules and objectives that may be new to it**: with `C` the last commit of its context
   (`git log -1 --format=%h -- sunstack/<verifier>/context.md`), list
   `git log --oneline C..HEAD -- sunstack/BOARD.md sunstack/PILLARS.md sunstack/<verifier>/pillars.md sunstack/<verifier>/AGENT.md`,

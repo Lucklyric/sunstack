@@ -302,6 +302,26 @@ func TestQueuedRequestExpires(t *testing.T) {
 	}
 }
 
+// A request whose running state cannot be saved is not run: after a crash
+// the journal would say it never ran.
+func TestRunningStateMustSave(t *testing.T) {
+	t.Setenv("SUNSTACK_HOME", t.TempDir())
+	id := core.NewMessageID("user")
+	if err := saveJournal(map[string]*received{id: {Kind: "peek", Status: "queued"}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(remoteDir(), 0o500); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chmod(remoteDir(), 0o700)
+	if os.WriteFile(filepath.Join(remoteDir(), "probe"), nil, 0o600) == nil {
+		t.Skip("this user can write a read-only folder")
+	}
+	if err := setStatus(id, "running", nil); err == nil {
+		t.Error("setStatus reported success with an unwritable journal")
+	}
+}
+
 // A roster name with terminal controls is not pinned, so org keys and
 // everything that names the host never prints it.
 func TestRosterNameControls(t *testing.T) {
