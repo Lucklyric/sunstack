@@ -54,8 +54,8 @@ Verify one task, the one being worked on now, never the team's backlog:
 Note the task's message ID (a conversation-only task has none), its owner, and the delivery's
 identity: the commit, plus, when the tree is dirty, the uncommitted files and a fingerprint of
 them. `git diff HEAD` misses untracked files, so hash both, the same way each time:
-`{ git diff HEAD -- <files>; git ls-files -z --others --exclude-standard -- <files> | xargs -0 -I{} shasum ./{}; } | shasum`
-(each untracked file is hashed on its own line with its name, so adding, removing or editing one changes it). When several tasks could be meant, or none, ask once; do not
+`{ git diff HEAD -- <files>; git ls-files --others --exclude-standard -- <files>; git ls-files -z --others --exclude-standard -- <files> | xargs -0 git hash-object --; } | shasum`
+(the untracked names, then one hash per untracked file, so adding, removing or editing one changes it). When several tasks could be meant, or none, ask once; do not
 fall back to old Done entries.
 
 ## 2. Gather the requirements
