@@ -54,7 +54,7 @@ Ask: do it / pick another / stop. On yes, hand over to the skill that owns it, b
 - `sunstack answer ...`, asks, approvals of rule changes: the board skill (asks) or the save
   skill (Proposals, run by the agent that owns them)
 - migration, install, health fixes, `sunstack update`: the health skill
-- `sunstack kill --idle` (sessions idle over 24h, exited panes): the spawn skill's "Close idle sessions"
+- `sunstack clean` (sessions idle over 24h, exited panes): the clean skill
 - `sunstack attach ...`, `sunstack hub held`, another host: the org skill
 - `sunstack tasks`, blocked work, a session to reach: the org skill, or the send skill for
   a question to the owner

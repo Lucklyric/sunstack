@@ -70,7 +70,7 @@ func TestHelpShortAndAll(t *testing.T) {
 	all := sh(t, p, nil, "help", "all")
 	expect(t, short, 0, "help")
 	expect(t, all, 0, "help all")
-	for _, c := range []string{"sunstack next", "sunstack org", "sunstack board", "sunstack send", "sunstack spawn", "sunstack help all", "sunstack kill --idle", "sunstack check", "/sunstack:<name>", "hire, hr"} {
+	for _, c := range []string{"sunstack next", "sunstack org", "sunstack board", "sunstack send", "sunstack spawn", "sunstack help all", "sunstack clean", "sunstack check", "/sunstack:<name>", "hire, hr"} {
 		if !strings.Contains(short.out, c) {
 			t.Errorf("short help lacks %q", c)
 		}

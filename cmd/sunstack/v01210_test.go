@@ -1,7 +1,7 @@
 package main
 
 // v0.12.10: kill --idle also closes free sessions idle over 24 hours and the
-// panes sunstack opened whose CLI exited.
+// panes sunstack opened whose CLI exited. v0.12.11: it is sunstack clean.
 
 import (
 	"encoding/json"
@@ -88,16 +88,17 @@ func TestKillIdleFreeAndExited(t *testing.T) {
 
 	r := sh(t, p, s.env, "next", "--all")
 	requireContains(t, r.out, "1 free session(s) idle over 24h: scratch (free) (2d)", "2 pane(s) whose CLI exited",
-		"reviewer_gone (claude exited)", "left (free, claude exited)", "sunstack kill --idle")
+		"reviewer_gone (claude exited)", "left (free, claude exited)", "sunstack clean")
 	if strings.Contains(r.out, "recent") {
 		t.Errorf("recent is not idle:\n%s", r.out)
 	}
 
-	r = sh(t, p, s.env, "kill", "--idle")
-	expect(t, r, 2, "kill --idle needs a confirmation")
+	expect(t, sh(t, p, s.env, "clean", "reviewer"), 2, "clean takes no session name")
+	r = sh(t, p, s.env, "clean")
+	expect(t, r, 2, "clean needs a confirmation")
 	requireContains(t, r.stderr, "scratch", "reviewer_gone", "left", "--yes")
-	r = sh(t, p, s.env, "kill", "--idle", "--yes")
-	expect(t, r, 0, "kill --idle --yes")
+	r = sh(t, p, s.env, "clean", "--yes")
+	expect(t, r, 0, "clean --yes")
 	requireContains(t, r.out, "closed scratch", "closed reviewer_gone", "closed left")
 	panes := strings.Fields(s.tmux(t, "list-panes", "-a", "-F", "#{pane_id}"))
 	has := func(pn string) bool {
@@ -109,12 +110,12 @@ func TestKillIdleFreeAndExited(t *testing.T) {
 		return false
 	}
 	if has(gone) || has(scratch) || has(left) || !has(recent) || !has(s.pane) {
-		t.Errorf("panes after kill --idle: %v (closed %s %s %s, kept %s %s)", panes, gone, scratch, left, recent, s.pane)
+		t.Errorf("panes after clean: %v (closed %s %s %s, kept %s %s)", panes, gone, scratch, left, recent, s.pane)
 	}
 	if r := sh(t, p, s.env, "team", "--sessions"); strings.Contains(r.out, "reviewer_gone") {
 		t.Errorf("the exited session's claim is still there:\n%s", r.out)
 	}
-	r = sh(t, p, s.env, "kill", "--idle", "--yes")
+	r = sh(t, p, s.env, "clean", "--yes")
 	expect(t, r, 0, "nothing idle")
 	requireContains(t, r.out, "nothing to close")
 }

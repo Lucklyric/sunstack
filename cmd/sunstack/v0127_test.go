@@ -64,7 +64,7 @@ func TestIdleSessions(t *testing.T) {
 	}
 
 	r := sh(t, p, s.env, "next", "--all")
-	requireContains(t, r.out, "1 agent session(s) idle over 24h: reviewer_old", "sunstack kill --idle")
+	requireContains(t, r.out, "1 agent session(s) idle over 24h: reviewer_old", "sunstack clean")
 	if strings.Contains(r.out, "reviewer_fresh") || strings.Contains(r.out, "reviewer_busy") {
 		t.Errorf("only reviewer_old is idle:\n%s", r.out)
 	}

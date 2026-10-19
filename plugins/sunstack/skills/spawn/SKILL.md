@@ -1,11 +1,11 @@
 ---
 name: spawn
-description: Start a Claude Code or Codex session as a Sunstack agent, or a free session, beside this pane or in a new tmux window; list this project's live sessions; dismiss or kill one, or close the idle ones. Use for "sunstack spawn", "/sunstack:spawn", "start a session for builder.alice", "sunstack team --sessions", "close idle sessions", "clean up panes", "close exited panes", "sunstack kill --idle", or a message waiting for an agent with no live session.
+description: Start a Claude Code or Codex session as a Sunstack agent, or a free session, beside this pane or in a new tmux window; list this project's live sessions; dismiss or kill one. Use for "sunstack spawn", "/sunstack:spawn", "start a session for builder.alice", "sunstack team --sessions", "close the session for builder.alice", or a message waiting for an agent with no live session.
 ---
 
 # Sunstack: spawn
 
-Command: `sunstack spawn` (also `team --sessions`, `dismiss`, `kill`, `kill --idle`). Skill: `/sunstack:spawn` in Claude Code, `$sunstack:spawn` in Codex.
+Command: `sunstack spawn` (also `team --sessions`, `dismiss`, `kill`). Closing everything idle at once is the clean skill. Skill: `/sunstack:spawn` in Claude Code, `$sunstack:spawn` in Codex.
 
 ## Rules
 
@@ -67,7 +67,7 @@ resume it. `sunstack team` shows the same per agent.
      another.
    - **4 `team_full`**: the team already has `max_sessions` live sessions (`sunstack/TEAM`,
      default 6); the error lists them with their `doing` lines. Offer to close the idle ones first
-     (`sunstack kill --idle`, below), to finish one (dismiss) or
+     (`sunstack clean`, the clean skill), to finish one (dismiss) or
      to start it anyway; only on the user's yes rerun with `--over-cap`. A lead handing out
      many tasks starts the next session when one finishes, not all at once.
    - **2 `missing_brief`**: the brief lacks the labels named; fill them in. Nothing was opened.
@@ -125,34 +125,3 @@ one session's tmux pane at once; unsaved work in it is lost.
 
 From a terminal, the user can run `sunstack kill <id_task>` directly; it asks for
 confirmation.
-
-## Close idle sessions (kill --idle)
-
-`sunstack next` in a team shows one `[user]` line when there is something to close, for example
-`2 agent session(s) idle over 24h: builder.alice_csv (3d), reviewer_ui (1d); 1 pane(s) whose CLI
-exited: scratch (free, claude exited)`. `kill --idle` closes three kinds, all checked by the CLI,
-not by you:
-
-- **Idle agent sessions:** in a tmux pane, at their prompt, nothing for 24 hours (no claim,
-  save, `doing` line or transcript change), no taken message and no staged save.
-- **Idle free sessions** of this team: in a tmux pane, at their prompt, no transcript change
-  for 24 hours, no taken message in their session inbox.
-- **Exited panes:** panes sunstack opened for this team (a spawn or a free session) where
-  Claude or Codex has exited and the pane is back at its shell with nothing running. An agent's
-  claim on such a pane is dropped too. A window or tmux home closes with its last pane.
-
-It never closes this session's own pane, a pane you opened yourself, or a pane running anything
-but its shell. A session with unsaved or taken work is never idle; dismiss it instead (above),
-so it saves first.
-
-1. Run `sunstack kill --idle` (no `--yes`). It changes nothing: it exits 2 and lists exactly
-   what would close, or says there is nothing to close.
-2. Show the list and ask once: close all / cancel. To keep one open, dismiss or leave it and
-   close the others one by one with `sunstack kill "<id_task>"` (or `sunstack kill <label>` for
-   a free session) instead.
-3. On yes: `sunstack kill --idle --yes`. Each one prints `closed <name>`. Errors name the ones
-   not closed (the reasons are as for kill above).
-
-Agents never run it for themselves; a lead or PM session runs it only on the user's yes. It
-covers this team only: for free sessions outside a team, list them with `sunstack org --by host`
-and close one with `sunstack kill <label>`.

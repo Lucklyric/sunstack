@@ -13,14 +13,14 @@ import (
 // unfinished, before sunstack next offers to close it.
 const IdleAfter = 24 * time.Hour
 
-// Idle session kinds: kill --idle closes each kind its own way.
+// Idle session kinds: sunstack clean closes each kind its own way.
 const (
 	IdleAgent  = "agent"  // an agent session at its prompt over IdleAfter
 	IdleFree   = "free"   // a free session (§20.2) at its prompt over IdleAfter
 	IdleExited = "exited" // a pane sunstack opened whose Claude or Codex has exited
 )
 
-// IdleSession is a session or pane that can be closed: kill --idle's list.
+// IdleSession is a session or pane that can be closed: sunstack clean's list.
 type IdleSession struct {
 	Kind  string
 	Label string        // <id>_<task> or the free label, what kill takes; empty for an exited pane with no claim
@@ -31,7 +31,7 @@ type IdleSession struct {
 	agent string        // an exited pane with no claim: the agent its mark names
 }
 
-// IdleSessions lists what kill --idle closes for the team: its agent
+// IdleSessions lists what sunstack clean closes for the team: its agent
 // sessions and free sessions that run in a tmux pane, are at their prompt,
 // have done nothing for IdleAfter and hold no taken message or staged save,
 // then the panes sunstack opened for it whose CLI has exited. The calling
@@ -234,5 +234,5 @@ func IdleIssue(idle []IdleSession) (Issue, bool) {
 		}
 	}
 	return Issue{"user", "user", strings.Join(parts, "; "),
-		"sunstack kill --idle closes them after one confirmation (spawn skill)"}, true
+		"sunstack clean closes them after one confirmation (clean skill)"}, true
 }

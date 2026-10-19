@@ -79,7 +79,7 @@ Suggest what this session should be, from what the user has been doing in this c
 
 Setup and migration come first, here. For the team's work beyond setup (asks, blocked work,
 board drift, idle sessions and exited panes), hand over to the next skill, which ranks everything
-in one list. Closing idle sessions is the spawn skill's "Close idle sessions".
+in one list. Closing idle sessions is the clean skill.
 
 Offer the first step, or let the user pick one (options: do it / skip / stop). Do one step per
 answer, then run `sunstack health` again and offer the next.

@@ -38,7 +38,7 @@ const shortUsage = `sunstack — agent-team layer for Claude Code and Codex
   sunstack send <to> "<text>"           message an agent, a session or another host
   sunstack check [--session]            your inbox: messages waiting for this agent or session
   sunstack spawn <id|title>             start a session as that agent
-  sunstack kill --idle                  close idle sessions and exited panes (asks once)
+  sunstack clean [--yes]                close idle sessions and exited panes (lists first)
   sunstack attach <session>             go to a session's tmux pane
   sunstack peek <session> [--lines N]   the end of a session's pane, read only
   sunstack direct "<text>"              add a directive for the team
@@ -49,7 +49,7 @@ const shortUsage = `sunstack — agent-team layer for Claude Code and Codex
   sunstack update                       update this binary and the plugin
 
 Skills have the command's name: /sunstack:<name> in Claude Code, $sunstack:<name> in Codex
-(as, board, check, direct, fire, health, hire, hr, next, org, release, send, spawn; save and
+(as, board, check, clean, direct, fire, health, hire, hr, next, org, release, send, spawn; save and
 verify are skills only). Every command and flag: sunstack help all
 `
 
@@ -109,9 +109,9 @@ Sessions and messages:
                                                   and while the team is halted; the tool defaults to tool: in AGENT.md
   sunstack dismiss <id|id_task>                   ask a session to finish (a shutdown message)
   sunstack kill <id_task|id> [--yes]              close that one session's tmux pane now (asks first; unsaved work is lost)
-  sunstack kill --idle [--yes]                    close agent and free sessions at their prompt over 24h with nothing taken
+  sunstack clean [--yes]                          close agent and free sessions at their prompt over 24h with nothing taken
                                                   or staged, and panes sunstack opened whose CLI exited (one confirmation
-                                                  for the list; next shows them)
+                                                  for the list; next shows them); also sunstack kill --idle
   sunstack hr                                     staffing facts: load, idle agents, uncovered objectives, gaps,
                                                   unused templates, what the project is made of
 
@@ -1258,6 +1258,16 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 		fmt.Fprintf(stdout, "sunstack: %s\n", msg)
 		return nil
 
+	case "clean":
+		a, err := parse(rest, "root", "yes")
+		if err == nil {
+			err = a.atMost(0, "clean")
+		}
+		if err != nil {
+			return err
+		}
+		return killIdle(a, stdin, stdout)
+
 	case "hr":
 		a, err := parse(rest, "root", "")
 		if err == nil {
@@ -1910,7 +1920,7 @@ func nextCommand(a *args, hostWide bool, stdout io.Writer) error {
 	return nil
 }
 
-// killIdle closes the team's idle agent and free sessions and the panes
+// killIdle (clean, kill --idle) closes the team's idle agent and free sessions and the panes
 // whose CLI exited (§16) after one confirmation for the whole list.
 func killIdle(a *args, stdin io.Reader, stdout io.Writer) error {
 	p, err := core.FindProject(a.flags["root"])
