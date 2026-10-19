@@ -47,7 +47,7 @@ Skills run as `/sunstack:<name>` in Claude Code and `$sunstack:<name>` in Codex.
 - **Self-improvement:** `amend` → skill `save` (you approve every change)
 - **Team members:** `hire`, `library` → skill `hire`; `fire` → skill `fire`; `rename` → skill `health`
 - **Messages:** `send` → skill `send` (a `task` carries a brief: Goal, Scope, Done when, Verify, Report; to an agent, `<team>/<id>` in another team, or any Claude Code or Codex session by pane or session ID); `check`, `take`, `ack` → skill `check` (with `--session` for a session without an agent)
-- **Sessions:** `sessions`, `spawn` (`--brief` for a first task, the agent's own `tool:`, refused at the team's `max_sessions` and while halted), `dismiss`, `kill`, `kill --idle` (sessions at their prompt over 24h, one confirmation) → skill `spawn`
+- **Sessions:** `sessions`, `spawn` (`--brief` for a first task, the agent's own `tool:`, refused at the team's `max_sessions` and while halted), `dismiss`, `kill`, `kill --idle` (agent and free sessions at their prompt over 24h, and panes whose CLI exited; one confirmation) → skill `spawn`
 - **Acceptance checks:** skill `verify` (no command of its own): checks the active task against your requirements, the task's own and the standing ones from the team's history, after a short Q&A with you; a verifier agent on the other CLI drives the real app and answers per requirement with evidence
 - **Delegation:** `tasks` (tasks sent and not yet answered), `send --follows` (a follow-up round that quotes the earlier one) → skills `org` and `send`
 - **Staffing:** `hr` → skill `hr` (suggests, from the project and the boards, more sessions of an agent or a wider role before a new hire, and retirements)

@@ -23,7 +23,7 @@ Commands and skills: each skill has the name of the command it runs, `sunstack <
 - Give the team a directive: `direct`
 - Add or remove an agent: `hire`, `fire` (rename: `sunstack rename`, skill `health`)
 - Send work or a question to an agent or session: `send`; read your inbox: `check` (with `take`, `ack`)
-- Start or stop agent sessions in tmux: `spawn` (also `team --sessions`, `dismiss`, `kill`, and `kill --idle` for sessions idle over 24h)
+- Start or stop agent sessions in tmux: `spawn` (also `team --sessions`, `dismiss`, `kill`, and `kill --idle` for sessions idle over 24h and panes whose CLI exited)
 - Review staffing and suggest hires: `hr`
 - Check a task against your requirements before you accept it: `verify`
 - Watch the team: `sunstack team`, `sunstack log`, `sunstack tui`

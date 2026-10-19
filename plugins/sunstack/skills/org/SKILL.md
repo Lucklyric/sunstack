@@ -41,8 +41,8 @@ outside a team this session only). Others:
 
 - `sunstack org --by agent`: each agent's Now entries, `doing:` lines and sessions.
 - `sunstack org --by host`: every session on this host, with its team or group.
-- Idle agent panes: `sunstack next` in a team lists agent sessions idle over 24h; closing
-  them is the spawn skill's "Close idle sessions" (`sunstack kill --idle`).
+- Idle sessions and exited panes: `sunstack next` in a team lists sessions idle over 24h and
+  panes whose CLI exited; closing them is the spawn skill's "Close idle sessions" (`sunstack kill --idle`).
 - `--json` gives the same snapshot for further processing.
 
 If a team the user expects is missing, run `sunstack teams --scan <folder>` (for example the

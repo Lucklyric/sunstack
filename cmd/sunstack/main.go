@@ -38,7 +38,7 @@ const shortUsage = `sunstack — agent-team layer for Claude Code and Codex
   sunstack send <to> "<text>"           message an agent, a session or another host
   sunstack check [--session]            your inbox: messages waiting for this agent or session
   sunstack spawn <id|title>             start a session as that agent
-  sunstack kill --idle                  close agent sessions idle over 24h (asks once)
+  sunstack kill --idle                  close idle sessions and exited panes (asks once)
   sunstack attach <session>             go to a session's tmux pane
   sunstack peek <session> [--lines N]   the end of a session's pane, read only
   sunstack direct "<text>"              add a directive for the team
@@ -109,8 +109,9 @@ Sessions and messages:
                                                   and while the team is halted; the tool defaults to tool: in AGENT.md
   sunstack dismiss <id|id_task>                   ask a session to finish (a shutdown message)
   sunstack kill <id_task|id> [--yes]              close that one session's tmux pane now (asks first; unsaved work is lost)
-  sunstack kill --idle [--yes]                    close every agent session at its prompt over 24h with nothing taken
-                                                  or staged (one confirmation for the list; next shows them)
+  sunstack kill --idle [--yes]                    close agent and free sessions at their prompt over 24h with nothing taken
+                                                  or staged, and panes sunstack opened whose CLI exited (one confirmation
+                                                  for the list; next shows them)
   sunstack hr                                     staffing facts: load, idle agents, uncovered objectives, gaps,
                                                   unused templates, what the project is made of
 
@@ -1909,8 +1910,8 @@ func nextCommand(a *args, hostWide bool, stdout io.Writer) error {
 	return nil
 }
 
-// killIdle closes every idle agent session of the team (§16) after one
-// confirmation for the whole list.
+// killIdle closes the team's idle agent and free sessions and the panes
+// whose CLI exited (§16) after one confirmation for the whole list.
 func killIdle(a *args, stdin io.Reader, stdout io.Writer) error {
 	p, err := core.FindProject(a.flags["root"])
 	if err != nil {
@@ -1919,14 +1920,18 @@ func killIdle(a *args, stdin io.Reader, stdout io.Writer) error {
 	sessions, _ := core.ScanSessions()
 	idle := p.IdleSessions(sessions, time.Now())
 	if len(idle) == 0 {
-		fmt.Fprintln(stdout, "sunstack: no idle agent sessions (idle: at the prompt over 24h, nothing taken or staged)")
+		fmt.Fprintln(stdout, "sunstack: nothing to close (idle: an agent or free session at its prompt over 24h with nothing taken or staged, or a pane sunstack opened whose CLI exited)")
 		return nil
 	}
 	var names []string
 	for _, s := range idle {
-		names = append(names, fmt.Sprintf("%s (pane %s, idle %dd)", s.Label, s.Pane, int(s.For.Hours())/24))
+		if s.For > 0 {
+			names = append(names, fmt.Sprintf("%s (pane %s, idle %dd)", s.Name, s.Pane, int(s.For.Hours())/24))
+		} else {
+			names = append(names, fmt.Sprintf("%s (pane %s)", s.Name, s.Pane))
+		}
 	}
-	plan := "close " + strconv.Itoa(len(idle)) + " idle agent session(s): " + strings.Join(names, ", ")
+	plan := "close " + strconv.Itoa(len(idle)) + " idle session(s) or exited pane(s): " + strings.Join(names, ", ")
 	if !a.has("yes") {
 		if !setup.IsTerminal(os.Stdin) {
 			return &core.Error{Code: core.ExitUsage, Reason: "confirm", Msg: "this will " + plan + "; rerun with --yes once the user has confirmed"}
@@ -1938,9 +1943,9 @@ func killIdle(a *args, stdin io.Reader, stdout io.Writer) error {
 	}
 	var failed []string
 	for _, s := range idle {
-		msg, err := p.Kill(s.Label)
+		msg, err := p.CloseIdle(s)
 		if err != nil {
-			failed = append(failed, s.Label+": "+err.Error())
+			failed = append(failed, s.Name+": "+err.Error())
 			continue
 		}
 		fmt.Fprintf(stdout, "sunstack: %s\n", msg)

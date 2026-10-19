@@ -1,6 +1,6 @@
 ---
 name: spawn
-description: Start a Claude Code or Codex session as a Sunstack agent, or a free session, beside this pane or in a new tmux window; list this project's live sessions; dismiss or kill one, or close the idle ones. Use for "sunstack spawn", "/sunstack:spawn", "start a session for builder.alice", "sunstack team --sessions", "close idle sessions", "clean up panes", "sunstack kill --idle", or a message waiting for an agent with no live session.
+description: Start a Claude Code or Codex session as a Sunstack agent, or a free session, beside this pane or in a new tmux window; list this project's live sessions; dismiss or kill one, or close the idle ones. Use for "sunstack spawn", "/sunstack:spawn", "start a session for builder.alice", "sunstack team --sessions", "close idle sessions", "clean up panes", "close exited panes", "sunstack kill --idle", or a message waiting for an agent with no live session.
 ---
 
 # Sunstack: spawn
@@ -128,24 +128,31 @@ confirmation.
 
 ## Close idle sessions (kill --idle)
 
-`sunstack next` in a team shows one `[user]` line when agent sessions sit idle, for example
-`2 agent session(s) idle over 24h: builder.alice_csv (3d), reviewer_ui (1d)`. Idle means all
-of these, checked by the CLI, not by you:
+`sunstack next` in a team shows one `[user]` line when there is something to close, for example
+`2 agent session(s) idle over 24h: builder.alice_csv (3d), reviewer_ui (1d); 1 pane(s) whose CLI
+exited: scratch (free, claude exited)`. `kill --idle` closes three kinds, all checked by the CLI,
+not by you:
 
-- the session runs in a tmux pane and is at its prompt;
-- nothing happened for 24 hours: no claim, save, `doing` line or transcript change;
-- it holds no taken message and no staged save;
-- it is not this session.
+- **Idle agent sessions:** in a tmux pane, at their prompt, nothing for 24 hours (no claim,
+  save, `doing` line or transcript change), no taken message and no staged save.
+- **Idle free sessions** of this team: in a tmux pane, at their prompt, no transcript change
+  for 24 hours, no taken message in their session inbox.
+- **Exited panes:** panes sunstack opened for this team (a spawn or a free session) where
+  Claude or Codex has exited and the pane is back at its shell with nothing running. An agent's
+  claim on such a pane is dropped too. A window or tmux home closes with its last pane.
 
-A session with unsaved or taken work is never idle; dismiss it instead (above), so it saves first.
+It never closes this session's own pane, a pane you opened yourself, or a pane running anything
+but its shell. A session with unsaved or taken work is never idle; dismiss it instead (above),
+so it saves first.
 
 1. Run `sunstack kill --idle` (no `--yes`). It changes nothing: it exits 2 and lists exactly
-   what would close, or says there are no idle agent sessions.
+   what would close, or says there is nothing to close.
 2. Show the list and ask once: close all / cancel. To keep one open, dismiss or leave it and
-   close the others one by one with `sunstack kill "<id_task>"` instead.
-3. On yes: `sunstack kill --idle --yes`. Each closed session prints `closed <id_task>`; its
-   claim is dropped. Errors name the sessions not closed (the reasons are as for kill above).
+   close the others one by one with `sunstack kill "<id_task>"` (or `sunstack kill <label>` for
+   a free session) instead.
+3. On yes: `sunstack kill --idle --yes`. Each one prints `closed <name>`. Errors name the ones
+   not closed (the reasons are as for kill above).
 
-Agents never run it for themselves; a lead or PM session runs it only on the user's yes. Free
-sessions are not covered: list them with `sunstack org --by host` and close one with
-`sunstack kill <label>`.
+Agents never run it for themselves; a lead or PM session runs it only on the user's yes. It
+covers this team only: for free sessions outside a team, list them with `sunstack org --by host`
+and close one with `sunstack kill <label>`.

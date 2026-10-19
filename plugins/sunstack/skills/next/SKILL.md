@@ -34,7 +34,8 @@ It prints the top five for the scope above, ranked, each with a `do:` line:
 
 - `[broken]`: a failed check, a halted team, or this host's missing permission rules
 - `[user]`: waits on the user: asks, approvals, migration, decisions, sessions at a prompt,
-  agent sessions idle over 24h (in a team), a newer release, mail held on the hub
+  agent and free sessions idle over 24h and panes whose CLI exited (in a team), a newer
+  release, mail held on the hub
 - `[blocked]`: work waiting on another agent, late key results, tasks open too long, and
   outside a team the tasks this session sent that have no reply yet
 - `[drift]`: boards to fix at the owner's next save: unaligned, unverified, stale, untidy
@@ -53,7 +54,7 @@ Ask: do it / pick another / stop. On yes, hand over to the skill that owns it, b
 - `sunstack answer ...`, asks, approvals of rule changes: the board skill (asks) or the save
   skill (Proposals, run by the agent that owns them)
 - migration, install, health fixes, `sunstack update`: the health skill
-- `sunstack kill --idle` (agent sessions idle over 24h): the spawn skill's "Close idle sessions"
+- `sunstack kill --idle` (sessions idle over 24h, exited panes): the spawn skill's "Close idle sessions"
 - `sunstack attach ...`, `sunstack hub held`, another host: the org skill
 - `sunstack tasks`, blocked work, a session to reach: the org skill, or the send skill for
   a question to the owner

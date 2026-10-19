@@ -84,5 +84,5 @@ func TestIdleSessions(t *testing.T) {
 	}
 	r = sh(t, p, s.env, "kill", "--idle", "--yes")
 	expect(t, r, 0, "nothing idle")
-	requireContains(t, r.out, "no idle agent sessions")
+	requireContains(t, r.out, "nothing to close")
 }
