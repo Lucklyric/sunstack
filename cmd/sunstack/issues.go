@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -16,8 +17,8 @@ func issues(a *args, out io.Writer) error {
 	since := time.Now().Add(-7 * 24 * time.Hour)
 	if v := a.flags["since"]; v != "" {
 		if d, ok := strings.CutSuffix(v, "d"); ok {
-			var n int
-			if _, err := fmt.Sscanf(d, "%d", &n); err != nil || n < 0 {
+			n, err := strconv.Atoi(d)
+			if err != nil || n < 0 {
 				return &core.Error{Code: core.ExitUsage, Reason: "usage", Msg: "--since takes a number of days (7d) or a date (2026-10-20)"}
 			}
 			since = time.Now().Add(-time.Duration(n) * 24 * time.Hour)

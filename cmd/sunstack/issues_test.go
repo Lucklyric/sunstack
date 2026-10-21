@@ -69,6 +69,8 @@ func TestIssueLogRecordsFailures(t *testing.T) {
 		t.Fatalf("--code note shows other codes:\n%s", r.out)
 	}
 	expect(t, sh(t, p, env, "issue"), 2, "issue without text")
+	expect(t, sh(t, p, env, "issues", "--since", "1oopsd"), 2, "malformed --since")
+	expect(t, sh(t, p, env, "issues", "--since", "3d"), 0, "--since in days")
 }
 
 // A log that cannot be written never changes the command's result.
