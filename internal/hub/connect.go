@@ -112,18 +112,22 @@ func session(cl *client, logw io.Writer) error {
 	send := func(f frame) error {
 		mu.Lock()
 		defer mu.Unlock()
-		switch f.Op {
-		case "ack":
+		if f.Op == "ack" {
 			_, err := post("/v1/ack", f)
-			return err
-		case "mail":
-			a, err := post("/v1/mail", f.Mail)
-			if err == nil {
-				settle(f.Mail.ID, a.Op, a.Reason)
-			}
 			return err
 		}
 		return nil
+	}
+	// sendMail offers one outbox message and returns the hub's answer.
+	sendMail := func(m *Mail) (string, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		a, err := post("/v1/mail", m)
+		if err != nil {
+			return "", err
+		}
+		settle(m.ID, a.Op, a.Reason)
+		return a.Op, nil
 	}
 	ended := make(chan error, 1)
 	// The hub sends the roster at least every 5 seconds; a stream that
@@ -143,7 +147,7 @@ func session(cl *client, logw io.Writer) error {
 			if json.Unmarshal(line, &f) != nil {
 				continue
 			}
-			if handle(&f, send) {
+			if handle(&f, send, logw) {
 				ended <- ErrRevoked
 				return
 			}
@@ -187,10 +191,14 @@ func session(cl *client, logw io.Writer) error {
 			if readJSON(p, &s) != nil {
 				continue
 			}
-			if err := send(frame{Op: "mail", Mail: &s.Mail}); err != nil {
+			op, err := sendMail(&s.Mail)
+			if err != nil {
 				return err
 			}
-			inflight[p] = true
+			// A retry answer keeps it queued: it is offered again next tick.
+			if op == "stored" || op == "refused" {
+				inflight[p] = true
+			}
 		}
 		return nil
 	}
@@ -219,7 +227,7 @@ func session(cl *client, logw io.Writer) error {
 
 // handle applies one frame from the hub. It returns true when the hub says
 // this host is gone.
-func handle(f *frame, send func(frame) error) bool {
+func handle(f *frame, send func(frame) error, logw io.Writer) bool {
 	switch f.Op {
 	case "roster":
 		if f.Roster != nil {
@@ -236,6 +244,9 @@ func handle(f *frame, send func(frame) error) bool {
 		status, reason, final := Deliver(f.Mail)
 		if final {
 			_ = send(frame{Op: "ack", ID: f.Mail.ID, Status: status, Reason: reason})
+		} else {
+			// The hub sends it again later; say why it waits.
+			fmt.Fprintf(logw, "%s mail %s not taken yet: %s\n", stamp(time.Now()), f.Mail.ID, reason)
 		}
 	case "receipt":
 		if f.Receipt != nil {

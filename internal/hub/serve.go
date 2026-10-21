@@ -54,6 +54,10 @@ type Hello struct {
 // pollEvery is how often a watch stream looks at the hub's files.
 var pollEvery = time.Second
 
+// resendAfter is how long a watch stream waits before sending mail the host
+// has not acked again (§18.5); tests shorten it.
+var resendAfter = 30 * time.Second
+
 // tailnet is the address range Tailscale gives devices (100.64.0.0/10).
 var tailnet = &net.IPNet{IP: net.IPv4(100, 64, 0, 0), Mask: net.CIDRMask(10, 32)}
 
@@ -497,7 +501,7 @@ func (sv *Server) watch(w http.ResponseWriter, r *http.Request, me *Host) {
 	}
 	s := sv.s
 	s.pruneReceipts(me.ID)
-	sentMail := map[string]bool{}
+	sentMail := map[string]time.Time{}
 	sentRcpt := map[string]bool{}
 	snapSeen := map[string]time.Time{}
 	var lastRoster time.Time
@@ -532,13 +536,16 @@ func (sv *Server) watch(w http.ResponseWriter, r *http.Request, me *Host) {
 			}
 		}
 		for _, p := range jsonFiles(s.mailDir(me.ID)) {
-			if sentMail[p] {
+			// Mail still here after resendAfter was not acked: the host
+			// could not take it then (a busy lock, a missing pin); it goes
+			// again. Its ID keeps a second copy out of the inbox.
+			if at, ok := sentMail[p]; ok && time.Since(at) < resendAfter {
 				continue
 			}
 			var m Mail
 			if readJSON(p, &m) == nil {
 				send(frame{Op: "mail", Mail: &m})
-				sentMail[p] = true
+				sentMail[p] = time.Now()
 			}
 		}
 		for _, p := range jsonFiles(s.receiptDir(me.ID)) {
