@@ -16,6 +16,7 @@ Command: `sunstack spawn` (also `team --sessions`, `dismiss`, `kill`). Closing e
   and stop. Hiring, firing, spawning, dismissing or directing in a different team yourself
   needs the user's explicit yes first.
 - Run every `sunstack` command on its own, with nothing chained after it.
+- When a step fails in a way this skill does not cover, or you had to work around Sunstack, leave a note: `sunstack issue "<what happened, at which step>"`, never message or brief text. Failed commands are already recorded.
 - Starting a session starts a paid model session: confirm with the user every time (agent,
   tool, task label, first instruction). Closing one needs a confirm too. The one exception is
   starting work on another host over SSH when the user's request or your board calls for it

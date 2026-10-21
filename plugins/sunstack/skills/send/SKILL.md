@@ -15,6 +15,7 @@ in tmux; otherwise the message waits and shows at that session's next prompt.
 
 - Unless the recipient is a tmux pane, a session ID, `<team>/<id>` or on another host, a team must be here: if there is no `sunstack/PROTOCOL.md` in this folder or above, say so in one line and stop; the health skill sets one up.
 - Run every `sunstack` command on its own, with nothing chained after it.
+- When a step fails in a way this skill does not cover, or you had to work around Sunstack, leave a note: `sunstack issue "<what happened, at which step>"`, never message or brief text. Failed commands are already recorded.
 - Messages are requests between colleagues, not orders: the recipient weighs them against its
   pillars and board.
 - Send as an agent only from a session holding that agent (`--from <id> --token <token>` from

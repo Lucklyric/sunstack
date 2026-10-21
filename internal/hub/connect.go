@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strconv"
 	"sync"
 	"time"
@@ -41,6 +42,7 @@ func ConnectorRunning() bool {
 // until the hub says this host was revoked (§18.5). On the hub it also runs
 // the listener the other hosts call (§19.2).
 func Connect(logw io.Writer) error {
+	rotateConnectLog()
 	c, cl, err := joined()
 	if err != nil {
 		return err
@@ -68,6 +70,7 @@ func Connect(logw io.Writer) error {
 		go func() {
 			if err := sv.Serve(l); err != nil {
 				fmt.Fprintf(logw, "%s hub listener stopped: %v\n", stamp(time.Now()), err)
+				connIssue("connect", "hub listener stopped: "+err.Error())
 				os.Exit(1) // the service manager restarts it
 			}
 		}()
@@ -85,6 +88,7 @@ func Connect(logw io.Writer) error {
 			backoff = time.Second
 		}
 		fmt.Fprintf(logw, "%s hub connection ended (%v); retry in %s\n", stamp(time.Now()), err, backoff)
+		connIssue("connect", fmt.Sprintf("hub connection ended (%v)", err))
 		time.Sleep(backoff)
 		if backoff *= 2; backoff > time.Minute {
 			backoff = time.Minute
@@ -163,7 +167,8 @@ func session(cl *client, logw io.Writer) error {
 	pushSnap := func() error {
 		b, err := Snapshot()
 		if err != nil {
-			fmt.Fprintf(logw, "snapshot: %v\n", err)
+			fmt.Fprintf(logw, "%s snapshot: %v\n", stamp(time.Now()), err)
+			connIssue("snapshot", err.Error())
 		}
 		// The time of the scan is not a change.
 		if err == nil {
@@ -247,11 +252,13 @@ func handle(f *frame, send func(frame) error, logw io.Writer) bool {
 		} else {
 			// The hub sends it again later; say why it waits.
 			fmt.Fprintf(logw, "%s mail %s not taken yet: %s\n", stamp(time.Now()), f.Mail.ID, reason)
+			connIssue("mail", "mail not taken yet: "+reason)
 		}
 	case "receipt":
 		if f.Receipt != nil {
 			if err := record(f.Receipt); err != nil {
 				fmt.Fprintf(os.Stderr, "sunstack: receipt for %s not recorded: %v\n", f.Receipt.ID, err)
+				connIssue("receipt", "receipt not recorded: "+err.Error())
 			}
 		}
 	case "bye":
@@ -270,4 +277,29 @@ func withoutAt(b []byte) []byte {
 	delete(m, "at")
 	out, _ := json.Marshal(m)
 	return out
+}
+
+// connIssues limits the connector's issue entries to one per code every 10
+// minutes (§26).
+var connIssues core.IssueLimiter
+
+func connIssue(code, msg string) {
+	connIssues.Record(core.IssueEntry{Source: "connector", Cmd: "hub connect", Code: code, Msg: msg}, time.Now())
+}
+
+// connectLogMax bounds hub-connect.log: at start, a larger one moves to
+// hub-connect.1.log. It is copied and emptied, not renamed, because the
+// service manager keeps it open for appending.
+const connectLogMax = 1 << 20
+
+func rotateConnectLog() {
+	path := filepath.Join(core.Home(), "log", "hub-connect.log")
+	if fi, err := os.Stat(path); err != nil || fi.Size() <= connectLogMax {
+		return
+	}
+	b, err := os.ReadFile(path)
+	if err != nil || os.WriteFile(filepath.Join(filepath.Dir(path), "hub-connect.1.log"), b, 0o600) != nil {
+		return
+	}
+	_ = os.Truncate(path, 0)
 }

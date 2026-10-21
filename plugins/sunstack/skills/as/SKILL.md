@@ -18,6 +18,7 @@ as the same agent, like one person on several tasks; each has its own claim and 
   there is anything worth keeping, then the release skill. Then take on the new one.
 - Run every `sunstack` command on its own, with nothing chained after it (no `; echo ...`),
   so the user's permission rule for `sunstack` matches. The tool reports the exit code.
+- When a step fails in a way this skill does not cover, or you had to work around Sunstack, leave a note: `sunstack issue "<what happened, at which step>"`, never message or brief text. Failed commands are already recorded.
 - If the shell says `sunstack` is not found, tell the user to install it and stop:
   `curl -fsSL https://raw.githubusercontent.com/Lucklyric/sunstack/main/install.sh | sh`,
   then `sunstack install`.

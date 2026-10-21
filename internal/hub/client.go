@@ -102,6 +102,9 @@ func Snapshot() ([]byte, error) {
 	o := core.BuildOrg()
 	stripActivity(o)
 	o.SSH = core.SSHPeers()
+	if c := core.IssueCounts(time.Now().Add(-7 * 24 * time.Hour)); len(c) > 0 {
+		o.Issues = c
+	}
 	return snapshotOf(o)
 }
 
@@ -121,6 +124,7 @@ func snapshotOf(o *core.Org) ([]byte, error) {
 	}
 	o.Trimmed = fmt.Sprintf("snapshot cut to fit 256 KB: %d done entries not shown", done)
 	if b, err = json.Marshal(o); err != nil || len(b) <= MaxFrame {
+		connIssue("snapshot_trimmed", o.Trimmed)
 		return b, err
 	}
 	for _, t := range o.Teams {
@@ -131,6 +135,7 @@ func snapshotOf(o *core.Org) ([]byte, error) {
 	}
 	o.Trimmed = fmt.Sprintf("snapshot cut to fit 256 KB: %d done entries and %d key results not shown", done, krs)
 	if b, err = json.Marshal(o); err != nil || len(b) <= MaxFrame {
+		connIssue("snapshot_trimmed", o.Trimmed)
 		return b, err
 	}
 	return nil, errors.New("this host's snapshot is larger than 256 KB, even without done entries and key results")

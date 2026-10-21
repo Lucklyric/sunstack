@@ -350,6 +350,9 @@ func hostDetails(h *hub.HostView, w int, local *core.Org) []string {
 	if o.Trimmed != "" {
 		out = append(out, cWarn.Render(wrap(o.Trimmed, w)))
 	}
+	if s := hub.IssueLine(o.Issues); s != "" {
+		out = append(out, field("issues", strings.TrimPrefix(s, "issues (7 days): ")))
+	}
 	attention, shared := o.Attention, map[string]bool{}
 	if !h.You {
 		own, sh := hub.Split(o, local)

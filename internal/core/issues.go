@@ -1,0 +1,142 @@
+package core
+
+import (
+	"bufio"
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"sync"
+	"time"
+)
+
+// The issue log (§26): what went wrong on this host, one JSON line each, in
+// ~/.sunstack/log/issues.jsonl. Never arguments, bodies, prompts or tokens.
+
+const (
+	issueMax     = 512 << 10 // past this the file moves to issues.1.jsonl
+	issueMsgMax  = 300
+	issueNoteMax = 500
+	issueRepeat  = 10 * time.Minute // a repeating failure writes once per window
+)
+
+// IssueVersion is this binary's version, set by main.
+var IssueVersion string
+
+// IssueEntry is one entry. N counts the occurrences it stands for when over one.
+type IssueEntry struct {
+	At      string `json:"at"`
+	Version string `json:"version,omitempty"`
+	Source  string `json:"source"` // cli, connector or note
+	Cmd     string `json:"cmd,omitempty"`
+	Code    string `json:"code"`
+	Exit    int    `json:"exit,omitempty"`
+	Msg     string `json:"msg"`
+	N       int    `json:"n,omitempty"`
+	Team    string `json:"team,omitempty"`
+	Session string `json:"session,omitempty"`
+}
+
+var issueMu sync.Mutex
+
+func issuePath() string { return filepath.Join(Home(), "log", "issues.jsonl") }
+
+// RecordIssue appends e. Best effort: a failure here never fails a command.
+func RecordIssue(e IssueEntry) {
+	if e.At == "" {
+		e.At = now()
+	}
+	e.Version = IssueVersion
+	max := issueMsgMax
+	if e.Source == "note" {
+		max = issueNoteMax
+	}
+	if r := []rune(e.Msg); len(r) > max {
+		e.Msg = string(r[:max])
+	}
+	if e.Session == "" {
+		e.Session = os.Getenv("CLAUDE_CODE_SESSION_ID")
+		if e.Session == "" {
+			e.Session = os.Getenv("CODEX_THREAD_ID")
+		}
+	}
+	line, err := json.Marshal(e)
+	if err != nil {
+		return
+	}
+	issueMu.Lock()
+	defer issueMu.Unlock()
+	path := issuePath()
+	if os.MkdirAll(filepath.Dir(path), 0o700) != nil {
+		return
+	}
+	if fi, err := os.Stat(path); err == nil && fi.Size()+int64(len(line)) > issueMax {
+		_ = os.Rename(path, filepath.Join(filepath.Dir(path), "issues.1.jsonl"))
+	}
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	_, _ = f.Write(append(line, '\n'))
+}
+
+// ReadIssues returns the entries at or after since, oldest first.
+func ReadIssues(since time.Time) []IssueEntry {
+	var out []IssueEntry
+	dir := filepath.Dir(issuePath())
+	for _, name := range []string{"issues.1.jsonl", "issues.jsonl"} {
+		f, err := os.Open(filepath.Join(dir, name))
+		if err != nil {
+			continue
+		}
+		sc := bufio.NewScanner(f)
+		sc.Buffer(make([]byte, 64<<10), 64<<10)
+		for sc.Scan() {
+			var e IssueEntry
+			if json.Unmarshal(sc.Bytes(), &e) != nil {
+				continue
+			}
+			if t, err := time.Parse(time.RFC3339, e.At); err == nil && !t.Before(since) {
+				out = append(out, e)
+			}
+		}
+		f.Close()
+	}
+	return out
+}
+
+// IssueCounts counts the occurrences per code since a time.
+func IssueCounts(since time.Time) map[string]int {
+	c := map[string]int{}
+	for _, e := range ReadIssues(since) {
+		c[e.Code] += max(e.N, 1)
+	}
+	return c
+}
+
+// IssueLimiter writes a repeating issue once per window per code, with the
+// occurrences since the last entry in N. For long-running loops.
+type IssueLimiter struct {
+	mu   sync.Mutex
+	last map[string]time.Time
+	n    map[string]int
+}
+
+// Record notes e at time at.
+func (l *IssueLimiter) Record(e IssueEntry, at time.Time) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.last == nil {
+		l.last, l.n = map[string]time.Time{}, map[string]int{}
+	}
+	l.n[e.Code]++
+	if t, ok := l.last[e.Code]; ok && at.Sub(t) < issueRepeat {
+		return
+	}
+	if l.n[e.Code] > 1 {
+		e.N = l.n[e.Code]
+	}
+	e.At = at.UTC().Format("2006-01-02T15:04:05Z")
+	l.last[e.Code], l.n[e.Code] = at, 0
+	RecordIssue(e)
+}

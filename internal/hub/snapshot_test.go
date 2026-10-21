@@ -37,6 +37,7 @@ func decodeSnap(t *testing.T, b []byte) *core.Org {
 }
 
 func TestSnapshotTrimsDoneToFit(t *testing.T) {
+	t.Setenv("SUNSTACK_HOME", t.TempDir()) // a trim is recorded in the issue log
 	b, err := snapshotOf(bigOrg(300, 10))
 	if err != nil {
 		t.Fatal(err)
@@ -52,6 +53,7 @@ func TestSnapshotTrimsDoneToFit(t *testing.T) {
 }
 
 func TestSnapshotTrimsKeyResultsWhenDoneIsNotEnough(t *testing.T) {
+	t.Setenv("SUNSTACK_HOME", t.TempDir()) // a trim is recorded in the issue log
 	b, err := snapshotOf(bigOrg(100, 300))
 	if err != nil {
 		t.Fatal(err)
@@ -66,6 +68,7 @@ func TestSnapshotTrimsKeyResultsWhenDoneIsNotEnough(t *testing.T) {
 }
 
 func TestSnapshotUnderLimitUnchanged(t *testing.T) {
+	t.Setenv("SUNSTACK_HOME", t.TempDir()) // a trim is recorded in the issue log
 	o := bigOrg(5, 5)
 	want, _ := json.Marshal(o)
 	b, err := snapshotOf(bigOrg(5, 5))
@@ -79,10 +82,26 @@ func TestSnapshotUnderLimitUnchanged(t *testing.T) {
 
 // The other hosts' view says what a trimmed snapshot left out.
 func TestTrimmedSnapshotShown(t *testing.T) {
+	t.Setenv("SUNSTACK_HOME", t.TempDir()) // a trim is recorded in the issue log
 	b, _ := snapshotOf(bigOrg(300, 10))
 	o := decodeSnap(t, b)
 	v := &OrgView{OrgName: "personal", HubName: "server", Hosts: []*HostView{{ID: "x1", Name: "server", State: "live", Org: o, HasSnap: true}}}
 	if text := v.Text("", nil); !strings.Contains(text, "snapshot cut to fit 256 KB: 300 done entries not shown") {
+		t.Errorf("org text:\n%s", text)
+	}
+}
+
+// A host's issue counts show in the other hosts' view, counts only (§26).
+func TestIssueCountsShown(t *testing.T) {
+	t.Setenv("SUNSTACK_HOME", t.TempDir()) // a trim is recorded in the issue log
+	o := bigOrg(1, 1)
+	o.Issues = map[string]int{"usage": 2, "taken": 3}
+	b, _ := snapshotOf(o)
+	if strings.Contains(string(b), `"msg"`) {
+		t.Fatal("snapshot carries issue details")
+	}
+	v := &OrgView{OrgName: "personal", HubName: "server", Hosts: []*HostView{{ID: "x1", Name: "server", State: "live", Org: decodeSnap(t, b), HasSnap: true}}}
+	if text := v.Text("", nil); !strings.Contains(text, "issues (7 days): taken 3, usage 2") {
 		t.Errorf("org text:\n%s", text)
 	}
 }

@@ -46,6 +46,7 @@ const shortUsage = `sunstack — agent-team layer for Claude Code and Codex
   sunstack hire <title> <name>          add an agent (sunstack library lists the titles)
   sunstack init                         set up a team in this folder
   sunstack health                       check the project and the install
+  sunstack issues                       what went wrong on this host (sunstack issue "<text>" adds a note)
   sunstack update                       update this binary and the plugin
 
 Skills have the command's name: /sunstack:<name> in Claude Code, $sunstack:<name> in Codex
@@ -162,6 +163,9 @@ Org (every team and Claude Code or Codex session on this host):
   sunstack inbox <id>                             pending messages, read only
   sunstack pillar <id> | --team                   effective pillars with their source
   sunstack health                                 read-only checks of the project and the install
+  sunstack issue "<text>" [--code C]              note what went wrong in this host's issue log (no bodies or secrets)
+  sunstack issues [--since 7d|DATE] [--code C] [--json]
+                                                  this host's issue log grouped by code: count, last time, commands, last message
   sunstack tui [--org]                            dashboard: this team, or outside a team a picker of this host's teams;
                                                   --org opens the host view of every team and session (also: bare sunstack)
 
@@ -203,6 +207,7 @@ Exit codes: 0 ok, 1 error, 2 usage or missing_arguments, 3 snapshot mismatch, 4 
 
 func main() {
 	hub.Version = version
+	core.IssueVersion = version
 	os.Exit(run(os.Args[1:], os.Stdin, os.Stdout, os.Stderr))
 }
 
@@ -338,8 +343,16 @@ func run(argv []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if err == nil {
 		return 0
 	}
+	is := core.IssueEntry{Source: "cli", Cmd: argv[0], Code: "error", Exit: core.ExitFail, Msg: err.Error()}
 	var ce *core.Error
 	if errors.As(err, &ce) {
+		is.Code, is.Exit, is.Msg = ce.Reason, ce.Code, ce.Msg
+	}
+	if p, perr := core.FindProject(""); perr == nil {
+		is.Team = filepath.Base(p.Root)
+	}
+	core.RecordIssue(is)
+	if ce != nil {
 		fmt.Fprint(stdout, ce.Stdout)
 		fmt.Fprintf(stderr, "sunstack: %s: %s\n", ce.Reason, ce.Msg)
 		return ce.Code
@@ -1640,6 +1653,36 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 		}
 		return tui.Run(p, a.has("org"))
 
+	case "issue":
+		a, err := parse(rest, "code", "")
+		if err != nil {
+			return err
+		}
+		if len(a.pos) != 1 || strings.TrimSpace(a.pos[0]) == "" {
+			return &core.Error{Code: core.ExitUsage, Reason: "usage", Msg: `usage: sunstack issue "<what went wrong>" [--code C]`}
+		}
+		code := a.flags["code"]
+		if code == "" {
+			code = "note"
+		}
+		is := core.IssueEntry{Source: "note", Code: code, Msg: a.pos[0]}
+		if p, perr := core.FindProject(""); perr == nil {
+			is.Team = filepath.Base(p.Root)
+		}
+		core.RecordIssue(is)
+		fmt.Fprintln(stdout, "sunstack: noted")
+		return nil
+
+	case "issues":
+		a, err := parse(rest, "since code", "json")
+		if err != nil {
+			return err
+		}
+		if err := a.atMost(0, "issues"); err != nil {
+			return err
+		}
+		return issues(a, stdout)
+
 	case "health":
 		a, err := parse(rest, "root", "")
 		if err != nil {
@@ -1803,6 +1846,12 @@ func health(root string, out io.Writer) error {
 		cs = append(cs, core.Check{Level: "fail", Area: "project", Msg: "no sunstack/ here or above", Fix: "sunstack init (sets up sunstack/ in the current folder)"})
 	}
 	cs = append(cs, installChecks()...)
+	counts := core.IssueCounts(time.Now().Add(-24 * time.Hour))
+	for _, code := range sortedCodes(counts) {
+		if n := counts[code]; n >= 5 {
+			cs = append(cs, core.Check{Level: "warn", Area: "issues", Msg: fmt.Sprintf("%s %d times in the last day", code, n), Fix: "sunstack issues --code " + code})
+		}
+	}
 	failedN := 0
 	for _, c := range cs {
 		fmt.Fprintf(out, "%-4s %-8s %s\n", c.Level, c.Area, c.Msg)

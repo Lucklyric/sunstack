@@ -24,6 +24,7 @@ Every entry you write starts with today's date: `- <YYYY-MM-DD> ...`.
   this session. If you do not have them (for example after compaction or `/clear`),
   recover them as the as skill says (Recover this session's identity). Never guess.
 - Run every `sunstack` command on its own, with nothing chained after it.
+- When a step fails in a way this skill does not cover, or you had to work around Sunstack, leave a note: `sunstack issue "<what happened, at which step>"`, never message or brief text. Failed commands are already recorded.
 - If a `sunstack` command exits non-zero in a way not handled below, show the error and stop.
   Do not go on to release or to removing a thread.
 

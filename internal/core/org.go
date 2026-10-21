@@ -18,15 +18,16 @@ const OrgSchema = 1
 
 // Org is this host's snapshot.
 type Org struct {
-	Schema    int          `json:"schema"`
-	Host      HostInfo     `json:"host"`
-	At        string       `json:"at"`
-	Teams     []*OrgTeam   `json:"teams"`
-	Free      []*FreeGroup `json:"free"` // sessions outside any team
-	Attention []string     `json:"attention"`
-	Notes     []string     `json:"notes,omitempty"`
-	SSH       []SSHPeer    `json:"ssh,omitempty"`     // set only in the snapshot that crosses hosts
-	Trimmed   string       `json:"trimmed,omitempty"` // what the snapshot that crosses hosts left out to fit
+	Schema    int            `json:"schema"`
+	Host      HostInfo       `json:"host"`
+	At        string         `json:"at"`
+	Teams     []*OrgTeam     `json:"teams"`
+	Free      []*FreeGroup   `json:"free"` // sessions outside any team
+	Attention []string       `json:"attention"`
+	Notes     []string       `json:"notes,omitempty"`
+	SSH       []SSHPeer      `json:"ssh,omitempty"`     // set only in the snapshot that crosses hosts
+	Trimmed   string         `json:"trimmed,omitempty"` // what the snapshot that crosses hosts left out to fit
+	Issues    map[string]int `json:"issues,omitempty"`  // issue counts by code, last 7 days, in the snapshot that crosses hosts (§26)
 }
 
 // OrgTeam is one team on this host.

@@ -358,6 +358,9 @@ func (v *OrgView) Text(view string, local *core.Org) string {
 		if h.Org.Trimmed != "" {
 			fmt.Fprintf(&b, "  %s\n", h.Org.Trimmed)
 		}
+		if s := IssueLine(h.Org.Issues); s != "" {
+			fmt.Fprintf(&b, "  %s\n", s)
+		}
 		own, shared := Split(h.Org, local)
 		o := *own
 		o.Notes = nil
@@ -439,4 +442,25 @@ func HostName(id string) string {
 		}
 	}
 	return id
+}
+
+// IssueLine is a host's issue counts as one line, most frequent first (§26).
+func IssueLine(c map[string]int) string {
+	if len(c) == 0 {
+		return ""
+	}
+	var codes []string
+	for k := range c {
+		codes = append(codes, k)
+	}
+	sort.Slice(codes, func(i, j int) bool {
+		if c[codes[i]] != c[codes[j]] {
+			return c[codes[i]] > c[codes[j]]
+		}
+		return codes[i] < codes[j]
+	})
+	for i, k := range codes {
+		codes[i] = fmt.Sprintf("%s %d", k, c[k])
+	}
+	return "issues (7 days): " + strings.Join(codes, ", ")
 }
