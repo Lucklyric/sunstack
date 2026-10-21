@@ -160,12 +160,13 @@ func (m *model) reload() {
 	if m.view == viewPicker {
 		m.loadTeams()
 	}
+	if m.view == viewNext {
+		m.nextItems = m.hostNext()
+	}
 	if m.p == nil {
 		return
 	}
 	switch m.view {
-	case viewNext:
-		m.nextItems = append(m.p.Next("", time.Now()), m.otherHostsNext()...)
 	case viewBoard:
 		m.loadBoard()
 	case viewTasks:
@@ -185,7 +186,11 @@ func (m *model) reload() {
 func tickCmd() tea.Cmd { return tea.Tick(refresh, func(t time.Time) tea.Msg { return tick(t) }) }
 
 // scans says whether the view in front shows live sessions.
-func (m *model) scans() bool { return m.view == viewOrg || (m.view == viewTeam && m.p != nil) }
+// Next needs the scan too: it compares the other hosts' items with this
+// host's (§28.1).
+func (m *model) scans() bool {
+	return m.view == viewOrg || m.view == viewNext || (m.view == viewTeam && m.p != nil)
+}
 
 func (m *model) Init() tea.Cmd {
 	if m.scans() {
@@ -209,6 +214,9 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tickCmd()
 	case orgMsg:
 		m.org, m.orgAt, m.orgBusy = msg.o, time.Now(), false
+		if m.view == viewNext {
+			m.nextItems = m.hostNext() // now with this host's items to compare
+		}
 	case hubMsg:
 		m.note = msg.note
 		m.loadHosts()
@@ -332,7 +340,9 @@ func (m *model) key(k string) tea.Cmd {
 			return nil
 		case "o":
 			return m.show(viewOrg)
-		case "l", "i", "g", "c", "n", "B", "T", "v", "tab", "shift+tab":
+		case "n":
+			return m.show(toggle(m.view, viewNext)) // this host's list, every team
+		case "l", "i", "g", "c", "B", "T", "v", "tab", "shift+tab":
 			return nil
 		}
 	}

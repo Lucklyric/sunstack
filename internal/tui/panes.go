@@ -275,9 +275,6 @@ func (m *model) pickerView() string {
 }
 
 func (m *model) nextView() string {
-	if m.p == nil {
-		return ""
-	}
 	items := m.nextItems // read at reload, not on every frame
 	if len(items) == 0 {
 		return m.panes("Next", []string{"Nothing needs doing"}, -1, []string{"No problems, nothing waiting on you, no open work on the boards."}, 0)

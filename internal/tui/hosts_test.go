@@ -467,7 +467,13 @@ func TestOrgOrdersAcrossHosts(t *testing.T) {
 			h.Org.Free = []*core.FreeGroup{
 				{Group: "git@github.com:me/vault.git", Sessions: []*core.HostSession{{Tool: "claude", Status: "idle", Name: "notes"}}},
 				{Group: "/home/me/pr", Sessions: []*core.HostSession{{Tool: "claude", Status: "idle", Name: "server-pr"}}},
+				{Group: `C:\work\scratch`, Sessions: []*core.HostSession{{Tool: "codex", Status: "idle", Name: "win-a"}}},
 			}
+		}
+		if h.Name == "hubbox" { // a Windows folder on another host: its own row
+			h.Org = &core.Org{Host: core.HostInfo{Name: "hubbox"}, Free: []*core.FreeGroup{
+				{Group: `C:\work\scratch`, Sessions: []*core.HostSession{{Tool: "codex", Status: "idle", Name: "win-b"}}},
+			}}
 		}
 	}
 	var rows []string
@@ -475,7 +481,8 @@ func TestOrgOrdersAcrossHosts(t *testing.T) {
 		rows = append(rows, n.label)
 	}
 	got := strings.Join(rows, "|")
-	for _, want := range []string{"vault|todo @laptop|tnnls @laptop|notes @server", "pr @laptop|local-pr @laptop", "pr @server|server-pr @server"} {
+	for _, want := range []string{"vault|todo @laptop|tnnls @laptop|notes @server", "pr @laptop|local-pr @laptop", "pr @server|server-pr @server",
+		"scratch @server|win-a @server", "scratch @hubbox|win-b @hubbox"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("rows %q lack %q", got, want)
 		}
@@ -483,6 +490,26 @@ func TestOrgOrdersAcrossHosts(t *testing.T) {
 	if strings.Count(got, "vault") != 1 {
 		t.Errorf("the remote-keyed group is not one row: %q", got)
 	}
+	// The host view's Next (n): this host's items across teams, then the
+	// other hosts'. Before a scan, no other host's items: nothing to compare.
+	m.key("n")
+	if m.view != viewNext {
+		t.Fatal("n does not open Next in the host view")
+	}
+	var all []string
+	for _, it := range m.nextItems {
+		all = append(all, it.Text)
+	}
+	if a := strings.Join(all, "|"); !strings.Contains(a, "alpha: todo is waiting for you") || !strings.Contains(a, "shop: Q1 waits for you") {
+		t.Errorf("host-view next: %q", a)
+	}
+	requireAll(t, ansi.Strip(m.View()), "shop: Q1 waits for you")
+	saved := m.org
+	m.org = nil
+	if len(m.otherHostsNext()) != 0 {
+		t.Error("other hosts' items listed before this host's scan")
+	}
+	m.org = saved
 	var next []string
 	for _, it := range m.otherHostsNext() {
 		next = append(next, it.Text+" / "+it.Do)

@@ -198,7 +198,7 @@ func (m *model) groupRows(splits []hostSplit, d int) []treeNode {
 		if len(ss) == 0 {
 			continue
 		}
-		label := path.Base(strings.TrimSuffix(ps[0].g.Group, ".git"))
+		label := path.Base(strings.ReplaceAll(strings.TrimSuffix(ps[0].g.Group, ".git"), `\`, "/"))
 		if isFolder(ps[0].g.Group) && m.hosts != nil {
 			label += " @" + m.hostName(ps[0].h)
 		}
@@ -210,8 +210,12 @@ func (m *model) groupRows(splits []hostSplit, d int) []treeNode {
 	return out
 }
 
-// isFolder says whether a group is keyed by a folder rather than a git remote.
-func isFolder(g string) bool { return filepath.IsAbs(g) || strings.HasPrefix(g, "/") || g == "" }
+// isFolder says whether a group is keyed by a folder rather than a git
+// remote, whatever system the host that sent it runs: /..., C:\... or \\...
+func isFolder(g string) bool {
+	return g == "" || strings.HasPrefix(g, "/") || strings.HasPrefix(g, `\\`) || filepath.IsAbs(g) ||
+		(len(g) >= 3 && g[1] == ':' && (g[2] == '\\' || g[2] == '/'))
+}
 
 func hostID(h *hub.HostView) string {
 	if h == nil {
@@ -1210,6 +1214,9 @@ func (m *model) spawnKey(n *treeNode) bool {
 // next lists them; the ones this host reports too are left out (§28.1).
 func (m *model) otherHostsNext() []core.Issue {
 	var out []core.Issue
+	if m.org == nil {
+		return nil // no scan yet: nothing to tell this host's items from theirs
+	}
 	for _, sp := range m.splits() {
 		if sp.own != nil {
 			for _, a := range sp.own.Attention {
@@ -1218,4 +1225,19 @@ func (m *model) otherHostsNext() []core.Issue {
 		}
 	}
 	return out
+}
+
+// hostNext is the Next tab's list: in a team its ranked items, in the host
+// view this host's attention across teams; then the other hosts' (§28.1).
+func (m *model) hostNext() []core.Issue {
+	var out []core.Issue
+	switch {
+	case m.p != nil:
+		out = m.p.Next("", time.Now())
+	case m.org != nil:
+		for _, a := range m.org.Attention {
+			out = append(out, core.Issue{Kind: "user", Owner: "user", Text: a, Do: "in that team"})
+		}
+	}
+	return append(out, m.otherHostsNext()...)
 }

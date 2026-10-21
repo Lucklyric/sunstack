@@ -240,7 +240,14 @@ func TestHostOnly(t *testing.T) {
 	m.w, m.h = 100, 30
 	m.org = &core.Org{Host: core.HostInfo{Name: "h"}}
 	m.reload()
-	for _, k := range []string{"o", "l", "i", "g", "c", "up", "down", "2", "r", "n"} {
+	// n opens this host's Next list there and back (§28.1).
+	m.Update(key("n"))
+	if m.view != viewNext {
+		t.Fatal("n does not open Next in the host view")
+	}
+	fits(t, m.View(), m.w, "host next")
+	m.Update(key("n"))
+	for _, k := range []string{"o", "l", "i", "g", "c", "up", "down", "2", "r"} {
 		m.Update(key(k))
 		if m.view != viewOrg {
 			t.Fatalf("key %q left the host view", k)
