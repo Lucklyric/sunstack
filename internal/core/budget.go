@@ -138,7 +138,7 @@ func (p *Project) tidyContext(id string, old func(date string) bool) (int, error
 
 // inInbox reports whether a message is still pending or taken for id.
 func (p *Project) inInbox(id, msgID string) bool {
-	if !IsMessageID(msgID) {
+	if !msgIDRe.MatchString(msgID) { // local IDs may pass IsMessageID's length cap
 		return false
 	}
 	// Anything but a clear "not there" counts as there: the record stays.

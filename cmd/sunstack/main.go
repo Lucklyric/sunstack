@@ -325,6 +325,7 @@ func run(argv []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		if setup.IsTerminal(os.Stdout) {
 			p, _ := core.FindProject("")
 			if err := tui.Run(p, false); err != nil {
+				core.RecordIssue(core.IssueEntry{Source: "cli", Cmd: "tui", Code: "error", Exit: core.ExitFail})
 				fmt.Fprintf(stderr, "sunstack: error: %v\n", err)
 				return core.ExitFail
 			}

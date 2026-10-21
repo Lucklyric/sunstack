@@ -112,7 +112,7 @@ func TestIssueLongCode(t *testing.T) {
 func TestIssueSessionBounded(t *testing.T) {
 	t.Setenv("SUNSTACK_HOME", t.TempDir())
 	t.Setenv("CLAUDE_CODE_SESSION_ID", "")
-	t.Setenv("CODEX_THREAD_ID", strings.Repeat("\x01", 100000))
+	t.Setenv("CODEX_THREAD_ID", strings.Repeat("\x01", 65)) // over 64; Windows caps values at 32,767
 	RecordIssue(IssueEntry{Source: "cli", Cmd: "issues", Code: "usage", Exit: 2})
 	got := ReadIssues(time.Time{})
 	if len(got) != 1 || got[0].Session != "" {

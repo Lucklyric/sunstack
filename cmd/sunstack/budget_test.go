@@ -137,3 +137,21 @@ func TestTidyProcessedOrder(t *testing.T) {
 		t.Errorf("a record whose inbox could not be read was archived:\n%s", c)
 	}
 }
+
+// A local message ID longer than other hosts' 128-character cap still keeps
+// its processed record while the message waits.
+func TestTidyKeepsLongPendingID(t *testing.T) {
+	p := fixture(t)
+	env := isolatedEnv(t)
+	dir := filepath.Join(p, "sunstack", "builder.alice")
+	id := "20261001T000000Z-" + strings.Repeat("a", 120) + ".team-abcdef"
+	inbox := filepath.Join(p, "sunstack", "_local", "inbox", "builder.alice")
+	must(t, os.MkdirAll(inbox, 0o755))
+	must(t, os.WriteFile(filepath.Join(inbox, id+".md"), []byte("from: x\n"), 0o644))
+	old := time.Now().AddDate(0, 0, -9).Format("2006-01-02")
+	must(t, os.WriteFile(filepath.Join(dir, "context.md"), []byte("## Processed messages\n- "+old+" "+id+" from x: waiting\n"), 0o644))
+	expect(t, sh(t, p, env, "tidy", "builder.alice"), 0, "tidy")
+	if c, _ := os.ReadFile(filepath.Join(dir, "context.md")); !strings.Contains(string(c), "waiting") {
+		t.Errorf("the record of a long pending ID was archived:\n%s", c)
+	}
+}
