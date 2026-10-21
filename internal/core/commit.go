@@ -108,6 +108,10 @@ func (p *Project) Snapshot(id, rel, token string) (string, error) {
 func (p *Project) readCandidate(want, path string) ([]byte, error) {
 	// Resolve the directory: a symlinked tmp dir resolves elsewhere and fails
 	// the comparison; the file itself is checked by noSymlink below.
+	// A relative path is the caller's, from its working folder.
+	if abs, err := filepath.Abs(path); err == nil {
+		path = abs
+	}
 	dir, err := filepath.EvalSymlinks(filepath.Dir(path))
 	if err != nil || dir != want {
 		return nil, fail(ExitUsage, "usage", "candidate must sit directly in %s (no subfolder)", want)

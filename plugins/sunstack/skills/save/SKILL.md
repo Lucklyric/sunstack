@@ -129,7 +129,8 @@ sunstack snapshot --root "<root>" "<id>" board.md --token "<token>"
 
 Then the same for `context.md`, and for `threads/<topic>.md` or `archive/<YYYY-MM>.md` when
 you write them. Each output gives `checksum`, `candidate_dir` (this session's own folder), and
-the current content. When moving entries to the archive, commit the archive first, then the
+the current content. A `board.md` snapshot also prints `next keys: KR<n> Q<n>` on stderr: the
+next free key of each kind, counting the archive. Number new entries from it. When moving entries to the archive, commit the archive first, then the
 file they left, so an entry is never lost in between.
 
 ## 4. Write the candidate

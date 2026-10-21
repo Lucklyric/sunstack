@@ -14,6 +14,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/Lucklyric/sunstack/internal/core"
 )
@@ -105,11 +106,40 @@ func Snapshot() ([]byte, error) {
 	return snapshotOf(o)
 }
 
-// snapshotOf encodes o. Over MaxFrame it drops the agents' done entries, then
-// the objectives' key results, and says so in Trimmed; sessions always stay.
+// lineCut is the longest board line another host gets (§29.2).
+const lineCut = 400
+
+// cutLine shortens s to lineCut characters, the last one "…".
+func cutLine(s string) string {
+	if utf8.RuneCountInString(s) <= lineCut {
+		return s
+	}
+	return string([]rune(s)[:lineCut-1]) + "…"
+}
+
+// snapshotOf encodes o. Over MaxFrame it cuts long board lines, then drops
+// the agents' done entries, then the objectives' key results, and says so in
+// Trimmed; sessions always stay.
 func snapshotOf(o *core.Org) ([]byte, error) {
 	b, err := json.Marshal(o)
 	if err != nil || len(b) <= MaxFrame {
+		return b, err
+	}
+	cut := func(xs []string) {
+		for i := range xs {
+			xs[i] = cutLine(xs[i])
+		}
+	}
+	for _, t := range o.Teams {
+		for _, a := range t.Agents {
+			cut(a.Now)
+			cut(a.Done)
+		}
+		for i := range t.Objectives {
+			cut(t.Objectives[i].KRs)
+		}
+	}
+	if b, err = json.Marshal(o); err != nil || len(b) <= MaxFrame {
 		return b, err
 	}
 	done, krs := 0, 0

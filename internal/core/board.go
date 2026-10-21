@@ -178,15 +178,9 @@ func keyNum(key string) int {
 	return n
 }
 
-// keyClash refuses a board candidate that gives two entries one key, or
-// reuses an archived key, which sessions of one agent can do when they add
-// key results or asks at the same time and merge.
-func (p *Project) keyClash(id string, old, cand []byte) error {
-	had := map[string]int{}
-	oldItems, _ := parseBoard(id, old)
-	for _, it := range oldItems {
-		had[it.Key]++
-	}
+// keyTops reads id's archive and board: the archived keys, and the highest
+// number used for each key prefix (KR, Q, ...).
+func (p *Project) keyTops(id string, board []byte) (map[string]bool, map[string]int) {
 	archived := map[string]bool{}
 	top := map[string]int{}
 	note := func(key string) {
@@ -203,10 +197,43 @@ func (p *Project) keyClash(id string, old, cand []byte) error {
 			note(it.Key)
 		}
 	}
-	items, _ := parseBoard(id, cand)
+	items, _ := parseBoard(id, board)
 	for _, it := range items {
 		note(it.Key)
 	}
+	return archived, top
+}
+
+// NextKeys names the next free key of each prefix used on id's board or in
+// its archive, for example "KR10 Q3" (§29.2); "" when none is used.
+func (p *Project) NextKeys(id string) string {
+	path := p.boardPath(id)
+	if id == TeamID {
+		path = p.teamBoardPath()
+	}
+	b, _, _ := readMaybe(path)
+	_, top := p.keyTops(id, b)
+	var keys []string
+	for pre, n := range top {
+		if pre != "" {
+			keys = append(keys, fmt.Sprintf("%s%d", pre, n+1))
+		}
+	}
+	sort.Strings(keys)
+	return strings.Join(keys, " ")
+}
+
+// keyClash refuses a board candidate that gives two entries one key, or
+// reuses an archived key, which sessions of one agent can do when they add
+// key results or asks at the same time and merge.
+func (p *Project) keyClash(id string, old, cand []byte) error {
+	had := map[string]int{}
+	oldItems, _ := parseBoard(id, old)
+	for _, it := range oldItems {
+		had[it.Key]++
+	}
+	archived, top := p.keyTops(id, cand)
+	items, _ := parseBoard(id, cand)
 	// Only new clashes are refused, so a board that already has one can still be saved.
 	seen := map[string]int{}
 	for _, it := range items {

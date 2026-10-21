@@ -340,6 +340,14 @@ func run(argv []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		}
 		return 0
 	}
+	if len(argv) > 1 && (argv[1] == "--help" || argv[1] == "-h") {
+		if h := cmdUsage(argv[0]); h != "" {
+			fmt.Fprint(stdout, h)
+		} else {
+			fmt.Fprint(stdout, shortUsage)
+		}
+		return 0
+	}
 	err := dispatch(argv[0], argv[1:], stdin, stdout, stderr)
 	if err == nil {
 		return 0
@@ -367,10 +375,42 @@ func run(argv []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if ce != nil {
 		fmt.Fprint(stdout, ce.Stdout)
 		fmt.Fprintf(stderr, "sunstack: %s: %s\n", ce.Reason, ce.Msg)
+		// The syntax with every usage error, so a caller need not guess (§29).
+		if (ce.Reason == "usage" || ce.Reason == "missing_arguments") && argv[0] != "hub" {
+			if h := cmdUsage(argv[0]); h != "" {
+				fmt.Fprint(stderr, "usage:\n"+h)
+			}
+		}
 		return ce.Code
 	}
 	fmt.Fprintf(stderr, "sunstack: error: %v\n", err)
 	return core.ExitFail
+}
+
+// cmdUsage is cmd's entries in help all: each line naming it (alone or in a
+// check|take|ack list), with its indented continuation lines. hub has its own.
+func cmdUsage(cmd string) string {
+	if cmd == "hub" {
+		return hubUsage
+	}
+	var b strings.Builder
+	in := false
+	for _, l := range strings.Split(usage, "\n") {
+		if strings.HasPrefix(l, "  sunstack ") {
+			in = false
+			if f := strings.Fields(l); len(f) > 1 {
+				for _, c := range strings.Split(f[1], "|") {
+					in = in || c == cmd
+				}
+			}
+		} else if !strings.HasPrefix(l, "   ") {
+			in = false
+		}
+		if in {
+			b.WriteString(l + "\n")
+		}
+	}
+	return b.String()
 }
 
 func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writer) error {
@@ -440,6 +480,12 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 			return err
 		}
 		fmt.Fprint(stdout, out)
+		// On stderr, so the snapshot's format stays as skills read it.
+		if a.pos[1] == "board.md" || (a.pos[0] == core.TeamID && a.pos[1] == "BOARD.md") {
+			if k := p.NextKeys(a.pos[0]); k != "" {
+				fmt.Fprintf(stderr, "next keys: %s\n", k)
+			}
+		}
 		return nil
 
 	case "commit":
@@ -1723,6 +1769,24 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 	return &core.Error{Code: core.ExitUsage, Reason: "usage", Msg: "unknown command: " + cmd + " (see sunstack help)"}
 }
 
+// restartConnector moves this host's connector service onto the new binary
+// after an update (§29.2). Not when the connector itself runs the update: it
+// restarts after its reply (§20.6).
+func restartConnector(out io.Writer, restart func() error) {
+	if os.Getenv("SUNSTACK_SERVICE") != "" {
+		return
+	}
+	err := restart()
+	var ce *core.Error
+	switch {
+	case err == nil:
+		fmt.Fprintln(out, "restarted the hub connector")
+	case errors.As(err, &ce) && ce.Reason == "no_service":
+	default:
+		fmt.Fprintf(out, "! restart the hub connector yourself (%v)\n", err)
+	}
+}
+
 func lifecycle(cmd string, t setup.Targets, yes, skipBinary bool, args []string, stdin io.Reader, out io.Writer) error {
 	var failed []string
 	step := func(name string, err error) {
@@ -1777,6 +1841,7 @@ func lifecycle(cmd string, t setup.Targets, yes, skipBinary bool, args []string,
 					if err := c.Run(); err != nil {
 						return &core.Error{Code: core.ExitFail, Reason: "update_failed", Msg: "the new binary could not finish the update: " + err.Error()}
 					}
+					restartConnector(out, hub.RestartService)
 					return nil
 				}
 			} else if latest != version {

@@ -4,7 +4,8 @@
 # Exits 0 only when the "ci" workflow run for <commit> on main has finished
 # and every OS job (ubuntu, macos, windows) passed. Anything else exits 1 and
 # says why: no run yet, still running, a failed or missing job.
-# --wait waits for the run to appear and finish first (up to 30 minutes).
+# --wait waits for the run to appear (up to 10 minutes) and finish (up to 30
+# minutes) first, polling its status rather than trusting gh run watch.
 set -euo pipefail
 
 usage() { echo "usage: scripts/ci-green.sh <commit> [--wait]" >&2; exit 2; }
@@ -27,11 +28,14 @@ if [ -z "$run" ]; then
   echo "ci-green: no ci run for ${sha:0:7} yet (push main first)" >&2
   exit 1
 fi
-if [ $wait -eq 1 ]; then
-  gh run watch "$run" -R "$repo" --exit-status >/dev/null 2>&1 || true
-fi
-
 status=$(gh run view "$run" -R "$repo" --json status -q .status)
+if [ $wait -eq 1 ]; then
+  for _ in $(seq 1 180); do
+    [ "$status" = "completed" ] && break
+    sleep 10
+    status=$(gh run view "$run" -R "$repo" --json status -q .status 2>/dev/null || echo unknown)
+  done
+fi
 if [ "$status" != "completed" ]; then
   echo "ci-green: run $run for ${sha:0:7} is $status, not finished" >&2
   exit 1
