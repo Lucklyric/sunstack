@@ -505,7 +505,7 @@ func TestOrgOrdersAcrossHosts(t *testing.T) {
 		Attention: []string{"shop: Z1 waits for you"},
 		Teams: []*core.OrgTeam{{ID: "00000000000000aa", Name: "shop", Root: "/z/shop", Agents: []*core.OrgAgent{{ID: "ops.night", Sessions: []*core.HostSession{
 			{Tool: "codex", Status: "idle", Agent: "ops.night", Label: "ops.night_z@zbox", Pane: "%8", Reach: "nudge"},
-		}}}}}}}
+		}}, {ID: "hire.new"}}}}}} // hire.new: hired on zbox only, no session yet
 	m.hosts.Hosts = append(m.hosts.Hosts, extra)
 	// Two unrelated teams without a TEAM file at the same root, and sessions
 	// whose folder is unknown, on two hosts: never merged.
@@ -530,7 +530,7 @@ func TestOrgOrdersAcrossHosts(t *testing.T) {
 	got := strings.Join(rows, "|")
 	for _, want := range []string{"vault|todo @laptop|tnnls @laptop|notes @server", "pr @laptop|local-pr @laptop", "pr @server|server-pr @server",
 		"scratch @server|win-a @server", "scratch @hubbox|win-b @hubbox",
-		"shop  (only on hubbox, server, zbox)|builder.alice|builder.alice_hub @hubbox|builder.alice_api @server|ops.night|ops.night_s @server|ops.night_z @zbox"} {
+		"shop  (only on hubbox, server, zbox)|builder.alice|builder.alice_hub @hubbox|builder.alice_api @server|ops.night|ops.night_s @server|ops.night_z @zbox|hire.new"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("rows %q lack %q", got, want)
 		}

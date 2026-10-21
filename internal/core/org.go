@@ -101,11 +101,12 @@ func BuildOrg() *Org {
 			g = "(unknown folder)"
 		}
 		s.Group = g
-		if groups[g] == nil {
-			groups[g] = &FreeGroup{Group: g, Kind: kind}
-			o.Free = append(o.Free, groups[g])
+		gk := kind + "\x00" + g // a folder and a remote with the same text stay apart
+		if groups[gk] == nil {
+			groups[gk] = &FreeGroup{Group: g, Kind: kind}
+			o.Free = append(o.Free, groups[gk])
 		}
-		groups[g].Sessions = append(groups[g].Sessions, s)
+		groups[gk].Sessions = append(groups[gk].Sessions, s)
 	}
 	sort.Slice(o.Free, func(i, j int) bool { return o.Free[i].Group < o.Free[j].Group })
 	for _, is := range o.Next() {

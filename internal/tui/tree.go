@@ -404,8 +404,8 @@ func (m *model) teamRows(o *core.Org, prefix string, d int, h *hub.HostView, spl
 					}
 				}
 			}
-			if (m.filtering() || ah != nil) && len(ss) == 0 {
-				return
+			if m.filtering() && len(ss) == 0 {
+				return // an agent without sessions shows unless a filter hides it
 			}
 			n := treeNode{kind: "agent", key: ak, depth: d + 1, label: a.ID, fold: len(ss) > 0, team: t, agent: a, org: o, host: h}
 			if ah != nil {
@@ -1277,14 +1277,24 @@ func (m *model) hostNext() []core.Issue {
 		out = m.p.Next("", time.Now())
 		// This host's items that belong to no team (a session outside teams
 		// waiting): the team's list does not hold them (§28.1).
+		// This team's items only the session scan finds (a session waiting)
+		// are added too, once.
 		if m.org != nil {
+			mine := ""
+			if t := m.orgTeam(); t != nil {
+				mine = t.Name + ":"
+			}
+			have := out
 			for _, a := range m.org.Attention {
 				inTeam := false
 				for _, t := range m.org.Teams {
 					inTeam = inTeam || strings.HasPrefix(a, t.Name+":")
 				}
-				if !inTeam {
+				switch {
+				case !inTeam:
 					out = append(out, core.Issue{Kind: "user", Owner: "user", Text: a, Do: "outside teams"})
+				case mine != "" && strings.HasPrefix(a, mine) && !listed(have, a):
+					out = append(out, core.Issue{Kind: "user", Owner: "user", Text: a, Do: "in this team"})
 				}
 			}
 		}
@@ -1345,4 +1355,15 @@ func (m *model) remoteTeamRows(splits []hostSplit) []treeNode {
 		}
 	}
 	return out
+}
+
+// listed says whether an attention line repeats one of the items: the org's
+// line is the item's text with its action after it.
+func listed(items []core.Issue, line string) bool {
+	for _, it := range items {
+		if it.Text != "" && strings.Contains(line, it.Text) {
+			return true
+		}
+	}
+	return false
 }

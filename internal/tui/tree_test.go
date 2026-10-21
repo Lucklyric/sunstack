@@ -302,16 +302,18 @@ func TestTeamTabIsTeamTree(t *testing.T) {
 // With a team open, Next still lists this host's items outside every team,
 // which the team's own list does not hold (§28.1).
 func TestTeamNextKeepsOutsideItems(t *testing.T) {
-	m, _ := teamTreeModel(t)
+	m, p := teamTreeModel(t)
 	m.org = &core.Org{Host: core.HostInfo{Name: "h"},
-		Teams:     []*core.OrgTeam{{ID: "00000000000000a1", Name: "alpha"}},
-		Attention: []string{"alpha: todo is waiting for you", "claude session todo waits for you (in /x)"}}
+		Teams: []*core.OrgTeam{{ID: "00000000000000a1", Name: "alpha"}, {ID: "00000000000000b2", Name: "mine", Root: p.Root}},
+		Attention: []string{"alpha: todo is waiting for you", "claude session todo waits for you (in /x)",
+			"mine: builder.a_x is waiting for you (answer it in its pane)"}}
 	var got []string
 	for _, it := range m.hostNext() {
 		got = append(got, it.Text)
 	}
 	g := strings.Join(got, "|")
-	if !strings.Contains(g, "claude session todo waits for you") || strings.Contains(g, "alpha: todo is waiting") {
+	if !strings.Contains(g, "claude session todo waits for you") || strings.Contains(g, "alpha: todo is waiting") ||
+		strings.Count(g, "builder.a_x is waiting for you") != 1 {
 		t.Errorf("team next: %q", g)
 	}
 }
