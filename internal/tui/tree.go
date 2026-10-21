@@ -209,6 +209,9 @@ func (m *model) groupRows(splits []hostSplit, d int) []treeNode {
 // isFolder says whether a group is keyed by a folder rather than a git
 // remote, whatever system the host that sent it runs: /..., C:\... or \\...
 func isFolder(g string) bool {
+	if strings.HasSuffix(g, ".git") {
+		return false // a remote given as a path (/srv/git/x.git) is still a remote
+	}
 	return g == "" || g == "(unknown folder)" || strings.HasPrefix(g, "/") || strings.HasPrefix(g, `\\`) || filepath.IsAbs(g) ||
 		(len(g) >= 3 && g[1] == ':' && (g[2] == '\\' || g[2] == '/'))
 }
@@ -1257,7 +1260,7 @@ func (m *model) remoteTeamRows(splits []hostSplit) []treeNode {
 			// A team without a TEAM file is keyed by its root: per host,
 			// never matched across hosts (§18.7).
 			key := t.ID
-			if isFolder(t.ID) {
+			if !hub.SharedID(t.ID) {
 				key = sp.h.ID + "/" + t.ID
 			}
 			if seen[key] {
@@ -1274,7 +1277,7 @@ func (m *model) remoteTeamRows(splits []hostSplit) []treeNode {
 					continue
 				}
 				for _, t2 := range sp2.own.Teams {
-					if t2.ID == t.ID && !isFolder(t.ID) {
+					if t2.ID == t.ID && hub.SharedID(t.ID) {
 						more = append(more, hostSplit{h: sp2.h, shared: map[string]*core.OrgTeam{t.ID: t2}})
 						names = append(names, sp2.h.Name)
 						// Its items for this team, on the merged row.

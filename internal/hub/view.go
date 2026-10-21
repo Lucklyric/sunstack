@@ -296,7 +296,7 @@ func Split(remote, local *core.Org) (own *core.Org, shared []*core.OrgTeam) {
 	seen := map[string]bool{}
 	if local != nil {
 		for _, t := range local.Teams {
-			here[t.ID] = t.ID != ""
+			here[t.ID] = SharedID(t.ID)
 		}
 		for _, a := range local.Attention {
 			seen[sameItem(a)] = true
@@ -442,4 +442,18 @@ func HostName(id string) string {
 		}
 	}
 	return id
+}
+
+// SharedID says whether a team ID can match across hosts: a TEAM file's ID,
+// not the root a team without one is keyed by (§18.7).
+func SharedID(id string) bool {
+	if len(id) != 16 {
+		return false
+	}
+	for _, c := range id {
+		if !(c >= '0' && c <= '9' || c >= 'a' && c <= 'f') {
+			return false
+		}
+	}
+	return true
 }

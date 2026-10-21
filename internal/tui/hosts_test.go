@@ -463,7 +463,10 @@ func TestOrgOrdersAcrossHosts(t *testing.T) {
 	if newModel(nil, true).order != orderProject {
 		t.Error("a new model does not open on project order")
 	}
-	m.org.Free = append(m.org.Free, &core.FreeGroup{Group: "/home/me/pr", Sessions: []*core.HostSession{{Tool: "claude", Status: "idle", Name: "local-pr"}}})
+	m.org.Free = append(m.org.Free, &core.FreeGroup{Group: "/home/me/pr", Sessions: []*core.HostSession{{Tool: "claude", Status: "idle", Name: "local-pr"}}},
+		&core.FreeGroup{Group: "/srv/git/shared.git", Sessions: []*core.HostSession{{Tool: "claude", Status: "idle", Name: "path-remote-l"}}})
+	// A team without a TEAM file here, at the same root as one elsewhere.
+	m.org.Teams = append(m.org.Teams, &core.OrgTeam{ID: "/work/project", Name: "legacy-l", Root: "/work/project", Agents: []*core.OrgAgent{{ID: "builder.l"}}})
 	for _, h := range m.hosts.Hosts {
 		if h.Name == "server" {
 			h.Org.Free = []*core.FreeGroup{
@@ -499,7 +502,8 @@ func TestOrgOrdersAcrossHosts(t *testing.T) {
 				{Tool: "codex", Status: "idle", Agent: "ops.night", Label: "ops.night_s@server", Pane: "%9", Reach: "nudge"},
 			}})
 			h.Org.Teams = append(h.Org.Teams, &core.OrgTeam{ID: "/work/project", Name: "legacy-s", Root: "/work/project", Agents: []*core.OrgAgent{{ID: "builder.s"}}})
-			h.Org.Free = append(h.Org.Free, &core.FreeGroup{Group: "(unknown folder)", Sessions: []*core.HostSession{{Tool: "claude", Status: "idle", Name: "lost-s"}}})
+			h.Org.Free = append(h.Org.Free, &core.FreeGroup{Group: "(unknown folder)", Sessions: []*core.HostSession{{Tool: "claude", Status: "idle", Name: "lost-s"}}},
+				&core.FreeGroup{Group: "/srv/git/shared.git", Sessions: []*core.HostSession{{Tool: "claude", Status: "idle", Name: "path-remote-s"}}})
 		}
 	}
 	var rows []string
@@ -514,7 +518,7 @@ func TestOrgOrdersAcrossHosts(t *testing.T) {
 			t.Errorf("rows %q lack %q", got, want)
 		}
 	}
-	for _, want := range []string{"legacy-s  (only on server)|builder.s", "legacy-z  (only on zbox)|builder.z", "(unknown folder) @server|lost-s @server", "(unknown folder) @zbox|lost-z @zbox"} {
+	for _, want := range []string{"legacy-l|builder.l|shop", "legacy-s  (only on server)|builder.s", "shared|path-remote-l @laptop|path-remote-s @server", "legacy-z  (only on zbox)|builder.z", "(unknown folder) @server|lost-s @server", "(unknown folder) @zbox|lost-z @zbox"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("rows %q lack %q", got, want)
 		}
