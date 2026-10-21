@@ -341,7 +341,10 @@ func (m *model) key(k string) tea.Cmd {
 		case "o":
 			return m.show(viewOrg)
 		case "n":
-			return m.show(toggle(m.view, viewNext)) // this host's list, every team
+			if m.view == viewNext {
+				return m.show(viewOrg) // the host view has no Team tab to go back to
+			}
+			return m.show(viewNext) // this host's list, every team
 		case "l", "i", "g", "c", "B", "T", "v", "tab", "shift+tab":
 			return nil
 		}

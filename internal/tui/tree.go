@@ -134,11 +134,7 @@ func (m *model) treeNodes() []treeNode {
 	// By project or team (§18.7): every team once, with the sessions of
 	// every host, then the teams only another host has.
 	out = append(out, m.teamRows(o, "", 0, nil, splits, "")...)
-	for _, sp := range splits {
-		if sp.own != nil {
-			out = append(out, m.teamRows(sp.own, "host:"+sp.h.ID+"/", 0, sp.h, nil, "  (only on "+sp.h.Name+")")...)
-		}
-	}
+	out = append(out, m.remoteTeamRows(splits)...)
 	if m.order != orderTeam {
 		return append(out, m.groupRows(splits, 0)...)
 	}
@@ -1093,7 +1089,8 @@ func (m *model) orgCounts() string {
 		teams = "1 team"
 	}
 	out := cDim.Render(fmt.Sprintf("%s  %s  ", teams, plural(sessions, "session", "sessions")))
-	if n := len(m.org.Attention); n > 0 {
+	// This host's items and the other hosts' own, as the Next tab lists them.
+	if n := len(m.org.Attention) + len(m.otherHostsNext()); n > 0 {
 		return out + cWarn.Render(fmt.Sprintf("%d for you", n))
 	}
 	return out + cDim.Render("0 for you")
@@ -1240,4 +1237,40 @@ func (m *model) hostNext() []core.Issue {
 		}
 	}
 	return append(out, m.otherHostsNext()...)
+}
+
+// remoteTeamRows are the teams this host lacks, one row per TEAM ID however
+// many other hosts have it: the first host's copy, with the others'
+// sessions merged in as for a shared team (§28.1).
+func (m *model) remoteTeamRows(splits []hostSplit) []treeNode {
+	var out []treeNode
+	seen := map[string]bool{}
+	for i, sp := range splits {
+		if sp.own == nil {
+			continue
+		}
+		for _, t := range sp.own.Teams {
+			if seen[t.ID] {
+				continue
+			}
+			seen[t.ID] = true
+			names := []string{sp.h.Name}
+			var more []hostSplit
+			for _, sp2 := range splits[i+1:] {
+				if sp2.own == nil {
+					continue
+				}
+				for _, t2 := range sp2.own.Teams {
+					if t2.ID == t.ID {
+						more = append(more, hostSplit{h: sp2.h, shared: map[string]*core.OrgTeam{t.ID: t2}})
+						names = append(names, sp2.h.Name)
+					}
+				}
+			}
+			one := *sp.own
+			one.Teams = []*core.OrgTeam{t}
+			out = append(out, m.teamRows(&one, "host:"+sp.h.ID+"/", 0, sp.h, more, "  (only on "+strings.Join(names, ", ")+")")...)
+		}
+	}
+	return out
 }

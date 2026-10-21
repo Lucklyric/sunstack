@@ -247,6 +247,9 @@ func TestHostOnly(t *testing.T) {
 	}
 	fits(t, m.View(), m.w, "host next")
 	m.Update(key("n"))
+	if m.view != viewOrg {
+		t.Fatalf("n from Next in the host view goes to view %d, not back to the sessions", m.view)
+	}
 	for _, k := range []string{"o", "l", "i", "g", "c", "up", "down", "2", "r"} {
 		m.Update(key(k))
 		if m.view != viewOrg {

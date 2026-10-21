@@ -200,7 +200,9 @@ func TestSharedTeamsMerge(t *testing.T) {
 	if n := strings.Count(v, "▾ alpha"); n != 1 {
 		t.Errorf("alpha shown %d times:\n%s", n, v)
 	}
-	requireAll(t, v, "pm.lead_gpu @server", "ops.night @server", "shop")
+	// The header counts what needs the user on every host, each item once:
+	// this host's todo, and the server's own Q1 and deploy.
+	requireAll(t, v, "pm.lead_gpu @server", "ops.night @server", "shop", "3 for you")
 	rowsOf := func() string {
 		var rows []string
 		for _, n := range m.treeNodes() {
@@ -473,6 +475,10 @@ func TestOrgOrdersAcrossHosts(t *testing.T) {
 		if h.Name == "hubbox" { // a Windows folder on another host: its own row
 			h.Org = &core.Org{Host: core.HostInfo{Name: "hubbox"}, Free: []*core.FreeGroup{
 				{Group: `C:\work\scratch`, Sessions: []*core.HostSession{{Tool: "codex", Status: "idle", Name: "win-b"}}},
+			}, Teams: []*core.OrgTeam{ // shop, which this host lacks, on a second host: still one row
+				{ID: "00000000000000aa", Name: "shop", Root: "/hub/shop", Agents: []*core.OrgAgent{{ID: "builder.alice", Sessions: []*core.HostSession{
+					{Tool: "claude", Status: "idle", Agent: "builder.alice", Label: "builder.alice_hub@hubbox", Pane: "%7", Reach: "nudge"},
+				}}}},
 			}}
 		}
 	}
@@ -482,13 +488,14 @@ func TestOrgOrdersAcrossHosts(t *testing.T) {
 	}
 	got := strings.Join(rows, "|")
 	for _, want := range []string{"vault|todo @laptop|tnnls @laptop|notes @server", "pr @laptop|local-pr @laptop", "pr @server|server-pr @server",
-		"scratch @server|win-a @server", "scratch @hubbox|win-b @hubbox"} {
+		"scratch @server|win-a @server", "scratch @hubbox|win-b @hubbox",
+		"shop  (only on hubbox, server)|builder.alice|builder.alice_hub @hubbox|builder.alice_api @server"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("rows %q lack %q", got, want)
 		}
 	}
-	if strings.Count(got, "vault") != 1 {
-		t.Errorf("the remote-keyed group is not one row: %q", got)
+	if strings.Count(got, "vault") != 1 || strings.Count(got, "shop") != 1 {
+		t.Errorf("a shared group or team is not one row: %q", got)
 	}
 	// The host view's Next (n): this host's items across teams, then the
 	// other hosts'. Before a scan, no other host's items: nothing to compare.
