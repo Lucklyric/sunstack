@@ -317,3 +317,23 @@ func TestTeamNextKeepsOutsideItems(t *testing.T) {
 		t.Errorf("team next: %q", g)
 	}
 }
+
+// In host order a folder and a remote group with the same text fold apart.
+func TestHostOrderGroupKeys(t *testing.T) {
+	m := treeModel(t)
+	m.org.Free = append(m.org.Free,
+		&core.FreeGroup{Group: "/srv/git/shared", Kind: "folder", Sessions: []*core.HostSession{{Tool: "claude", Status: "idle", Name: "f1"}}},
+		&core.FreeGroup{Group: "/srv/git/shared", Kind: "remote", Sessions: []*core.HostSession{{Tool: "claude", Status: "idle", Name: "r1"}}})
+	keys := map[string]bool{}
+	for _, n := range m.outsideRows(m.org, "host:x/", 1, nil) {
+		if n.kind == "group" && n.label == "shared" {
+			if keys[n.key] {
+				t.Fatalf("two groups share the fold key %q", n.key)
+			}
+			keys[n.key] = true
+		}
+	}
+	if len(keys) != 2 {
+		t.Errorf("groups: %v", keys)
+	}
+}

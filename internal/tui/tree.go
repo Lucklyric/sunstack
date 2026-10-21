@@ -470,7 +470,7 @@ func (m *model) teamRows(o *core.Org, prefix string, d int, h *hub.HostView, spl
 func (m *model) outsideRows(o *core.Org, prefix string, d int, h *hub.HostView) []treeNode {
 	var out []treeNode
 	for _, g := range o.Free {
-		gk := prefix + "group:" + g.Group
+		gk := prefix + "group:" + g.Kind + ":" + g.Group // a folder and a remote of the same text fold apart
 		var ss []treeNode
 		need := 0
 		for _, s := range g.Sessions {
