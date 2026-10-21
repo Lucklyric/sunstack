@@ -66,8 +66,11 @@ func RecordIssue(e IssueEntry) {
 			e.Session = os.Getenv("CODEX_THREAD_ID")
 		}
 	}
+	if len(e.Session) > 64 {
+		e.Session = "" // not a session ID
+	}
 	line, err := json.Marshal(e)
-	if err != nil {
+	if err != nil || len(line) > 8<<10 { // every field is bounded; never past the reader
 		return
 	}
 	issueMu.Lock()

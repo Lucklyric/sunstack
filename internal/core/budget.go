@@ -19,7 +19,6 @@ const (
 	keepDone      = 10       // Done entries kept on an agent's board
 	keepProcessed = 10       // processed-message entries kept in context
 	contextBudget = 25 << 10 // context.md without processed messages
-	boardBudget   = 40       // board.md lines after tidy
 	processedSec  = "Processed messages"
 )
 
@@ -158,7 +157,8 @@ func (p *Project) inInbox(id, msgID string) bool {
 	return false
 }
 
-// OverBudget says what makes an agent's loaded files too large, or "".
+// OverBudget says when an agent's context is too large, or "". A long board
+// is the existing board-length finding (boardLines).
 func (p *Project) OverBudget(id string) string {
 	var out []string
 	if doc, err := os.ReadFile(filepath.Join(p.AgentDir(id), "context.md")); err == nil {
@@ -175,12 +175,19 @@ func (p *Project) OverBudget(id string) string {
 			out = append(out, fmt.Sprintf("%s/context.md is %d KB, over %d KB without processed messages: archive superseded decisions and fixed pitfalls", id, size>>10, contextBudget>>10))
 		}
 	}
-	if doc, err := os.ReadFile(p.boardPath(id)); err == nil {
-		if n := strings.Count(strings.TrimRight(string(doc), "\n"), "\n") + 1; n > boardBudget {
-			out = append(out, fmt.Sprintf("%s/board.md has %d lines, over %d: shorten Next", id, n, boardBudget))
-		}
-	}
 	return strings.Join(out, "; ")
+}
+
+// BoardOver says when an agent's board is still longer than boardLines, or "".
+func (p *Project) BoardOver(id string) string {
+	doc, err := os.ReadFile(p.boardPath(id))
+	if err != nil {
+		return ""
+	}
+	if n := strings.Count(strings.TrimRight(string(doc), "\n"), "\n") + 1; n > boardLines {
+		return fmt.Sprintf("%s/board.md has %d lines, over %d: shorten Next", id, n, boardLines)
+	}
+	return ""
 }
 
 func dateOK(s string) bool {

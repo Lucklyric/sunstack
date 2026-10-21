@@ -107,3 +107,15 @@ func TestIssueLongCode(t *testing.T) {
 		t.Fatalf("entries: %d", len(got))
 	}
 }
+
+// A session value that is not a session ID is left out.
+func TestIssueSessionBounded(t *testing.T) {
+	t.Setenv("SUNSTACK_HOME", t.TempDir())
+	t.Setenv("CLAUDE_CODE_SESSION_ID", "")
+	t.Setenv("CODEX_THREAD_ID", strings.Repeat("\x01", 100000))
+	RecordIssue(IssueEntry{Source: "cli", Cmd: "issues", Code: "usage", Exit: 2})
+	got := ReadIssues(time.Time{})
+	if len(got) != 1 || got[0].Session != "" {
+		t.Fatalf("entries: %d", len(got))
+	}
+}

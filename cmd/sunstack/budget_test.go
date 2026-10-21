@@ -93,7 +93,9 @@ func TestLoadBudget(t *testing.T) {
 	expect(t, r, 0, "tidy")
 	requireContains(t, r.out, "context.md is 26 KB, over 25 KB")
 	requireContains(t, sh(t, p, env, "health").out, "builder.alice/context.md is 26 KB, over 25 KB")
-	requireContains(t, sh(t, p, env, "next", "--all").out, "builder.alice/context.md is 26 KB, over 25 KB")
+	if n := strings.Count(sh(t, p, env, "next", "--all").out, "builder.alice/context.md is 26 KB, over 25 KB"); n != 1 {
+		t.Errorf("next lists the budget %d times", n)
+	}
 
 	// A board over 40 lines after tidy.
 	write(1)

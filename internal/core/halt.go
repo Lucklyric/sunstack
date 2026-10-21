@@ -80,10 +80,5 @@ func (p *Project) Findings(today time.Time) []Issue {
 		out = append(out, Issue{"broken", "user", fmt.Sprintf("the team is halted since %s: %s", date, reason), "fix the cause, then sunstack halt --off"})
 	}
 	out = append(out, p.LoadBoards().Findings(today)...)
-	for _, id := range p.Agents() {
-		if over := p.OverBudget(id); over != "" {
-			out = append(out, Issue{"drift", id, over, "save as " + id + " (sunstack tidy " + id + " first)"})
-		}
-	}
 	return append(out, p.taskFindings(today)...)
 }

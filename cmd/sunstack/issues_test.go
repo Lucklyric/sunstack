@@ -48,11 +48,18 @@ func TestIssueLogRecordsFailures(t *testing.T) {
 		t.Fatalf("failures leaked their input:\n%s", log)
 	}
 
+	// A command aimed at another team with --root is recorded under that team.
+	other := fixture(t)
+	expect(t, sh(t, p, env, "tidy", "builder.missing", "--root", other), 1, "tidy of an unknown agent")
+	if log := issueLog(t, env); !strings.Contains(log[strings.LastIndex(strings.TrimSpace(log), "\n")+1:], `"team":"`+filepath.Base(other)+`"`) {
+		t.Fatalf("--root failure not under its team:\n%s", log)
+	}
+
 	// A note, then the grouped view.
 	expect(t, sh(t, p, env, "issue", "the save skill stopped at step 4"), 0, "issue")
 	r = sh(t, p, env, "issues")
 	expect(t, r, 0, "issues")
-	for _, want := range []string{"usage", "4 times", "send", "note", "the save skill stopped at step 4"} {
+	for _, want := range []string{"usage", "4 times", "send", "not_found", "note", "the save skill stopped at step 4"} {
 		requireContains(t, r.out, want)
 	}
 	r = sh(t, p, env, "issues", "--code", "note")

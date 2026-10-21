@@ -353,7 +353,13 @@ func run(argv []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			is.Cmd = "" // whatever was typed there
 		}
 	}
-	if p, perr := core.FindProject(""); perr == nil {
+	root := ""
+	for i, a := range argv[:len(argv)-1] {
+		if a == "--root" {
+			root = argv[i+1] // the team the command was aimed at
+		}
+	}
+	if p, perr := core.FindProject(root); perr == nil {
 		is.Team = filepath.Base(p.Root)
 	}
 	core.RecordIssue(is)
@@ -909,8 +915,10 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 			}
 			fmt.Fprintf(stdout, "sunstack: tidied %s, %d entr(ies) archived\n", name, n)
 			if o != core.TeamID {
-				if over := p.OverBudget(o); over != "" {
-					fmt.Fprintf(stdout, "sunstack: %s\n", over)
+				for _, over := range []string{p.OverBudget(o), p.BoardOver(o)} {
+					if over != "" {
+						fmt.Fprintf(stdout, "sunstack: %s\n", over)
+					}
 				}
 			}
 		}
