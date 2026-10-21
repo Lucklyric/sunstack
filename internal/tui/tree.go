@@ -176,9 +176,10 @@ func (m *model) groupRows(splits []hostSplit, d int) []treeNode {
 			return
 		}
 		for _, g := range o.Free {
-			k := "group:" + g.Group
-			if groupIsFolder(g) && h != nil {
-				k = "host:" + h.ID + "/" + k
+			// Remotes merge across hosts; a folder is always its host's own.
+			k := "group:remote:" + g.Group
+			if groupIsFolder(g) {
+				k = "group:folder:" + hostID(h) + ":" + g.Group
 			}
 			if _, ok := parts[k]; !ok {
 				keys = append(keys, k)
@@ -471,15 +472,19 @@ func (m *model) outsideRows(o *core.Org, prefix string, d int, h *hub.HostView) 
 	for _, g := range o.Free {
 		gk := prefix + "group:" + g.Group
 		var ss []treeNode
+		need := 0
 		for _, s := range g.Sessions {
 			if m.keep(s, "", "") {
 				ss = append(ss, treeNode{kind: "session", key: gk + "/" + sessionName(s), depth: d + 1, label: sessionName(s), sess: s, org: o, host: h})
+				if needsYou(s) {
+					need++
+				}
 			}
 		}
 		if len(ss) == 0 {
 			continue
 		}
-		out = append(out, treeNode{kind: "group", key: gk, depth: d, label: path.Base(strings.TrimSuffix(g.Group, ".git")), fold: true, group: g, org: o, host: h})
+		out = append(out, treeNode{kind: "group", key: gk, depth: d, label: path.Base(strings.ReplaceAll(strings.TrimSuffix(g.Group, ".git"), `\`, "/")), fold: true, group: g, org: o, host: h, need: need})
 		if !m.folded[gk] {
 			out = append(out, ss...)
 		}
@@ -607,6 +612,13 @@ func (m *model) row(n treeNode, w int) string {
 		}
 	case "host":
 		tail = stateGlyph(n.host.State)
+		o := n.host.Org
+		if n.host.You {
+			o = m.org
+		}
+		if o != nil && len(o.Attention) > 0 {
+			tail = cWarn.Render(fmt.Sprintf("%d for you", len(o.Attention))) + " " + tail
+		}
 	}
 	return rowText(line, tail, w)
 }
@@ -1263,6 +1275,19 @@ func (m *model) hostNext() []core.Issue {
 	switch {
 	case m.p != nil:
 		out = m.p.Next("", time.Now())
+		// This host's items that belong to no team (a session outside teams
+		// waiting): the team's list does not hold them (§28.1).
+		if m.org != nil {
+			for _, a := range m.org.Attention {
+				inTeam := false
+				for _, t := range m.org.Teams {
+					inTeam = inTeam || strings.HasPrefix(a, t.Name+":")
+				}
+				if !inTeam {
+					out = append(out, core.Issue{Kind: "user", Owner: "user", Text: a, Do: "outside teams"})
+				}
+			}
+		}
 	case m.org != nil:
 		for _, a := range m.org.Attention {
 			out = append(out, core.Issue{Kind: "user", Owner: "user", Text: a, Do: "in that team"})

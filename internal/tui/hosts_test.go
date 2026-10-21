@@ -248,8 +248,20 @@ func TestSharedTeamsMerge(t *testing.T) {
 		t.Errorf("by team: rows %q", got)
 	}
 
-	// By host (b): each host with all its own teams, alpha under both.
+	// By host (b): each host with all its own teams, alpha under both; a host
+	// row keeps its count.
 	m.key("b")
+	hv := ansi.Strip(m.View())
+	if !strings.Contains(hv, "laptop (this host)") || !strings.Contains(hv, "3 for you") {
+		t.Errorf("host order:\n%s", hv)
+	}
+	for _, n := range m.treeNodes() {
+		if n.kind == "host" && n.host.Name == "server" {
+			if row := ansi.Strip(m.row(n, 60)); !strings.Contains(row, "3 for you") {
+				t.Errorf("server row %q lacks its count", row)
+			}
+		}
+	}
 	got = rowsOf()
 	for _, want := range []string{
 		"laptop (this host)|alpha|pm.lead|pm.lead_cloud|marketing.social|free sessions (1)|scratch|vault|todo|tnnls",
@@ -465,7 +477,9 @@ func TestOrgOrdersAcrossHosts(t *testing.T) {
 	}
 	m.org.Free = append(m.org.Free, &core.FreeGroup{Group: "/home/me/pr", Sessions: []*core.HostSession{{Tool: "claude", Status: "idle", Name: "local-pr"}}},
 		&core.FreeGroup{Group: "/srv/git/shared", Kind: "remote", Sessions: []*core.HostSession{{Tool: "claude", Status: "idle", Name: "path-remote-l"}}},
-		&core.FreeGroup{Group: "/work/x.git", Kind: "folder", Sessions: []*core.HostSession{{Tool: "claude", Status: "idle", Name: "dotgit-l"}}})
+		&core.FreeGroup{Group: "/work/x.git", Kind: "folder", Sessions: []*core.HostSession{{Tool: "claude", Status: "idle", Name: "dotgit-l"}}},
+		// The same text as the server's remote below, but a folder here.
+		&core.FreeGroup{Group: "/srv/git/mixed", Kind: "folder", Sessions: []*core.HostSession{{Tool: "claude", Status: "idle", Name: "mixed-folder"}}})
 	// A team without a TEAM file here, at the same root as one elsewhere.
 	m.org.Teams = append(m.org.Teams, &core.OrgTeam{ID: "/work/project", Name: "legacy-l", Root: "/work/project", Agents: []*core.OrgAgent{{ID: "builder.l"}}})
 	for _, h := range m.hosts.Hosts {
@@ -505,7 +519,8 @@ func TestOrgOrdersAcrossHosts(t *testing.T) {
 			h.Org.Teams = append(h.Org.Teams, &core.OrgTeam{ID: "/work/project", Name: "legacy-s", Root: "/work/project", Agents: []*core.OrgAgent{{ID: "builder.s"}}})
 			h.Org.Free = append(h.Org.Free, &core.FreeGroup{Group: "(unknown folder)", Sessions: []*core.HostSession{{Tool: "claude", Status: "idle", Name: "lost-s"}}},
 				&core.FreeGroup{Group: "/srv/git/shared", Kind: "remote", Sessions: []*core.HostSession{{Tool: "claude", Status: "idle", Name: "path-remote-s"}}},
-				&core.FreeGroup{Group: "/work/x.git", Kind: "folder", Sessions: []*core.HostSession{{Tool: "claude", Status: "idle", Name: "dotgit-s"}}})
+				&core.FreeGroup{Group: "/work/x.git", Kind: "folder", Sessions: []*core.HostSession{{Tool: "claude", Status: "idle", Name: "dotgit-s"}}},
+				&core.FreeGroup{Group: "/srv/git/mixed", Kind: "remote", Sessions: []*core.HostSession{{Tool: "claude", Status: "idle", Name: "mixed-remote"}}})
 		}
 	}
 	var rows []string
@@ -520,7 +535,7 @@ func TestOrgOrdersAcrossHosts(t *testing.T) {
 			t.Errorf("rows %q lack %q", got, want)
 		}
 	}
-	for _, want := range []string{"legacy-l|builder.l|shop", "legacy-s  (only on server)|builder.s", "shared|path-remote-l @laptop|path-remote-s @server", "x @laptop|dotgit-l @laptop", "x @server|dotgit-s @server", "legacy-z  (only on zbox)|builder.z", "(unknown folder) @server|lost-s @server", "(unknown folder) @zbox|lost-z @zbox"} {
+	for _, want := range []string{"legacy-l|builder.l|shop", "legacy-s  (only on server)|builder.s", "shared|path-remote-l @laptop|path-remote-s @server", "x @laptop|dotgit-l @laptop", "x @server|dotgit-s @server", "mixed @laptop|mixed-folder @laptop", "mixed|mixed-remote @server", "legacy-z  (only on zbox)|builder.z", "(unknown folder) @server|lost-s @server", "(unknown folder) @zbox|lost-z @zbox"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("rows %q lack %q", got, want)
 		}
