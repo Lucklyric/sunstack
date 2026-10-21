@@ -563,6 +563,11 @@ func tmuxPanes() map[string]paneInfo {
 					sock = path
 				}
 			}
+			if sock == "" {
+				// Unnamed, later commands would reach $TMUX's server instead
+				// and could match another server's pane of the same ID.
+				continue
+			}
 		}
 		for _, l := range strings.Split(string(b), "\n") {
 			f := strings.SplitN(l, "\t", 4)

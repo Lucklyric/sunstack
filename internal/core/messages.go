@@ -1,6 +1,7 @@
 package core
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
@@ -420,32 +421,41 @@ func NudgePrompt(tool string, m *Message) string {
 // paneRunsTool reports whether the foreground of the pane is the named CLI,
 // so a nudge is never typed into a plain shell.
 func paneRunsTool(socket, pane, tool string) bool {
+	runs, _ := paneTool(socket, pane, tool)
+	return runs
+}
+
+// paneTool is paneRunsTool, and whether tmux and ps answered in time: a
+// check that timed out says nothing about the pane.
+func paneTool(socket, pane, tool string) (runs, known bool) {
 	if tool != "claude" && tool != "codex" {
-		return false
+		return false, true
 	}
 	if _, err := exec.LookPath("tmux"); err != nil {
-		return false
+		return false, false
 	}
-	tc, tdone := quick("tmux", TmuxArgs(socket, "display-message", "-p", "-t", pane, "#{pane_tty}")...)
-	defer tdone()
+	ctx, cancel := context.WithTimeout(context.Background(), cmdWait)
+	defer cancel()
+	tc := exec.CommandContext(ctx, "tmux", TmuxArgs(socket, "display-message", "-p", "-t", pane, "#{pane_tty}")...)
+	tc.WaitDelay = time.Second
 	out, err := tc.Output()
 	tty := strings.TrimPrefix(strings.TrimSpace(string(out)), "/dev/")
 	if err != nil || tty == "" {
-		return false
+		return false, ctx.Err() == nil
 	}
-	pc, pdone := quick("ps", "-o", "stat=,comm=", "-t", tty)
-	defer pdone()
+	pc := exec.CommandContext(ctx, "ps", "-o", "stat=,comm=", "-t", tty)
+	pc.WaitDelay = time.Second
 	ps, err := pc.Output()
 	if err != nil {
-		return false
+		return false, ctx.Err() == nil
 	}
 	for _, l := range strings.Split(string(ps), "\n") {
 		f := strings.Fields(l)
 		if len(f) >= 2 && strings.Contains(f[0], "+") && filepath.Base(f[len(f)-1]) == tool {
-			return true
+			return true, true
 		}
 	}
-	return false
+	return false, true
 }
 
 // dialogMarkers are texts of menus, approval prompts and questions in Claude

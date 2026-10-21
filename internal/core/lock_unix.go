@@ -34,7 +34,11 @@ func ownerDead(owner []byte) bool {
 	}
 	now := ProcStart(pid)
 	// Locks written by v0.8.0 to v0.8.2 used the local time and locale.
-	return now != "" && now != start && procStartLocal(pid) != start
+	if now == "" || now == start {
+		return false
+	}
+	local := procStartLocal(pid)
+	return local != "" && local != start // unknown is not dead
 }
 
 func procStartLocal(pid int) string {

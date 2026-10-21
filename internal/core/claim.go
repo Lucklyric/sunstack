@@ -570,6 +570,17 @@ func serverPID(socket string) (string, bool) {
 	return strings.TrimSpace(string(out)), true
 }
 
+// serverChanged reports whether the claim's tmux server answered with a
+// different process ID: a restart confirmed, not just a server that did not
+// answer. For status only; actions keep the stricter sameServer.
+func serverChanged(c *Live) bool {
+	if c.TmuxServer == "" {
+		return false
+	}
+	pid, ok := serverPID(c.TmuxSocket)
+	return ok && pid != c.TmuxServer
+}
+
 // sameServer reports whether the claim's tmux server is still the one
 // running: a restarted server reuses pane IDs for unrelated panes.
 func sameServer(c *Live) bool {

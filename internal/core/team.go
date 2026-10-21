@@ -663,7 +663,7 @@ func (p *Project) Status() []AgentStatus {
 		}
 		for _, c := range s.Claims {
 			where := TmuxWhere(c.TmuxSocket, c.TmuxPane)
-			if where != "" && where != "pane closed" && c.TmuxServer != "" && !sameServer(c) {
+			if where != "" && where != "pane closed" && serverChanged(c) {
 				where = "pane closed" // tmux restarted; that pane ID now names another pane
 			}
 			s.Where = append(s.Where, where)

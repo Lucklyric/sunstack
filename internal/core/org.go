@@ -222,12 +222,14 @@ func classify(sessions []*HostSession, teams []*Project) map[string]map[string][
 					// No running process matches the claim: outside tmux with
 					// no session ID recorded, or the session has ended.
 					where := TmuxWhere(c.TmuxSocket, c.TmuxPane)
-					if where != "" && where != "pane closed" && c.TmuxServer != "" && !sameServer(c) {
+					if where != "" && where != "pane closed" && serverChanged(c) {
 						// A restarted server reuses pane IDs: the one
 						// recorded is not this session's any more.
 						where = "pane closed"
-					} else if where != "" && where != "pane closed" && where != "tmux unavailable" && !paneRunsTool(c.TmuxSocket, c.TmuxPane, c.Tool) {
-						where = "left pane" // the pane is there, but the session is not
+					} else if where != "" && where != "pane closed" && where != "tmux unavailable" {
+						if runs, known := paneTool(c.TmuxSocket, c.TmuxPane, c.Tool); known && !runs {
+							where = "left pane" // the pane is there, but the session is not
+						}
 					}
 					s = &HostSession{Tool: c.Tool, Status: "not seen", Reach: "none", SessionID: c.Session, Pane: c.TmuxPane, Where: where}
 				}
