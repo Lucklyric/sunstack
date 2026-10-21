@@ -163,8 +163,16 @@ func (p *Project) inInbox(id, msgID string) bool {
 	if _, err := os.Stat(p.msgPath(p.inboxDir(id), msgID)); !errors.Is(err, fs.ErrNotExist) {
 		return true
 	}
-	ds, err := os.ReadDir(filepath.Join(p.inboxDir(id), ".taken"))
-	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+	taken := filepath.Join(p.inboxDir(id), ".taken")
+	fi, err := os.Stat(taken)
+	if errors.Is(err, fs.ErrNotExist) {
+		return false
+	}
+	if err != nil || !fi.IsDir() { // Windows reports a file read as a folder as not found
+		return true
+	}
+	ds, err := os.ReadDir(taken)
+	if err != nil {
 		return true
 	}
 	for _, d := range ds {
