@@ -441,13 +441,13 @@ func paneTool(socket, pane, tool string) (runs, known bool) {
 	out, err := tc.Output()
 	tty := strings.TrimPrefix(strings.TrimSpace(string(out)), "/dev/")
 	if err != nil || tty == "" {
-		return false, ctx.Err() == nil
+		return false, ctx.Err() == nil && !errors.Is(err, exec.ErrWaitDelay)
 	}
 	pc := exec.CommandContext(ctx, "ps", "-o", "stat=,comm=", "-t", tty)
 	pc.WaitDelay = time.Second
 	ps, err := pc.Output()
 	if err != nil {
-		return false, ctx.Err() == nil
+		return false, ctx.Err() == nil && !errors.Is(err, exec.ErrWaitDelay)
 	}
 	for _, l := range strings.Split(string(ps), "\n") {
 		f := strings.Fields(l)

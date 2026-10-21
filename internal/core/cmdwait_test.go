@@ -108,6 +108,7 @@ func TestTimeoutIsUnknown(t *testing.T) {
 	}
 	t.Setenv("SUNSTACK_HOME", t.TempDir())
 	t.Setenv("TMUX", "")
+	t.Setenv("SUNSTACK_TMUX_SOCKET", "") // the default server is the unnamed one here
 	sock := filepath.Join(t.TempDir(), "sock")
 	if err := os.WriteFile(sock, nil, 0o600); err != nil {
 		t.Fatal(err)
@@ -144,9 +145,34 @@ func TestTimeoutIsUnknown(t *testing.T) {
 	if err := live.Start(); err != nil {
 		t.Fatal(err)
 	}
-	defer live.Process.Kill()
+	defer func() { live.Process.Kill(); live.Wait() }()
 	scripts(t, map[string]string{"ps": `if [ "$TZ" = UTC ]; then echo 'Tue Oct 21 10:00:00 2026'; else ` + block + `; fi`})
 	if ownerDead([]byte(fmt.Sprintf("pid %d start Tue_Oct_21_04:00:00_2026", live.Process.Pid))) {
 		t.Error("a live legacy owner was taken as dead when its local start time timed out")
+	}
+}
+
+// A command that exits but leaves a child holding its output is unknown too:
+// Go gives up on the pipe after WaitDelay, before cmdWait.
+func TestHeldPipeIsUnknown(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("stand-ins are shell scripts")
+	}
+	sleep, err := exec.LookPath("sleep")
+	if err != nil {
+		t.Skip("no sleep")
+	}
+	sock := filepath.Join(t.TempDir(), "sock")
+	if err := os.WriteFile(sock, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	held := "echo /dev/ttys001; " + sleep + " 30 & exit 0"
+	scripts(t, map[string]string{"tmux": held, "ps": held})
+	cmdWait = 5 * time.Second // longer than WaitDelay, so the pipe is what gives up
+	if w := TmuxWhere(sock, "%1"); w != "tmux unavailable" {
+		t.Errorf("TmuxWhere with a held pipe = %q", w)
+	}
+	if runs, known := paneTool(sock, "%1", "claude"); runs || known {
+		t.Errorf("paneTool with a held pipe = %v, %v; want unknown", runs, known)
 	}
 }

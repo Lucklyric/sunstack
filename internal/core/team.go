@@ -3,6 +3,7 @@ package core
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -634,7 +635,7 @@ func TmuxWhere(socket, pane string) string {
 	cmd := exec.CommandContext(ctx, "tmux", TmuxArgs(socket, "display-message", "-p", "-t", pane, "#{session_name}:#{window_index}.#{pane_index}")...)
 	cmd.WaitDelay = time.Second
 	out, err := cmd.Output()
-	if ctx.Err() != nil {
+	if ctx.Err() != nil || errors.Is(err, exec.ErrWaitDelay) {
 		return "tmux unavailable" // a server that does not answer is not a closed pane
 	}
 	if err != nil || len(bytes.TrimSpace(out)) == 0 || bytes.HasPrefix(out, []byte(":")) {
