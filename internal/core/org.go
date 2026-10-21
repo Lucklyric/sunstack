@@ -1,6 +1,7 @@
 package core
 
 import (
+	"context"
 	"fmt"
 	"net/url"
 	"os/exec"
@@ -408,9 +409,18 @@ func placeOf(s *HostSession) string {
 	return "no tmux pane"
 }
 
+// gitWait bounds one git call: macOS can hold a service's access to a
+// protected folder (Downloads, Documents) until the user answers, and the
+// snapshot must not wait for that.
+var gitWait = 2 * time.Second
+
 // gitRemote is the folder's origin URL without any credentials in it.
 func gitRemote(dir string) string {
-	out, err := exec.Command("git", "-C", dir, "remote", "get-url", "origin").Output()
+	ctx, cancel := context.WithTimeout(context.Background(), gitWait)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "git", "-C", dir, "remote", "get-url", "origin")
+	cmd.WaitDelay = gitWait
+	out, err := cmd.Output()
 	if err != nil {
 		return ""
 	}
