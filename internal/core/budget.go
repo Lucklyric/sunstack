@@ -106,8 +106,10 @@ func (p *Project) tidyContext(id string, old func(date string) bool) (int, error
 			blanks = append(blanks, l)
 			continue
 		}
-		if into != "" && (l[0] == ' ' || l[0] == '\t') {
-			moved[into] = append(append(moved[into], blanks...), l)
+		// A list item or a heading is never a continuation, indented or not.
+		if into != "" && (l[0] == ' ' || l[0] == '\t') && !strings.HasPrefix(t, "- ") && !strings.HasPrefix(t, "#") {
+			last := len(moved[into]) - 1 // the entry, kept as one block
+			moved[into][last] += "\n" + strings.Join(append(blanks, l), "\n")
 			blanks = nil
 			continue
 		}
@@ -138,8 +140,8 @@ func (p *Project) tidyContext(id string, old func(date string) bool) (int, error
 		if err != nil {
 			return 0, fail(ExitFail, "fs", "%v", err)
 		}
-		for _, l := range lines {
-			cur = appendToSection(cur, processedSec, l)
+		for _, block := range lines {
+			cur = appendToSection(cur, processedSec, block)
 		}
 		if err := writeAtomic(ap, cur); err != nil {
 			return 0, fail(ExitFail, "fs", "%v", err)
