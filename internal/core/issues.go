@@ -100,6 +100,12 @@ func RecordIssue(e IssueEntry) {
 func ReadIssues(since time.Time) []IssueEntry {
 	var out []IssueEntry
 	dir := filepath.Dir(issuePath())
+	// The writers' lock: a rotation never falls between the two files.
+	if _, err := os.Stat(dir); err == nil {
+		if unlock, err := LockDir(filepath.Join(dir, "issues.lock"), "the issue log"); err == nil {
+			defer unlock()
+		}
+	}
 	for _, name := range []string{"issues.1.jsonl", "issues.jsonl"} {
 		f, err := os.Open(filepath.Join(dir, name))
 		if err != nil {

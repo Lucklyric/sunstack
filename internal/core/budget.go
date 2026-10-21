@@ -97,14 +97,22 @@ func (p *Project) tidyContext(id string, old func(date string) bool) (int, error
 	moved := map[string][]string{}
 	var keep []string
 	sec, n, into := "", 0, ""
+	var blanks []string // blank lines after a moved entry, until it is clear whose they are
 	for i, l := range lines {
 		t := strings.TrimSpace(l)
-		// An indented line continues the entry above it and moves with it.
-		if into != "" && t != "" && (l[0] == ' ' || l[0] == '\t') {
-			moved[into] = append(moved[into], l)
+		// An indented line continues the entry above it and moves with it,
+		// with any blank lines in between.
+		if into != "" && t == "" {
+			blanks = append(blanks, l)
 			continue
 		}
-		into = ""
+		if into != "" && (l[0] == ' ' || l[0] == '\t') {
+			moved[into] = append(append(moved[into], blanks...), l)
+			blanks = nil
+			continue
+		}
+		keep = append(keep, blanks...)
+		blanks, into = nil, ""
 		if strings.HasPrefix(t, "## ") {
 			sec = strings.TrimPrefix(t, "## ")
 		}
@@ -116,6 +124,7 @@ func (p *Project) tidyContext(id string, old func(date string) bool) (int, error
 		}
 		keep = append(keep, l)
 	}
+	keep = append(keep, blanks...)
 	if n == 0 {
 		return 0, nil
 	}
