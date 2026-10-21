@@ -482,6 +482,20 @@ func TestOrgOrdersAcrossHosts(t *testing.T) {
 			}}
 		}
 	}
+	// A third copy of shop, with an agent the first copy lacks, on two hosts.
+	extra := &hub.HostView{ID: "eeeeeeeeeeeeeeee", Name: "zbox", State: "live", HasSnap: true, Org: &core.Org{Host: core.HostInfo{Name: "zbox"},
+		Attention: []string{"shop: Z1 waits for you"},
+		Teams: []*core.OrgTeam{{ID: "00000000000000aa", Name: "shop", Root: "/z/shop", Agents: []*core.OrgAgent{{ID: "ops.night", Sessions: []*core.HostSession{
+			{Tool: "codex", Status: "idle", Agent: "ops.night", Label: "ops.night_z@zbox", Pane: "%8", Reach: "nudge"},
+		}}}}}}}
+	m.hosts.Hosts = append(m.hosts.Hosts, extra)
+	for _, h := range m.hosts.Hosts {
+		if h.Name == "server" {
+			h.Org.Teams[0].Agents = append(h.Org.Teams[0].Agents, &core.OrgAgent{ID: "ops.night", Sessions: []*core.HostSession{
+				{Tool: "codex", Status: "idle", Agent: "ops.night", Label: "ops.night_s@server", Pane: "%9", Reach: "nudge"},
+			}})
+		}
+	}
 	var rows []string
 	for _, n := range m.treeNodes() {
 		rows = append(rows, n.label)
@@ -489,13 +503,23 @@ func TestOrgOrdersAcrossHosts(t *testing.T) {
 	got := strings.Join(rows, "|")
 	for _, want := range []string{"vault|todo @laptop|tnnls @laptop|notes @server", "pr @laptop|local-pr @laptop", "pr @server|server-pr @server",
 		"scratch @server|win-a @server", "scratch @hubbox|win-b @hubbox",
-		"shop  (only on hubbox, server)|builder.alice|builder.alice_hub @hubbox|builder.alice_api @server"} {
+		"shop  (only on hubbox, server, zbox)|builder.alice|builder.alice_hub @hubbox|builder.alice_api @server|ops.night|ops.night_s @server|ops.night_z @zbox"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("rows %q lack %q", got, want)
 		}
 	}
 	if strings.Count(got, "vault") != 1 || strings.Count(got, "shop") != 1 {
 		t.Errorf("a shared group or team is not one row: %q", got)
+	}
+	// The merged team's warnings: each host's own, the later ones tagged.
+	selectRow(t, m, "shop")
+	requireAll(t, ansi.Strip(m.View()), "Q1 waits for you (on server)", "Z1 waits for you (on zbox)")
+	for _, n := range m.treeNodes() {
+		if n.kind == "team" && strings.HasPrefix(n.label, "shop") {
+			if c := len(m.teamWarnings(n)); c != 2 {
+				t.Errorf("shop's row counts %d for you, want 2", c)
+			}
+		}
 	}
 	// The host view's Next (n): this host's items across teams, then the
 	// other hosts'. Before a scan, no other host's items: nothing to compare.

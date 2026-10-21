@@ -362,7 +362,9 @@ func (m *model) teamRows(o *core.Org, prefix string, d int, h *hub.HostView, spl
 				}
 			}
 			for _, sp := range splits {
-				if rt := sp.shared[t.ID]; rt != nil && (ah == nil || ah == sp.h) {
+				// Every host that has the agent: one only other hosts run
+				// gets its sessions from each of them.
+				if rt := sp.shared[t.ID]; rt != nil {
 					for _, ra := range rt.Agents {
 						if ra.ID != a.ID {
 							continue
@@ -1256,6 +1258,9 @@ func (m *model) remoteTeamRows(splits []hostSplit) []treeNode {
 			seen[t.ID] = true
 			names := []string{sp.h.Name}
 			var more []hostSplit
+			one := *sp.own
+			one.Teams = []*core.OrgTeam{t}
+			one.Attention = append([]string(nil), sp.own.Attention...)
 			for _, sp2 := range splits[i+1:] {
 				if sp2.own == nil {
 					continue
@@ -1264,11 +1269,15 @@ func (m *model) remoteTeamRows(splits []hostSplit) []treeNode {
 					if t2.ID == t.ID {
 						more = append(more, hostSplit{h: sp2.h, shared: map[string]*core.OrgTeam{t.ID: t2}})
 						names = append(names, sp2.h.Name)
+						// Its items for this team, on the merged row.
+						for _, a := range sp2.own.Attention {
+							if strings.HasPrefix(a, t.Name+":") {
+								one.Attention = append(one.Attention, a+" (on "+sp2.h.Name+")")
+							}
+						}
 					}
 				}
 			}
-			one := *sp.own
-			one.Teams = []*core.OrgTeam{t}
 			out = append(out, m.teamRows(&one, "host:"+sp.h.ID+"/", 0, sp.h, more, "  (only on "+strings.Join(names, ", ")+")")...)
 		}
 	}
