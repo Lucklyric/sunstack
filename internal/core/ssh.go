@@ -154,6 +154,7 @@ func sshRun(limit time.Duration, args ...string) (stdout, stderr string, code in
 	ctx, cancel := context.WithTimeout(context.Background(), limit)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "ssh", args...)
+	cmd.WaitDelay = time.Second
 	var o, e strings.Builder
 	cmd.Stdout, cmd.Stderr = &limitWriter{&o, 64 << 10}, &limitWriter{&e, 64 << 10}
 	err := cmd.Run()

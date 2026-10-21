@@ -2,6 +2,7 @@ package core
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"testing"
@@ -14,8 +15,13 @@ func TestGitRemoteTimesOut(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("stand-in git is a shell script")
 	}
+	sleep, err := exec.LookPath("sleep")
+	if err != nil {
+		t.Skip("no sleep")
+	}
 	bin := t.TempDir()
-	if err := os.WriteFile(filepath.Join(bin, "git"), []byte("#!/bin/sh\nexec sleep 30\n"), 0o755); err != nil {
+	// A git that blocks: it must reach the sleep, so its path is absolute.
+	if err := os.WriteFile(filepath.Join(bin, "git"), []byte("#!/bin/sh\nexec "+sleep+" 30\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", bin)
@@ -23,7 +29,8 @@ func TestGitRemoteTimesOut(t *testing.T) {
 	gitWait = 200 * time.Millisecond
 	defer func() { gitWait = old }()
 	start := time.Now()
-	if r := gitRemote(t.TempDir()); r != "" || time.Since(start) > 3*time.Second {
-		t.Fatalf("gitRemote = %q after %s", r, time.Since(start))
+	r := gitRemote(t.TempDir())
+	if took := time.Since(start); r != "" || took < gitWait || took > 3*time.Second {
+		t.Fatalf("gitRemote = %q after %s, want \"\" after the %s timeout", r, took, gitWait)
 	}
 }

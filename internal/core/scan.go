@@ -142,7 +142,9 @@ func claudeSessions() ([]*HostSession, error) {
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		b, err := exec.CommandContext(ctx, "claude", "agents", "--json").Output()
+		cmd := exec.CommandContext(ctx, "claude", "agents", "--json")
+		cmd.WaitDelay = time.Second // a child holding the pipe open must not hold the scan
+		b, err := cmd.Output()
 		if err != nil {
 			return nil, err
 		}
@@ -249,7 +251,9 @@ func openFiles(pid int) ([]string, string, error) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, "lsof", "-p", strconv.Itoa(pid), "-Fftn").Output()
+	lc := exec.CommandContext(ctx, "lsof", "-p", strconv.Itoa(pid), "-Fftn")
+	lc.WaitDelay = time.Second
+	out, err := lc.Output()
 	var lerr error
 	if err != nil {
 		lerr = fmt.Errorf("lsof: %v", err) // the caller decides with what was listed
