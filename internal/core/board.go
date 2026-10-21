@@ -679,7 +679,7 @@ func (p *Project) Tidy(owner string) (int, error) {
 			return 0, fail(ExitFail, "fs", "%v", err)
 		}
 		p.LogEvent("tidy", owner, "created board")
-		return 0, nil
+		doc = []byte(tmpl) // nothing to archive on it; the context still is tidied
 	}
 	if HasConflictMarkers(doc) {
 		return 0, fail(ExitFail, "conflict", "merge conflict markers in %s; resolve them first", filepath.Base(path))

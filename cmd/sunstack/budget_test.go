@@ -38,7 +38,7 @@ func TestTidyKeepsLoadSmall(t *testing.T) {
 		"- " + day(9) + " 20261001T000000Z-pm.lead-aaaaaa from pm.lead: old, acked\n" +
 		"- " + day(9) + " " + pending + " from user: still waiting\n" +
 		"- " + day(2) + " 20261019T000000Z-pm.lead-bbbbbb from pm.lead: recent\n"
-	for i := 0; i < 12; i++ { // 12 newer ones: the 10 newest stay
+	for i := 0; i < 12; i++ { // 12 newer ones: the 10 newest (by date, then ID) stay
 		ctx += fmt.Sprintf("- %s 20261020T0000%02dZ-pm.lead-cccc%02d from pm.lead: newer %d\n", day(i/6), i, i, i)
 	}
 	must(t, os.WriteFile(filepath.Join(dir, "context.md"), []byte(ctx), 0o644))
@@ -53,7 +53,7 @@ func TestTidyKeepsLoadSmall(t *testing.T) {
 		}
 	}
 	c, _ := os.ReadFile(filepath.Join(dir, "context.md"))
-	if strings.Contains(string(c), "old, acked") || strings.Contains(string(c), "recent") || strings.Contains(string(c), "newer 10") || !strings.Contains(string(c), "newer 9") || !strings.Contains(string(c), "still waiting") || !strings.Contains(string(c), "keep the API small") {
+	if strings.Contains(string(c), "old, acked") || strings.Contains(string(c), "recent") || strings.Contains(string(c), "newer 7") || !strings.Contains(string(c), "newer 11") || !strings.Contains(string(c), "newer 0") || !strings.Contains(string(c), "still waiting") || !strings.Contains(string(c), "keep the API small") {
 		t.Errorf("context after tidy:\n%s", c)
 	}
 	var archived string
@@ -62,7 +62,7 @@ func TestTidyKeepsLoadSmall(t *testing.T) {
 		a, _ := os.ReadFile(filepath.Join(dir, "archive", e.Name()))
 		archived += string(a)
 	}
-	if !strings.Contains(archived, "old, acked") || !strings.Contains(archived, "recent") || !strings.Contains(archived, "newer 11") || !strings.Contains(archived, "KR15 [O1] Finished 15") {
+	if !strings.Contains(archived, "old, acked") || !strings.Contains(archived, "recent") || !strings.Contains(archived, "newer 6") || !strings.Contains(archived, "newer 7") || !strings.Contains(archived, "KR15 [O1] Finished 15") {
 		t.Errorf("archive:\n%s", archived)
 	}
 	if strings.Contains(r.out, "over") {
@@ -104,4 +104,34 @@ func TestLoadBudget(t *testing.T) {
 	}
 	must(t, os.WriteFile(filepath.Join(dir, "board.md"), []byte(b.String()), 0o644))
 	requireContains(t, sh(t, p, env, "tidy", "builder.alice").out, "board.md has 46 lines, over 40")
+}
+
+// Same-day processed messages: the newest by message ID stay, and a record
+// whose inbox cannot be read is kept.
+func TestTidyProcessedOrder(t *testing.T) {
+	p := fixture(t)
+	env := isolatedEnv(t)
+	dir := filepath.Join(p, "sunstack", "builder.alice")
+	today := time.Now().Format("2006-01-02")
+	ctx := "## Processed messages\n"
+	for i := 0; i < 12; i++ { // appended oldest first
+		ctx += fmt.Sprintf("- %s 20261020T1200%02dZ-user-aaaaaa from user: number %02d\n", today, i, i)
+	}
+	must(t, os.WriteFile(filepath.Join(dir, "context.md"), []byte(ctx), 0o644))
+	expect(t, sh(t, p, env, "tidy", "builder.alice"), 0, "tidy")
+	c, _ := os.ReadFile(filepath.Join(dir, "context.md"))
+	if strings.Contains(string(c), "number 00") || strings.Contains(string(c), "number 01") || !strings.Contains(string(c), "number 11") {
+		t.Errorf("context after tidy:\n%s", c)
+	}
+
+	// .taken that is not a readable folder: every record stays.
+	old := time.Now().AddDate(0, 0, -9).Format("2006-01-02")
+	must(t, os.WriteFile(filepath.Join(dir, "context.md"), []byte("## Processed messages\n- "+old+" 20261001T000000Z-user-bbbbbb from user: maybe taken\n"), 0o644))
+	inbox := filepath.Join(p, "sunstack", "_local", "inbox", "builder.alice")
+	must(t, os.MkdirAll(inbox, 0o755))
+	must(t, os.WriteFile(filepath.Join(inbox, ".taken"), []byte("not a folder"), 0o644))
+	expect(t, sh(t, p, env, "tidy", "builder.alice"), 0, "tidy")
+	if c, _ := os.ReadFile(filepath.Join(dir, "context.md")); !strings.Contains(string(c), "maybe taken") {
+		t.Errorf("a record whose inbox could not be read was archived:\n%s", c)
+	}
 }

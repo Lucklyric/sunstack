@@ -216,6 +216,7 @@ func session(cl *client, logw io.Writer) error {
 		case err = <-ended:
 			return err
 		case <-snapTick.C:
+			connIssues.Flush(time.Now())
 			err = pushSnap()
 		case <-mailTick.C:
 			err = flush()

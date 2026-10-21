@@ -28,18 +28,27 @@ func TestIssueLogRecordsFailures(t *testing.T) {
 	r := sh(t, p, env, "send", "laptop:demo/builder.alice", "SECRET-BODY-TEXT", "--op", "retry-1", "--token", "SECRET-TOKEN-VALUE")
 	expect(t, r, 2, "remote send with --op")
 	log := issueLog(t, env)
-	for _, want := range []string{`"source":"cli"`, `"cmd":"send"`, `"code":"usage"`, `"exit":2`, `--op is for messages within this host`} {
+	for _, want := range []string{`"source":"cli"`, `"cmd":"send"`, `"code":"usage"`, `"exit":2`} {
 		requireContains(t, log, want)
 	}
 	if strings.Count(log, "\n") != 1 || strings.Contains(log, "SECRET") {
 		t.Fatalf("want one entry without the input:\n%s", log)
 	}
+	// Usage errors quote their arguments: only the code is kept.
+	expect(t, sh(t, p, env, "send", "builder.alice", "body", "--token=SECRET-TOKEN-2"), 2, "unknown option")
+	expect(t, sh(t, p, env, "issues", "SECRET-PROMPT"), 2, "surplus argument")
+	if log := issueLog(t, env); strings.Count(log, "\n") != 3 || strings.Contains(log, "SECRET") {
+		t.Fatalf("usage errors leaked their input:\n%s", log)
+	}
+	// Any other failure keeps its message.
+	expect(t, sh(t, p, env, "inbox", "nobody.here"), 1, "inbox of an unknown agent")
+	requireContains(t, issueLog(t, env), `"code":"not_found"`, "nobody.here")
 
 	// A note, then the grouped view.
 	expect(t, sh(t, p, env, "issue", "the save skill stopped at step 4"), 0, "issue")
 	r = sh(t, p, env, "issues")
 	expect(t, r, 0, "issues")
-	for _, want := range []string{"usage", "1 time", "send", "note", "the save skill stopped at step 4"} {
+	for _, want := range []string{"usage", "3 times", "send", "note", "the save skill stopped at step 4"} {
 		requireContains(t, r.out, want)
 	}
 	r = sh(t, p, env, "issues", "--code", "note")

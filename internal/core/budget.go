@@ -1,7 +1,9 @@
 package core
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
@@ -68,8 +70,8 @@ func (p *Project) tidyContext(id string, old func(date string) bool) (int, error
 	lines := strings.Split(strings.TrimRight(strings.ReplaceAll(string(doc), "\r\n", "\n"), "\n"), "\n")
 	// The keepProcessed newest entries stay, like Done entries on the board.
 	type entry struct {
-		i    int
-		date string
+		i        int
+		date, id string
 	}
 	var all []entry
 	sec := ""
@@ -79,10 +81,16 @@ func (p *Project) tidyContext(id string, old func(date string) bool) (int, error
 			sec = strings.TrimPrefix(t, "## ")
 		}
 		if f := strings.Fields(t); sec == processedSec && len(f) >= 3 && f[0] == "-" && dateOK(f[1]) {
-			all = append(all, entry{i, f[1]})
+			all = append(all, entry{i, f[1], f[2]})
 		}
 	}
-	sort.SliceStable(all, func(a, b int) bool { return all[a].date > all[b].date })
+	// Newest by date, then by message ID, which starts with its time.
+	sort.SliceStable(all, func(a, b int) bool {
+		if all[a].date != all[b].date {
+			return all[a].date > all[b].date
+		}
+		return all[a].id > all[b].id
+	})
 	extra := map[int]bool{}
 	for k := keepProcessed; k < len(all); k++ {
 		extra[all[k].i] = true
@@ -134,12 +142,16 @@ func (p *Project) inInbox(id, msgID string) bool {
 	if !IsMessageID(msgID) {
 		return false
 	}
-	if _, err := os.Stat(p.msgPath(p.inboxDir(id), msgID)); err == nil {
+	// Anything but a clear "not there" counts as there: the record stays.
+	if _, err := os.Stat(p.msgPath(p.inboxDir(id), msgID)); !errors.Is(err, fs.ErrNotExist) {
 		return true
 	}
-	ds, _ := os.ReadDir(filepath.Join(p.inboxDir(id), ".taken"))
+	ds, err := os.ReadDir(filepath.Join(p.inboxDir(id), ".taken"))
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return true
+	}
 	for _, d := range ds {
-		if _, err := os.Stat(p.msgPath(p.takenDir(id, d.Name()), msgID)); err == nil {
+		if _, err := os.Stat(p.msgPath(p.takenDir(id, d.Name()), msgID)); !errors.Is(err, fs.ErrNotExist) {
 			return true
 		}
 	}

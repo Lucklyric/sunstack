@@ -27,7 +27,7 @@ type Org struct {
 	Notes     []string       `json:"notes,omitempty"`
 	SSH       []SSHPeer      `json:"ssh,omitempty"`     // set only in the snapshot that crosses hosts
 	Trimmed   string         `json:"trimmed,omitempty"` // what the snapshot that crosses hosts left out to fit
-	Issues    map[string]int `json:"issues,omitempty"`  // issue counts by code, last 7 days, in the snapshot that crosses hosts (§26)
+	Issues    map[string]int `json:"issues,omitempty"`  // issue counts by code, last 7 days (§26)
 }
 
 // OrgTeam is one team on this host.
@@ -73,6 +73,9 @@ func BuildOrg() *Org {
 	o := &Org{Schema: OrgSchema, Host: ThisHost(), At: now()}
 	sessions, notes := ScanSessions()
 	o.Notes = notes
+	if c := IssueCounts(time.Now().Add(-7 * 24 * time.Hour)); len(c) > 0 {
+		o.Issues = c
+	}
 	teams := teamsFor(sessions)
 	byAgent := classify(sessions, teams)
 	today := time.Now()
@@ -557,6 +560,9 @@ func (o *Org) writePeople(b *strings.Builder) {
 
 func (o *Org) writeHosts(b *strings.Builder) {
 	fmt.Fprintf(b, "Host %s\n", o.Host.Name)
+	if s := IssueLine(o.Issues); s != "" {
+		fmt.Fprintf(b, "  %s\n", s)
+	}
 	n := 0
 	for _, t := range o.Teams {
 		for _, a := range t.Agents {

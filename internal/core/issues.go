@@ -3,8 +3,11 @@ package core
 import (
 	"bufio"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 	"sync"
 	"time"
 )
@@ -70,7 +73,9 @@ func RecordIssue(e IssueEntry) {
 		return
 	}
 	if fi, err := os.Stat(path); err == nil && fi.Size()+int64(len(line)) > issueMax {
-		_ = os.Rename(path, filepath.Join(filepath.Dir(path), "issues.1.jsonl"))
+		if os.Rename(path, filepath.Join(filepath.Dir(path), "issues.1.jsonl")) != nil {
+			return // never past the bound
+		}
 	}
 	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 	if err != nil {
@@ -117,9 +122,10 @@ func IssueCounts(since time.Time) map[string]int {
 // IssueLimiter writes a repeating issue once per window per code, with the
 // occurrences since the last entry in N. For long-running loops.
 type IssueLimiter struct {
-	mu   sync.Mutex
-	last map[string]time.Time
-	n    map[string]int
+	mu      sync.Mutex
+	last    map[string]time.Time
+	n       map[string]int
+	pending map[string]IssueEntry // the latest one held back, per code
 }
 
 // Record notes e at time at.
@@ -127,16 +133,55 @@ func (l *IssueLimiter) Record(e IssueEntry, at time.Time) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if l.last == nil {
-		l.last, l.n = map[string]time.Time{}, map[string]int{}
+		l.last, l.n, l.pending = map[string]time.Time{}, map[string]int{}, map[string]IssueEntry{}
 	}
 	l.n[e.Code]++
 	if t, ok := l.last[e.Code]; ok && at.Sub(t) < issueRepeat {
+		l.pending[e.Code] = e
 		return
 	}
+	l.write(e, at)
+}
+
+// Flush writes what was held back for a code whose window has passed, so the
+// end of a burst is counted without waiting for the next failure.
+func (l *IssueLimiter) Flush(at time.Time) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	for code, e := range l.pending {
+		if at.Sub(l.last[code]) >= issueRepeat {
+			l.write(e, at)
+		}
+	}
+}
+
+func (l *IssueLimiter) write(e IssueEntry, at time.Time) {
 	if l.n[e.Code] > 1 {
 		e.N = l.n[e.Code]
 	}
 	e.At = at.UTC().Format("2006-01-02T15:04:05Z")
 	l.last[e.Code], l.n[e.Code] = at, 0
+	delete(l.pending, e.Code)
 	RecordIssue(e)
+}
+
+// IssueLine is a host's issue counts as one line, most frequent first (§26).
+func IssueLine(c map[string]int) string {
+	if len(c) == 0 {
+		return ""
+	}
+	var codes []string
+	for k := range c {
+		codes = append(codes, k)
+	}
+	sort.Slice(codes, func(i, j int) bool {
+		if c[codes[i]] != c[codes[j]] {
+			return c[codes[i]] > c[codes[j]]
+		}
+		return codes[i] < codes[j]
+	})
+	for i, k := range codes {
+		codes[i] = fmt.Sprintf("%s %d", k, c[k])
+	}
+	return "issues (7 days): " + strings.Join(codes, ", ")
 }

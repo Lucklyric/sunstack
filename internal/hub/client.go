@@ -102,9 +102,6 @@ func Snapshot() ([]byte, error) {
 	o := core.BuildOrg()
 	stripActivity(o)
 	o.SSH = core.SSHPeers()
-	if c := core.IssueCounts(time.Now().Add(-7 * 24 * time.Hour)); len(c) > 0 {
-		o.Issues = c
-	}
 	return snapshotOf(o)
 }
 

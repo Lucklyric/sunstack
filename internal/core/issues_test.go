@@ -49,3 +49,50 @@ func TestIssueRepeatLimit(t *testing.T) {
 		t.Fatalf("entries: %+v", got)
 	}
 }
+
+// A rotation that fails never lets the file pass the bound.
+func TestIssueLogRotationFailure(t *testing.T) {
+	t.Setenv("SUNSTACK_HOME", t.TempDir())
+	dir := filepath.Join(Home(), "log")
+	if err := os.MkdirAll(filepath.Join(dir, "issues.1.jsonl", "x"), 0o700); err != nil { // a folder in the way
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "issues.jsonl"), []byte(strings.Repeat("x", issueMax)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	RecordIssue(IssueEntry{Source: "note", Code: "note", Msg: "one more"})
+	if fi, _ := os.Stat(filepath.Join(dir, "issues.jsonl")); fi.Size() > issueMax {
+		t.Fatalf("issues.jsonl grew to %d", fi.Size())
+	}
+}
+
+// The end of a burst is written once its window passes, without a new failure.
+func TestIssueLimiterFlush(t *testing.T) {
+	t.Setenv("SUNSTACK_HOME", t.TempDir())
+	var lim IssueLimiter
+	at := time.Now()
+	for i := 0; i < 5; i++ {
+		lim.Record(IssueEntry{Source: "connector", Code: "connect", Msg: "down"}, at.Add(time.Duration(i)*time.Minute))
+	}
+	lim.Flush(at.Add(5 * time.Minute)) // window not passed
+	if n := len(ReadIssues(time.Time{})); n != 1 {
+		t.Fatalf("%d entries before the window passed", n)
+	}
+	lim.Flush(at.Add(10 * time.Minute))
+	got := ReadIssues(time.Time{})
+	if len(got) != 2 || got[1].N != 4 || IssueCounts(time.Time{})["connect"] != 5 {
+		t.Fatalf("entries: %+v", got)
+	}
+	lim.Flush(at.Add(30 * time.Minute)) // nothing held back
+	if n := len(ReadIssues(time.Time{})); n != 2 {
+		t.Fatalf("%d entries after an empty flush", n)
+	}
+}
+
+// A host's own views show its issue counts.
+func TestOwnIssueCountsShown(t *testing.T) {
+	o := &Org{Host: HostInfo{Name: "laptop"}, Issues: map[string]int{"usage": 2}}
+	if text := o.Text("host"); !strings.Contains(text, "issues (7 days): usage 2") {
+		t.Errorf("host view:\n%s", text)
+	}
+}

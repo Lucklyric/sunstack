@@ -954,6 +954,7 @@ func pullLoop(c *Config, logw io.Writer) {
 				defer running.Delete(h.ID)
 				if _, err := s.pullManaged(c, h.Name, h.SSH, false); err != nil {
 					fmt.Fprintf(logw, "%s pull of %s: %v\n", stamp(time.Now()), h.Name, err)
+					connIssue("pull", fmt.Sprintf("pull of %s: %v", h.Name, err))
 					return
 				}
 				lastPull.Store(h.ID, time.Now())

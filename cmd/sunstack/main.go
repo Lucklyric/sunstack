@@ -348,6 +348,9 @@ func run(argv []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if errors.As(err, &ce) {
 		is.Code, is.Exit, is.Msg = ce.Reason, ce.Code, ce.Msg
 	}
+	if is.Exit == core.ExitUsage {
+		is.Msg = "" // usage errors quote the arguments, which may hold a token or text
+	}
 	if p, perr := core.FindProject(""); perr == nil {
 		is.Team = filepath.Base(p.Root)
 	}
