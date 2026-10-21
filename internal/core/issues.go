@@ -19,6 +19,7 @@ const (
 	issueMax     = 512 << 10 // past this the file moves to issues.1.jsonl
 	issueMsgMax  = 300
 	issueNoteMax = 500
+	issueCodeMax = 40
 	issueRepeat  = 10 * time.Minute // a repeating failure writes once per window
 )
 
@@ -56,6 +57,9 @@ func RecordIssue(e IssueEntry) {
 	if r := []rune(e.Msg); len(r) > max {
 		e.Msg = string(r[:max])
 	}
+	if len(e.Code) > issueCodeMax {
+		e.Code = e.Code[:issueCodeMax]
+	}
 	if e.Session == "" {
 		e.Session = os.Getenv("CLAUDE_CODE_SESSION_ID")
 		if e.Session == "" {
@@ -72,6 +76,12 @@ func RecordIssue(e IssueEntry) {
 	if os.MkdirAll(filepath.Dir(path), 0o700) != nil {
 		return
 	}
+	// Other sunstack processes write here too: rotate and append under one lock.
+	unlock, err := LockDir(filepath.Join(filepath.Dir(path), "issues.lock"), "the issue log")
+	if err != nil {
+		return
+	}
+	defer unlock()
 	if fi, err := os.Stat(path); err == nil && fi.Size()+int64(len(line)) > issueMax {
 		if os.Rename(path, filepath.Join(filepath.Dir(path), "issues.1.jsonl")) != nil {
 			return // never past the bound
@@ -95,7 +105,7 @@ func ReadIssues(since time.Time) []IssueEntry {
 			continue
 		}
 		sc := bufio.NewScanner(f)
-		sc.Buffer(make([]byte, 64<<10), 64<<10)
+		sc.Buffer(make([]byte, 64<<10), issueMax) // any entry the writer accepts
 		for sc.Scan() {
 			var e IssueEntry
 			if json.Unmarshal(sc.Bytes(), &e) != nil {

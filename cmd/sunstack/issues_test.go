@@ -40,15 +40,19 @@ func TestIssueLogRecordsFailures(t *testing.T) {
 	if log := issueLog(t, env); strings.Count(log, "\n") != 3 || strings.Contains(log, "SECRET") {
 		t.Fatalf("usage errors leaked their input:\n%s", log)
 	}
-	// Any other failure keeps its message.
-	expect(t, sh(t, p, env, "inbox", "nobody.here"), 1, "inbox of an unknown agent")
-	requireContains(t, issueLog(t, env), `"code":"not_found"`, "nobody.here")
+	// No failure keeps its message: refusals quote tokens and arguments too.
+	expect(t, sh(t, p, env, "as", "builder.alice", "--takeover", "--expect", "SECRET-CLAIM-TOKEN"), 4, "takeover of an unclaimed agent")
+	expect(t, sh(t, p, env, "--token=SECRET-AS-COMMAND"), 2, "unknown command")
+	log = issueLog(t, env)
+	if strings.Count(log, "\n") != 5 || strings.Contains(log, "SECRET") {
+		t.Fatalf("failures leaked their input:\n%s", log)
+	}
 
 	// A note, then the grouped view.
 	expect(t, sh(t, p, env, "issue", "the save skill stopped at step 4"), 0, "issue")
 	r = sh(t, p, env, "issues")
 	expect(t, r, 0, "issues")
-	for _, want := range []string{"usage", "3 times", "send", "note", "the save skill stopped at step 4"} {
+	for _, want := range []string{"usage", "4 times", "send", "note", "the save skill stopped at step 4"} {
 		requireContains(t, r.out, want)
 	}
 	r = sh(t, p, env, "issues", "--code", "note")

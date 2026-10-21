@@ -343,13 +343,15 @@ func run(argv []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if err == nil {
 		return 0
 	}
-	is := core.IssueEntry{Source: "cli", Cmd: argv[0], Code: "error", Exit: core.ExitFail, Msg: err.Error()}
+	// Code, exit and command only: error messages quote arguments, tokens
+	// and file names (§26.1).
+	is := core.IssueEntry{Source: "cli", Cmd: argv[0], Code: "error", Exit: core.ExitFail}
 	var ce *core.Error
 	if errors.As(err, &ce) {
-		is.Code, is.Exit, is.Msg = ce.Reason, ce.Code, ce.Msg
-	}
-	if is.Exit == core.ExitUsage {
-		is.Msg = "" // usage errors quote the arguments, which may hold a token or text
+		is.Code, is.Exit = ce.Reason, ce.Code
+		if strings.HasPrefix(ce.Msg, "unknown command: ") {
+			is.Cmd = "" // whatever was typed there
+		}
 	}
 	if p, perr := core.FindProject(""); perr == nil {
 		is.Team = filepath.Base(p.Root)

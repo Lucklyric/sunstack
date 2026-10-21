@@ -96,3 +96,14 @@ func TestOwnIssueCountsShown(t *testing.T) {
 		t.Errorf("host view:\n%s", text)
 	}
 }
+
+// A long code is cut, so every later entry stays readable.
+func TestIssueLongCode(t *testing.T) {
+	t.Setenv("SUNSTACK_HOME", t.TempDir())
+	RecordIssue(IssueEntry{Source: "note", Code: strings.Repeat("x", 70<<10), Msg: "first"})
+	RecordIssue(IssueEntry{Source: "note", Code: "note", Msg: "later"})
+	got := ReadIssues(time.Time{})
+	if len(got) != 2 || len(got[0].Code) != issueCodeMax || got[1].Msg != "later" {
+		t.Fatalf("entries: %d", len(got))
+	}
+}

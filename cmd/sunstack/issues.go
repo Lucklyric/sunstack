@@ -81,7 +81,10 @@ func issues(a *args, out io.Writer) error {
 			cmds = append(cmds, k)
 		}
 		sort.Strings(cmds)
-		fmt.Fprintf(out, "\n%s  %d %s, last %s (%s)\n  %s\n", c, g.n, times, g.last.At, strings.Join(cmds, ", "), g.last.Msg)
+		fmt.Fprintf(out, "\n%s  %d %s, last %s (%s)\n", c, g.n, times, g.last.At, strings.Join(cmds, ", "))
+		if g.last.Msg != "" {
+			fmt.Fprintf(out, "  %s\n", g.last.Msg)
+		}
 	}
 	return nil
 }
