@@ -28,7 +28,7 @@ if [ -z "$run" ]; then
   echo "ci-green: no ci run for ${sha:0:7} yet (push main first)" >&2
   exit 1
 fi
-status=$(gh run view "$run" -R "$repo" --json status -q .status)
+status=$(gh run view "$run" -R "$repo" --json status -q .status 2>/dev/null || echo unknown)
 if [ $wait -eq 1 ]; then
   for _ in $(seq 1 180); do
     [ "$status" = "completed" ] && break

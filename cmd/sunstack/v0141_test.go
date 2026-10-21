@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -47,6 +48,14 @@ func TestUsageErrorsShowSyntax(t *testing.T) {
 	r = sh(t, p, nil, "commit", "builder.alice", "board.md", "x.md", "--expect", "abc", "--token", tok)
 	expect(t, r, 2, "commit --expect")
 	requireContains(t, r.stderr, "unknown option: --expect", "sunstack commit <id> <target> <candidate> <checksum>")
+	// hub subcommands too, without repeating a list the error already has.
+	r = sh(t, p, nil, "hub", "init")
+	expect(t, r, 2, "hub init without a name")
+	requireContains(t, r.stderr, "usage:\n", "sunstack hub init <org name>")
+	r = sh(t, p, nil, "hub", "bogus")
+	if strings.Count(r.stderr, "sunstack hub init <org name>") != 1 {
+		t.Errorf("hub list repeated:\n%s", r.stderr)
+	}
 	// Other failures add nothing.
 	r = sh(t, p, nil, "snapshot", "builder.alice", "board.md", "--token", "wrong")
 	expect(t, r, 4, "bad token")
@@ -114,4 +123,43 @@ func TestUpdateRestartsConnector(t *testing.T) {
 	out.Reset()
 	restartConnector(&out, restart(errors.New("boom")))
 	requireContains(t, out.String(), "restart the hub connector yourself", "boom")
+}
+
+// The new binary restarts the connector as it finishes an update (update
+// --skip-binary, run by the old one after replacing it), so an older updater
+// needs no restart of its own; inside the connector it does not.
+func TestUpdateFinishRestartsService(t *testing.T) {
+	if runtime.GOOS != "darwin" && runtime.GOOS != "linux" {
+		t.Skip("the connector service is for macOS and Linux")
+	}
+	env := isolatedEnv(t)
+	home := envValue(env, "HOME")
+	svc := filepath.Join(home, ".config", "systemd", "user", "sunstack-hub-connect.service")
+	if runtime.GOOS == "darwin" {
+		svc = filepath.Join(home, "Library", "LaunchAgents", "org.sunstack.hub-connect.plist")
+	}
+	must(t, os.MkdirAll(filepath.Dir(svc), 0o755))
+	must(t, os.WriteFile(svc, []byte("service"), 0o644))
+	bin := t.TempDir()
+	marker := filepath.Join(bin, "calls")
+	for _, name := range []string{"launchctl", "systemctl", "claude"} {
+		must(t, os.WriteFile(filepath.Join(bin, name), []byte("#!/bin/sh\necho "+name+" \"$@\" >> "+marker+"\n"), 0o755))
+	}
+	env = append(env, "PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	p := t.TempDir()
+
+	r := sh(t, p, env, "update", "--skip-binary", "--claude")
+	expect(t, r, 0, "update --skip-binary")
+	requireContains(t, r.out, "restarted the hub connector")
+	b, _ := os.ReadFile(marker)
+	if !strings.Contains(string(b), "launchctl kickstart -k") && !strings.Contains(string(b), "systemctl --user restart") {
+		t.Fatalf("no restart:\n%s", b)
+	}
+
+	must(t, os.Remove(marker))
+	r = sh(t, p, append(env, "SUNSTACK_SERVICE=1"), "update", "--skip-binary", "--claude")
+	expect(t, r, 0, "update inside the connector")
+	if b, _ := os.ReadFile(marker); strings.Contains(string(b), "launchctl") || strings.Contains(string(b), "systemctl") {
+		t.Fatalf("restarted from inside the connector:\n%s", b)
+	}
 }

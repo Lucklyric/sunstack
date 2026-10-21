@@ -376,8 +376,8 @@ func run(argv []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		fmt.Fprint(stdout, ce.Stdout)
 		fmt.Fprintf(stderr, "sunstack: %s: %s\n", ce.Reason, ce.Msg)
 		// The syntax with every usage error, so a caller need not guess (§29).
-		if (ce.Reason == "usage" || ce.Reason == "missing_arguments") && argv[0] != "hub" {
-			if h := cmdUsage(argv[0]); h != "" {
+		if ce.Reason == "usage" || ce.Reason == "missing_arguments" {
+			if h := cmdUsage(argv[0]); h != "" && !strings.Contains(ce.Msg, h) {
 				fmt.Fprint(stderr, "usage:\n"+h)
 			}
 		}
@@ -1841,7 +1841,6 @@ func lifecycle(cmd string, t setup.Targets, yes, skipBinary bool, args []string,
 					if err := c.Run(); err != nil {
 						return &core.Error{Code: core.ExitFail, Reason: "update_failed", Msg: "the new binary could not finish the update: " + err.Error()}
 					}
-					restartConnector(out, hub.RestartService)
 					return nil
 				}
 			} else if latest != version {
@@ -1884,6 +1883,11 @@ func lifecycle(cmd string, t setup.Targets, yes, skipBinary bool, args []string,
 		}
 		if asks > 0 {
 			fmt.Fprintf(out, "%d team change(s) wait for your OK (protocol, README, AGENTS.md): run sunstack migrate --host, or /sunstack:health\n", asks)
+		}
+		// --skip-binary: the binary was just replaced, and this is the new one
+		// finishing the update, so an older updater needs no restart of its own.
+		if skipBinary {
+			restartConnector(out, hub.RestartService)
 		}
 	case "uninstall":
 		if t.Claude {
