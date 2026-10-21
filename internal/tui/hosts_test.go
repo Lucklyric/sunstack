@@ -489,11 +489,17 @@ func TestOrgOrdersAcrossHosts(t *testing.T) {
 			{Tool: "codex", Status: "idle", Agent: "ops.night", Label: "ops.night_z@zbox", Pane: "%8", Reach: "nudge"},
 		}}}}}}}
 	m.hosts.Hosts = append(m.hosts.Hosts, extra)
+	// Two unrelated teams without a TEAM file at the same root, and sessions
+	// whose folder is unknown, on two hosts: never merged.
+	extra.Org.Teams = append(extra.Org.Teams, &core.OrgTeam{ID: "/work/project", Name: "legacy-z", Root: "/work/project", Agents: []*core.OrgAgent{{ID: "builder.z"}}})
+	extra.Org.Free = []*core.FreeGroup{{Group: "(unknown folder)", Sessions: []*core.HostSession{{Tool: "claude", Status: "idle", Name: "lost-z"}}}}
 	for _, h := range m.hosts.Hosts {
 		if h.Name == "server" {
 			h.Org.Teams[0].Agents = append(h.Org.Teams[0].Agents, &core.OrgAgent{ID: "ops.night", Sessions: []*core.HostSession{
 				{Tool: "codex", Status: "idle", Agent: "ops.night", Label: "ops.night_s@server", Pane: "%9", Reach: "nudge"},
 			}})
+			h.Org.Teams = append(h.Org.Teams, &core.OrgTeam{ID: "/work/project", Name: "legacy-s", Root: "/work/project", Agents: []*core.OrgAgent{{ID: "builder.s"}}})
+			h.Org.Free = append(h.Org.Free, &core.FreeGroup{Group: "(unknown folder)", Sessions: []*core.HostSession{{Tool: "claude", Status: "idle", Name: "lost-s"}}})
 		}
 	}
 	var rows []string
@@ -504,6 +510,11 @@ func TestOrgOrdersAcrossHosts(t *testing.T) {
 	for _, want := range []string{"vault|todo @laptop|tnnls @laptop|notes @server", "pr @laptop|local-pr @laptop", "pr @server|server-pr @server",
 		"scratch @server|win-a @server", "scratch @hubbox|win-b @hubbox",
 		"shop  (only on hubbox, server, zbox)|builder.alice|builder.alice_hub @hubbox|builder.alice_api @server|ops.night|ops.night_s @server|ops.night_z @zbox"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("rows %q lack %q", got, want)
+		}
+	}
+	for _, want := range []string{"legacy-s  (only on server)|builder.s", "legacy-z  (only on zbox)|builder.z", "(unknown folder) @server|lost-s @server", "(unknown folder) @zbox|lost-z @zbox"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("rows %q lack %q", got, want)
 		}
