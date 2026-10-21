@@ -29,7 +29,7 @@ func issues(a *args, out io.Writer) error {
 	}
 	var list []core.IssueEntry
 	for _, e := range core.ReadIssues(since) {
-		if c := a.flags["code"]; c == "" || e.Code == c {
+		if c := a.flags["code"]; c == "" || e.Code == core.IssueCode(c) {
 			list = append(list, e)
 		}
 	}

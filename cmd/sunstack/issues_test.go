@@ -62,6 +62,8 @@ func TestIssueLogRecordsFailures(t *testing.T) {
 	for _, want := range []string{"usage", "4 times", "send", "not_found", "note", "the save skill stopped at step 4"} {
 		requireContains(t, r.out, want)
 	}
+	expect(t, sh(t, p, env, "issue", "a build broke", "--code", "Build.Failed"), 0, "issue with a code")
+	requireContains(t, sh(t, p, env, "issues", "--code", "Build.Failed").out, "a build broke")
 	r = sh(t, p, env, "issues", "--code", "note")
 	if strings.Contains(r.out, "usage") {
 		t.Fatalf("--code note shows other codes:\n%s", r.out)

@@ -96,14 +96,21 @@ func (p *Project) tidyContext(id string, old func(date string) bool) (int, error
 	}
 	moved := map[string][]string{}
 	var keep []string
-	sec, n := "", 0
+	sec, n, into := "", 0, ""
 	for i, l := range lines {
 		t := strings.TrimSpace(l)
+		// An indented line continues the entry above it and moves with it.
+		if into != "" && t != "" && (l[0] == ' ' || l[0] == '\t') {
+			moved[into] = append(moved[into], l)
+			continue
+		}
+		into = ""
 		if strings.HasPrefix(t, "## ") {
 			sec = strings.TrimPrefix(t, "## ")
 		}
 		if f := strings.Fields(t); sec == processedSec && len(f) >= 3 && f[0] == "-" && dateOK(f[1]) && (old(f[1]) || extra[i]) && !p.inInbox(id, f[2]) {
-			moved[f[1][:7]] = append(moved[f[1][:7]], t)
+			into = f[1][:7]
+			moved[into] = append(moved[into], t)
 			n++
 			continue
 		}

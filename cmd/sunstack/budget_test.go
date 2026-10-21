@@ -155,3 +155,19 @@ func TestTidyKeepsLongPendingID(t *testing.T) {
 		t.Errorf("the record of a long pending ID was archived:\n%s", c)
 	}
 }
+
+// An entry's indented continuation moves with it.
+func TestTidyMovesWholeEntries(t *testing.T) {
+	p := fixture(t)
+	env := isolatedEnv(t)
+	dir := filepath.Join(p, "sunstack", "builder.alice")
+	old := time.Now().AddDate(0, 0, -9).Format("2006-01-02")
+	ctx := "## Processed messages\n- " + old + " 20261001T000000Z-user-aaaaaa from user: done\n  Verification: checked the output.\n## Open questions\n- " + old + " none\n"
+	must(t, os.WriteFile(filepath.Join(dir, "context.md"), []byte(ctx), 0o644))
+	expect(t, sh(t, p, env, "tidy", "builder.alice"), 0, "tidy")
+	c, _ := os.ReadFile(filepath.Join(dir, "context.md"))
+	a, _ := os.ReadFile(filepath.Join(dir, "archive", old[:7]+".md"))
+	if strings.Contains(string(c), "Verification") || !strings.Contains(string(a), "  Verification: checked the output.") || !strings.Contains(string(c), "none") {
+		t.Errorf("context:\n%s\narchive:\n%s", c, a)
+	}
+}

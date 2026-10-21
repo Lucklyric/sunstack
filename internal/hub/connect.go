@@ -42,7 +42,6 @@ func ConnectorRunning() bool {
 // until the hub says this host was revoked (§18.5). On the hub it also runs
 // the listener the other hosts call (§19.2).
 func Connect(logw io.Writer) error {
-	rotateConnectLog()
 	c, cl, err := joined()
 	if err != nil {
 		return err
@@ -52,6 +51,7 @@ func Connect(logw io.Writer) error {
 		return &core.Error{Code: core.ExitClaim, Reason: "busy", Msg: "a connector already runs on this host"}
 	}
 	defer unlock()
+	rotateConnectLog() // only the connector that runs
 	if c.IsHub() {
 		sv, err := NewServer()
 		if err != nil {
