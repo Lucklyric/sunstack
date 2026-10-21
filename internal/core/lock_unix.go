@@ -4,7 +4,6 @@ package core
 
 import (
 	"os"
-	"os/exec"
 	"strconv"
 	"strings"
 	"syscall"
@@ -39,7 +38,9 @@ func ownerDead(owner []byte) bool {
 }
 
 func procStartLocal(pid int) string {
-	out, err := exec.Command("ps", "-o", "lstart=", "-p", strconv.Itoa(pid)).Output()
+	cmd, done := quick("ps", "-o", "lstart=", "-p", strconv.Itoa(pid))
+	defer done()
+	out, err := cmd.Output()
 	if err != nil {
 		return ""
 	}
@@ -51,7 +52,8 @@ func procStartLocal(pid int) string {
 func ProcStart(pid int) string {
 	// ps prints the start time in local time and the locale's words; fix
 	// both, so every caller writes and compares the same text.
-	cmd := exec.Command("ps", "-o", "lstart=", "-p", strconv.Itoa(pid))
+	cmd, done := quick("ps", "-o", "lstart=", "-p", strconv.Itoa(pid))
+	defer done()
 	cmd.Env = append(os.Environ(), "TZ=UTC", "LC_ALL=C")
 	out, err := cmd.Output()
 	if err != nil {

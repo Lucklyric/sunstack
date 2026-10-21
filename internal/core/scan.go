@@ -190,7 +190,9 @@ func codexSessions() ([]*HostSession, error) {
 	if runtime.GOOS == "windows" || os.Getenv("SUNSTACK_CODEX_SCAN") == "off" {
 		return nil, nil
 	}
-	out, err := exec.Command("ps", "-axo", "pid=,tty=,comm=").Output()
+	pc, done := quick("ps", "-axo", "pid=,tty=,comm=")
+	out, err := pc.Output()
+	done()
 	if err != nil {
 		return nil, err
 	}
@@ -280,8 +282,14 @@ func openFiles(pid int) ([]string, string, error) {
 
 // processAlive reports whether pid still exists, so a process that exited
 // during the scan is not reported as a failed check.
+// A ps that does not answer in time counts as alive: the check is then
+// reported as failed, never hidden.
 func processAlive(pid int) bool {
-	return exec.Command("ps", "-p", strconv.Itoa(pid)).Run() == nil
+	ctx, cancel := context.WithTimeout(context.Background(), cmdWait)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "ps", "-p", strconv.Itoa(pid))
+	cmd.WaitDelay = time.Second
+	return cmd.Run() == nil || ctx.Err() != nil
 }
 
 // mainRollout picks the session's own rollout among the open files, skipping
@@ -506,6 +514,19 @@ type paneInfo struct{ id, where, socket, label string }
 
 // tmuxPanes maps terminal names (ttys001, pts/3) to panes, on the default
 // tmux server and the caller's.
+// cmdWait bounds each tmux and ps call on the snapshot path: a stuck tmux
+// server or ps must not hold the connector's snapshot (v0.13.2).
+var cmdWait = 5 * time.Second
+
+// quick is name args bounded by cmdWait, and a second more for its output
+// when a child holds the pipe open. Call the cancel func when done.
+func quick(name string, args ...string) (*exec.Cmd, context.CancelFunc) {
+	ctx, cancel := context.WithTimeout(context.Background(), cmdWait)
+	cmd := exec.CommandContext(ctx, name, args...)
+	cmd.WaitDelay = time.Second
+	return cmd, cancel
+}
+
 func tmuxPanes() map[string]paneInfo {
 	out := map[string]paneInfo{}
 	if _, err := exec.LookPath("tmux"); err != nil {
@@ -520,7 +541,8 @@ func tmuxPanes() map[string]paneInfo {
 		sockets = append(sockets, strings.SplitN(t, ",", 2)[0])
 	}
 	for _, sock := range sockets {
-		cmd := exec.Command("tmux", TmuxArgs(sock, "list-panes", "-a", "-F", "#{pane_tty}\t#{pane_id}\t#{session_name}:#{window_index}.#{pane_index}\t#{@sunstack_label}")...)
+		cmd, done := quick("tmux", TmuxArgs(sock, "list-panes", "-a", "-F", "#{pane_tty}\t#{pane_id}\t#{session_name}:#{window_index}.#{pane_index}\t#{@sunstack_label}")...)
+		defer done()
 		if sock == "" {
 			// The default server: inside another server, $TMUX would
 			// point tmux there instead.
@@ -533,7 +555,8 @@ func tmuxPanes() map[string]paneInfo {
 		if sock == "" {
 			// Name the default server by its path, so later commands reach it
 			// even from inside another server.
-			q := exec.Command("tmux", "-u", "list-sessions", "-F", "#{socket_path}")
+			q, qdone := quick("tmux", "-u", "list-sessions", "-F", "#{socket_path}")
+			defer qdone()
 			q.Env = withoutTMUX(os.Environ())
 			if out, err := q.Output(); err == nil {
 				if path := strings.SplitN(strings.TrimSpace(string(out)), "\n", 2)[0]; path != "" {
@@ -555,7 +578,9 @@ func tmuxPanes() map[string]paneInfo {
 }
 
 func processTTY(pid int) string {
-	b, err := exec.Command("ps", "-o", "tty=", "-p", strconv.Itoa(pid)).Output()
+	cmd, done := quick("ps", "-o", "tty=", "-p", strconv.Itoa(pid))
+	defer done()
+	b, err := cmd.Output()
 	if err != nil {
 		return ""
 	}

@@ -561,7 +561,9 @@ func serverPID(socket string) (string, bool) {
 	if _, err := exec.LookPath("tmux"); err != nil {
 		return "", false
 	}
-	out, err := exec.Command("tmux", TmuxArgs(socket, "display-message", "-p", "#{pid}")...).Output()
+	cmd, done := quick("tmux", TmuxArgs(socket, "display-message", "-p", "#{pid}")...)
+	defer done()
+	out, err := cmd.Output()
 	if err != nil {
 		return "", false
 	}
@@ -596,7 +598,9 @@ func paneGone(c *Live) bool {
 	if pid, ok := serverPID(socket); ok && c.TmuxServer != "" && pid != c.TmuxServer {
 		return true
 	}
-	out, err := exec.Command("tmux", TmuxArgs(socket, "list-panes", "-a", "-F", "#{pane_id}")...).Output()
+	lp, done := quick("tmux", TmuxArgs(socket, "list-panes", "-a", "-F", "#{pane_id}")...)
+	defer done()
+	out, err := lp.Output()
 	if err != nil {
 		return false
 	}

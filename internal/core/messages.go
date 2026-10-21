@@ -426,12 +426,16 @@ func paneRunsTool(socket, pane, tool string) bool {
 	if _, err := exec.LookPath("tmux"); err != nil {
 		return false
 	}
-	out, err := exec.Command("tmux", TmuxArgs(socket, "display-message", "-p", "-t", pane, "#{pane_tty}")...).Output()
+	tc, tdone := quick("tmux", TmuxArgs(socket, "display-message", "-p", "-t", pane, "#{pane_tty}")...)
+	defer tdone()
+	out, err := tc.Output()
 	tty := strings.TrimPrefix(strings.TrimSpace(string(out)), "/dev/")
 	if err != nil || tty == "" {
 		return false
 	}
-	ps, err := exec.Command("ps", "-o", "stat=,comm=", "-t", tty).Output()
+	pc, pdone := quick("ps", "-o", "stat=,comm=", "-t", tty)
+	defer pdone()
+	ps, err := pc.Output()
 	if err != nil {
 		return false
 	}
@@ -519,7 +523,9 @@ var paneTokenRe = regexp.MustCompile(`(--token[ =])[0-9A-Za-z]+`)
 func maskTokens(s string) string { return paneTokenRe.ReplaceAllString(s, "${1}****") }
 
 func paneScreen(socket, pane string) string {
-	out, err := exec.Command("tmux", TmuxArgs(socket, "capture-pane", "-p", "-J", "-t", pane)...).Output()
+	cmd, done := quick("tmux", TmuxArgs(socket, "capture-pane", "-p", "-J", "-t", pane)...)
+	defer done()
+	out, err := cmd.Output()
 	if err != nil {
 		return ""
 	}
