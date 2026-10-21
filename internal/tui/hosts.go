@@ -493,7 +493,7 @@ func (m *model) hostsKey(k string) (bool, tea.Cmd) {
 		m.orgScroll = 0
 	case "enter":
 		h := m.hosts.Hosts[m.hostSel]
-		m.view = viewOrg
+		m.view, m.order = viewOrg, orderHost // hosts are rows in host order (§28)
 		key := "host:" + h.ID
 		delete(m.folded, key)
 		m.orgSel = 0

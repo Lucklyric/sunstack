@@ -76,7 +76,7 @@ type model struct {
 	folded      map[string]bool // tree nodes the user folded
 	filter      string
 	filterMode  int    // index into filterModes
-	byHost      bool   // the Org tab lists hosts, then their teams (b)
+	order       int    // the Org tab's order: orderProject, orderTeam or orderHost (b cycles)
 	inputPrompt string // a line being typed: a filter or a message
 	inputText   string
 	inputDone   func(string)
@@ -165,7 +165,7 @@ func (m *model) reload() {
 	}
 	switch m.view {
 	case viewNext:
-		m.nextItems = m.p.Next("", time.Now())
+		m.nextItems = append(m.p.Next("", time.Now()), m.otherHostsNext()...)
 	case viewBoard:
 		m.loadBoard()
 	case viewTasks:

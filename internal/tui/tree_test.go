@@ -63,9 +63,21 @@ func TestTreeShowsHostTeamAgentSession(t *testing.T) {
 	m := treeModel(t)
 	v := m.View()
 	fits(t, v, m.w, "tree")
-	requireAll(t, v, "4 sessions", "1 team", "Needs you (1)", "▾ alpha", "pm.lead", "pm.lead_cloud", "● busy", "◐ waiting", "outside teams")
+	requireAll(t, v, "4 sessions", "1 team", "1 for you", "▾ alpha", "pm.lead", "pm.lead_cloud", "● busy", "◐ waiting", "▾ vault")
 	if n := strings.Count(v, "\n") + 1; n > m.h {
 		t.Errorf("%d lines on a %d-line screen", n, m.h)
+	}
+	// One kind per level (§28): no needs row; by project the group sits
+	// beside the team, by team under "no team"; one host has no host order.
+	if strings.Contains(v, "Needs you (") || strings.Contains(v, "outside teams") {
+		t.Errorf("project order:\n%s", v)
+	}
+	requireAll(t, v, "Sessions by project")
+	m.key("b")
+	requireAll(t, m.View(), "Sessions by team", "▾ no team", "vault")
+	m.key("b")
+	if strings.Contains(m.View(), "no team") {
+		t.Error("b on one host does not cycle back to project order")
 	}
 	// A session's details on the right.
 	selectRow(t, m, "pm.lead_cloud")

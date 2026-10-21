@@ -151,7 +151,10 @@ func TestHostsDetailsScroll(t *testing.T) {
 func TestRemoteSessionsInTheTree(t *testing.T) {
 	m := hostsModel(t, 150)
 	v := ansi.Strip(m.View())
-	requireAll(t, v, "server (stale, 45s)", "shop", "builder.alice_api", "newbox (not synced yet)")
+	requireAll(t, v, "shop", "builder.alice_api @server")
+	if strings.Contains(v, "newbox") || strings.Contains(v, "Needs you (") {
+		t.Errorf("project order lists hosts or a needs row:\n%s", v)
+	}
 	selectRow(t, m, "builder.alice_api")
 	requireAll(t, ansi.Strip(m.View()), "on server, as of its last snapshot (1m old)", "Other actions only on server")
 	peeked := false
@@ -177,8 +180,10 @@ func TestRemoteSessionsInTheTree(t *testing.T) {
 	if sentTo != "server:00000000000000aa/builder.alice_api" || sentText != "hi" {
 		t.Errorf("message went to %q with %q", sentTo, sentText)
 	}
-	// By host (b), folding a host hides its rows.
+	// By host (b twice: project, team, host), folding a host hides its rows.
 	m.key("b")
+	m.key("b")
+	requireAll(t, ansi.Strip(m.View()), "server (stale, 45s)", "newbox (not synced yet)")
 	selectRow(t, m, "server (stale")
 	m.key("left")
 	if strings.Contains(ansi.Strip(m.View()), "builder.alice_api") {
@@ -195,26 +200,27 @@ func TestSharedTeamsMerge(t *testing.T) {
 	if n := strings.Count(v, "▾ alpha"); n != 1 {
 		t.Errorf("alpha shown %d times:\n%s", n, v)
 	}
-	requireAll(t, v, "Needs you (3)", "pm.lead_gpu @server", "ops.night @server", "server (stale, 45s)", "shop")
-	var rows []string
-	for _, n := range m.treeNodes() {
-		rows = append(rows, n.label)
+	requireAll(t, v, "pm.lead_gpu @server", "ops.night @server", "shop")
+	rowsOf := func() string {
+		var rows []string
+		for _, n := range m.treeNodes() {
+			rows = append(rows, n.label)
+		}
+		return strings.Join(rows, "|")
 	}
-	got := strings.Join(rows, "|")
-	// Under alpha: pm.lead's local then remote session, then this host's
-	// marketing.social, then the agent only the server runs.
+	// By project (§28.2): teams, then the groups outside teams, each session
+	// with its host; no needs row and no host rows.
+	got := rowsOf()
 	for _, want := range []string{
-		"alpha|pm.lead|pm.lead_cloud|pm.lead_gpu @server|marketing.social|ops.night|ops.night @server",
-		"shop  (only on server)|builder.alice|builder.alice_api",
-		// Then every host, this one too, with its sessions outside teams.
-		"laptop (this host)|vault|todo|tnnls|hubbox (live, 2s)|server (stale, 45s)|no sessions outside teams|newbox (not synced yet)",
+		"alpha|pm.lead|pm.lead_cloud @laptop|pm.lead_gpu @server|marketing.social|ops.night|ops.night @server|free sessions (1)|scratch @laptop",
+		"shop  (only on server)|builder.alice|builder.alice_api @server|vault|todo @laptop|tnnls @laptop",
 	} {
 		if !strings.Contains(got, want) {
-			t.Errorf("rows %q lack %q", got, want)
+			t.Errorf("by project: rows %q lack %q", got, want)
 		}
 	}
-	if strings.Count(got, "alpha") != 1 {
-		t.Errorf("rows %q", got)
+	if strings.Count(got, "alpha") != 1 || strings.Contains(got, "Needs you") || strings.Contains(got, "(this host)") {
+		t.Errorf("by project: rows %q", got)
 	}
 	// The merged session is the server's: only m, with the hub address.
 	selectRow(t, m, "pm.lead_gpu")
@@ -233,18 +239,18 @@ func TestSharedTeamsMerge(t *testing.T) {
 	if strings.Count(tv, "todo is waiting for you") != 1 || !strings.Contains(tv, "deploy waits for you (on server)") {
 		t.Errorf("team details:\n%s", tv)
 	}
-	selectRow(t, m, "Needs you")
-	requireAll(t, ansi.Strip(m.View()), "todo is waiting for you", "deploy waits for you (on server)", "Q1 waits for you (on server)")
+
+	// By team (b): the same teams, then one "no team" row with the groups.
+	m.key("b")
+	if got := rowsOf(); !strings.Contains(got, "builder.alice_api @server|no team|vault|todo @laptop|tnnls @laptop") {
+		t.Errorf("by team: rows %q", got)
+	}
 
 	// By host (b): each host with all its own teams, alpha under both.
 	m.key("b")
-	rows = nil
-	for _, n := range m.treeNodes() {
-		rows = append(rows, n.label)
-	}
-	got = strings.Join(rows, "|")
+	got = rowsOf()
 	for _, want := range []string{
-		"laptop (this host)|alpha|pm.lead|pm.lead_cloud|marketing.social|free sessions (1)|scratch|outside teams|vault",
+		"laptop (this host)|alpha|pm.lead|pm.lead_cloud|marketing.social|free sessions (1)|scratch|vault|todo|tnnls",
 		"server (stale, 45s)|shop|builder.alice|builder.alice_api|alpha|pm.lead|pm.lead_gpu|marketing.social|ops.night|ops.night",
 	} {
 		if !strings.Contains(got, want) {
@@ -252,14 +258,8 @@ func TestSharedTeamsMerge(t *testing.T) {
 		}
 	}
 	m.key("b")
-	n := 0
-	for _, r := range m.treeNodes() {
-		if r.label == "alpha" {
-			n++
-		}
-	}
-	if n != 1 {
-		t.Errorf("b does not switch back to by team: alpha %d times", n)
+	if got := rowsOf(); strings.Count(got, "alpha") != 1 || strings.Contains(got, "no team") {
+		t.Errorf("b does not cycle back to by project: %q", got)
 	}
 }
 
@@ -296,8 +296,8 @@ func TestHostsVersionsAndUpdate(t *testing.T) {
 	if strings.Join(asked, ",") != "server@0.10.0" {
 		t.Errorf("U asked %v", asked)
 	}
-	// The Org tab marks the host behind.
-	m.view = viewOrg
+	// The Org tab marks the host behind, in host order.
+	m.view, m.order = viewOrg, orderHost
 	marked := false
 	for _, n := range m.treeNodes() {
 		marked = marked || n.label == "server (stale, 45s)  update 0.9.4"
@@ -451,4 +451,43 @@ func TestHostsSSHKeys(t *testing.T) {
 	m.view = viewOrg
 	selectRow(t, m, "builder.alice_api")
 	requireAll(t, ansi.Strip(m.View()), `ssh -t srv 'tmux attach -t '\''=w'\'''`)
+}
+
+// Groups outside teams across hosts (§28.2): one keyed by a git remote is one
+// row; one keyed by a folder is one row per host. The other hosts' items
+// reach the Next tab, and a new model opens on project order.
+func TestOrgOrdersAcrossHosts(t *testing.T) {
+	m := hostsModel(t, 150)
+	if newModel(nil, true).order != orderProject {
+		t.Error("a new model does not open on project order")
+	}
+	m.org.Free = append(m.org.Free, &core.FreeGroup{Group: "/home/me/pr", Sessions: []*core.HostSession{{Tool: "claude", Status: "idle", Name: "local-pr"}}})
+	for _, h := range m.hosts.Hosts {
+		if h.Name == "server" {
+			h.Org.Free = []*core.FreeGroup{
+				{Group: "git@github.com:me/vault.git", Sessions: []*core.HostSession{{Tool: "claude", Status: "idle", Name: "notes"}}},
+				{Group: "/home/me/pr", Sessions: []*core.HostSession{{Tool: "claude", Status: "idle", Name: "server-pr"}}},
+			}
+		}
+	}
+	var rows []string
+	for _, n := range m.treeNodes() {
+		rows = append(rows, n.label)
+	}
+	got := strings.Join(rows, "|")
+	for _, want := range []string{"vault|todo @laptop|tnnls @laptop|notes @server", "pr @laptop|local-pr @laptop", "pr @server|server-pr @server"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("rows %q lack %q", got, want)
+		}
+	}
+	if strings.Count(got, "vault") != 1 {
+		t.Errorf("the remote-keyed group is not one row: %q", got)
+	}
+	var next []string
+	for _, it := range m.otherHostsNext() {
+		next = append(next, it.Text+" / "+it.Do)
+	}
+	if n := strings.Join(next, "|"); !strings.Contains(n, "shop: Q1 waits for you / on server") || strings.Contains(n, "todo is waiting") {
+		t.Errorf("other hosts' next items: %q", n)
+	}
 }

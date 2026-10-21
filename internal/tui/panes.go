@@ -325,7 +325,7 @@ func (m *model) helpView() string {
 		cHeader.Render("Team and Org"),
 		"←→  fold / unfold    enter  open pane or toggle group",
 		"/  filter    f  all, needs you, busy, outside tmux    esc  clear",
-		"b  group by team / host (in an org)",
+		"b  order by project / team / host",
 		"m  message    s  start a session from the selected row",
 		"p  peek at a remote pane (host must allow peek)",
 		"R  reopen in tmux    K  close session (both ask)",

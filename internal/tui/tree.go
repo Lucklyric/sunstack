@@ -17,9 +17,16 @@ import (
 	"github.com/Lucklyric/sunstack/internal/setup"
 )
 
-// The Org tab is a tree: what needs the user, then each team with its
-// agents and their sessions, then sessions outside teams. The right pane
-// shows the selected node; session nodes take actions.
+// The Org tab is a tree in one of three orders (§28), each level one kind of
+// row: by project (teams, then the groups of sessions outside teams), by
+// team (teams, then one "no team" row), or by host. The right pane shows the
+// selected node; session nodes take actions.
+
+const (
+	orderProject = iota
+	orderTeam
+	orderHost
+)
 
 type treeNode struct {
 	kind  string // needs, team, agent, free, outside, group, session
@@ -121,45 +128,123 @@ func (m *model) treeNodes() []treeNode {
 	}
 	var out []treeNode
 	splits := m.splits()
-	if !m.filtering() {
-		n := len(o.Attention)
-		for _, sp := range splits {
-			if sp.own != nil {
-				n += len(sp.own.Attention)
-			}
-		}
-		out = append(out, treeNode{kind: "needs", key: "needs", label: fmt.Sprintf("Needs you (%d)", n), org: o})
+	if m.hosts != nil && m.order == orderHost {
+		return m.byHostRows(splits)
 	}
-	if m.hosts == nil {
-		// In no org: this host's teams and sessions.
-		return append(out, m.orgRows(o, "", 0, nil, nil)...)
-	}
-	if m.byHost {
-		return append(out, m.byHostRows(splits)...)
-	}
-	// By team (§18.7): every team once, with the sessions of every host,
-	// then one heading per host for its sessions outside teams.
+	// By project or team (§18.7): every team once, with the sessions of
+	// every host, then the teams only another host has.
 	out = append(out, m.teamRows(o, "", 0, nil, splits, "")...)
 	for _, sp := range splits {
 		if sp.own != nil {
 			out = append(out, m.teamRows(sp.own, "host:"+sp.h.ID+"/", 0, sp.h, nil, "  (only on "+sp.h.Name+")")...)
 		}
 	}
-	for _, h := range m.hostOrder() {
-		hk := "host:" + h.ID
-		var rows []treeNode
-		switch {
-		case h.You:
-			rows = m.outsideRows(o, hk+"/", 1, nil)
-		case h.Org != nil:
-			rows = m.outsideRows(h.Org, hk+"/", 1, h)
+	if m.order != orderTeam {
+		return append(out, m.groupRows(splits, 0)...)
+	}
+	// By team: the sessions outside teams under one row, by group.
+	if groups := m.groupRows(splits, 1); len(groups) > 0 {
+		out = append(out, treeNode{kind: "outside", key: "noteam", label: "no team", fold: true, org: o})
+		if !m.folded["noteam"] {
+			out = append(out, groups...)
 		}
-		if len(rows) == 0 && (h.You || h.Org != nil) && !m.filtering() {
-			rows = []treeNode{{kind: "info", key: hk + "/info", depth: 1, label: "no sessions outside teams", host: h, org: h.Org}}
-		}
-		out = m.hostHeading(out, h, rows)
 	}
 	return out
+}
+
+// groupRows are the groups of sessions outside teams on every host, at depth
+// d. A group keyed by a git remote is one row across hosts; one keyed by a
+// folder is per host, so the same path on two hosts is two rows (§28.2).
+func (m *model) groupRows(splits []hostSplit, d int) []treeNode {
+	type part struct {
+		g *core.FreeGroup
+		o *core.Org
+		h *hub.HostView
+	}
+	var keys []string
+	parts := map[string][]part{}
+	add := func(o *core.Org, h *hub.HostView) {
+		if o == nil {
+			return
+		}
+		for _, g := range o.Free {
+			k := "group:" + g.Group
+			if isFolder(g.Group) && h != nil {
+				k = "host:" + h.ID + "/" + k
+			}
+			if _, ok := parts[k]; !ok {
+				keys = append(keys, k)
+			}
+			parts[k] = append(parts[k], part{g, o, h})
+		}
+	}
+	add(m.org, nil)
+	for _, sp := range splits {
+		add(sp.own, sp.h)
+	}
+	var out []treeNode
+	for _, k := range keys {
+		ps := parts[k]
+		var ss []treeNode
+		merged := &core.FreeGroup{Group: ps[0].g.Group}
+		for _, p := range ps {
+			for _, s := range p.g.Sessions {
+				if m.keep(s, "", "") {
+					ss = append(ss, treeNode{kind: "session", key: k + "/" + sessionName(s) + "@" + hostID(p.h), depth: d + 1, label: m.sessLabel(s, p.h), sess: s, org: p.o, host: p.h})
+					merged.Sessions = append(merged.Sessions, s)
+				}
+			}
+		}
+		if len(ss) == 0 {
+			continue
+		}
+		label := path.Base(strings.TrimSuffix(ps[0].g.Group, ".git"))
+		if isFolder(ps[0].g.Group) && m.hosts != nil {
+			label += " @" + m.hostName(ps[0].h)
+		}
+		out = append(out, treeNode{kind: "group", key: k, depth: d, label: label, fold: true, group: merged, org: ps[0].o, host: ps[0].h})
+		if !m.folded[k] {
+			out = append(out, ss...)
+		}
+	}
+	return out
+}
+
+// isFolder says whether a group is keyed by a folder rather than a git remote.
+func isFolder(g string) bool { return filepath.IsAbs(g) || strings.HasPrefix(g, "/") || g == "" }
+
+func hostID(h *hub.HostView) string {
+	if h == nil {
+		return "here"
+	}
+	return h.ID
+}
+
+// hostName is a host's name, this one's for nil.
+func (m *model) hostName(h *hub.HostView) string {
+	if h != nil {
+		return h.Name
+	}
+	if m.hosts != nil {
+		for _, x := range m.hosts.Hosts {
+			if x.You {
+				return x.Name // the org's name for this host
+			}
+		}
+	}
+	if m.org != nil {
+		return m.org.Host.Name
+	}
+	return ""
+}
+
+// sessLabel is a session row's text: in an org, outside host order, it
+// names the host the session runs on (§28.1).
+func (m *model) sessLabel(s *core.HostSession, h *hub.HostView) string {
+	if m.hosts == nil || m.order == orderHost {
+		return sessionName(s)
+	}
+	return sessionName(s) + " @" + m.hostName(h)
 }
 
 // byHostRows are every host, this one first, each with all its own teams
@@ -254,15 +339,7 @@ func remoteSession(key string, d int, s *core.HostSession, sp hostSplit) treeNod
 // orgRows are the rows of one host's snapshot: its teams, then its sessions
 // outside teams under one heading.
 func (m *model) orgRows(o *core.Org, prefix string, d int, h *hub.HostView, splits []hostSplit) []treeNode {
-	out := m.teamRows(o, prefix, d, h, splits, "")
-	if outside := m.outsideRows(o, prefix, d+1, h); len(outside) > 0 {
-		ok := prefix + "outside"
-		out = append(out, treeNode{kind: "outside", key: ok, depth: d, label: "outside teams", fold: true, org: o, host: h})
-		if !m.folded[ok] {
-			out = append(out, outside...)
-		}
-	}
-	return out
+	return append(m.teamRows(o, prefix, d, h, splits, ""), m.outsideRows(o, prefix, d, h)...)
 }
 
 // teamRows are a snapshot's teams; splits, given for this host's teams,
@@ -280,7 +357,7 @@ func (m *model) teamRows(o *core.Org, prefix string, d int, h *hub.HostView, spl
 			if ah == nil {
 				for _, s := range a.Sessions {
 					if m.keep(s, t.Name, a.ID) {
-						ss = append(ss, treeNode{kind: "session", key: ak + "/" + sessionName(s), depth: d + 2, label: sessionName(s), sess: s, org: o, host: h})
+						ss = append(ss, treeNode{kind: "session", key: ak + "/" + sessionName(s), depth: d + 2, label: m.sessLabel(s, h), sess: s, org: o, host: h})
 					}
 				}
 			}
@@ -329,7 +406,7 @@ func (m *model) teamRows(o *core.Org, prefix string, d int, h *hub.HostView, spl
 		var free []treeNode
 		for _, s := range t.Free {
 			if m.keep(s, t.Name, "") {
-				free = append(free, treeNode{kind: "session", key: tk + "/free/" + sessionName(s), depth: d + 2, label: sessionName(s), sess: s, org: o, host: h})
+				free = append(free, treeNode{kind: "session", key: tk + "/free/" + sessionName(s), depth: d + 2, label: m.sessLabel(s, h), sess: s, org: o, host: h})
 			}
 		}
 		for _, sp := range splits {
@@ -569,7 +646,7 @@ func (m *model) treeBox(h int) string {
 		*sel = max(0, len(nodes)-1)
 	}
 	leftW := min(46, m.w/2)
-	title := "Sessions"
+	title := "Sessions by " + []string{"project", "team", "host"}[m.order] // b cycles (§28)
 	if m.teamScope() {
 		title = "Team"
 	}
@@ -808,10 +885,14 @@ func (m *model) treeKey(k string) bool {
 	case "f":
 		m.filterMode, *sel = (m.filterMode+1)%len(filterModes), 0
 	case "b":
-		if m.hosts == nil || m.teamScope() {
+		if m.teamScope() {
 			return false
 		}
-		m.byHost, *sel = !m.byHost, 0
+		n := 3
+		if m.hosts == nil {
+			n = 2 // one host: no host order
+		}
+		m.order, *sel = (m.order+1)%n, 0
 	case "esc":
 		if !m.filtering() {
 			return false
@@ -1123,4 +1204,18 @@ func (m *model) spawnKey(n *treeNode) bool {
 		}
 	}
 	return true
+}
+
+// otherHostsNext are the other hosts' items for the Next tab, as sunstack
+// next lists them; the ones this host reports too are left out (§28.1).
+func (m *model) otherHostsNext() []core.Issue {
+	var out []core.Issue
+	for _, sp := range m.splits() {
+		if sp.own != nil {
+			for _, a := range sp.own.Attention {
+				out = append(out, core.Issue{Kind: "user", Owner: "user", Text: a, Do: "on " + sp.h.Name})
+			}
+		}
+	}
+	return out
 }
