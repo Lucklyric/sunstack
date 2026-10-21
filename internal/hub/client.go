@@ -102,14 +102,38 @@ func Snapshot() ([]byte, error) {
 	o := core.BuildOrg()
 	stripActivity(o)
 	o.SSH = core.SSHPeers()
+	return snapshotOf(o)
+}
+
+// snapshotOf encodes o. Over MaxFrame it drops the agents' done entries, then
+// the objectives' key results, and says so in Trimmed; sessions always stay.
+func snapshotOf(o *core.Org) ([]byte, error) {
 	b, err := json.Marshal(o)
-	if err != nil {
-		return nil, err
+	if err != nil || len(b) <= MaxFrame {
+		return b, err
 	}
-	if len(b) > MaxFrame {
-		return nil, errors.New("this host's snapshot is larger than 256 KB")
+	done, krs := 0, 0
+	for _, t := range o.Teams {
+		for _, a := range t.Agents {
+			done += len(a.Done)
+			a.Done = []string{}
+		}
 	}
-	return b, nil
+	o.Trimmed = fmt.Sprintf("snapshot cut to fit 256 KB: %d done entries not shown", done)
+	if b, err = json.Marshal(o); err != nil || len(b) <= MaxFrame {
+		return b, err
+	}
+	for _, t := range o.Teams {
+		for i := range t.Objectives {
+			krs += len(t.Objectives[i].KRs)
+			t.Objectives[i].KRs = []string{}
+		}
+	}
+	o.Trimmed = fmt.Sprintf("snapshot cut to fit 256 KB: %d done entries and %d key results not shown", done, krs)
+	if b, err = json.Marshal(o); err != nil || len(b) <= MaxFrame {
+		return b, err
+	}
+	return nil, errors.New("this host's snapshot is larger than 256 KB, even without done entries and key results")
 }
 
 // stripActivity removes every session's title, last prompt and last reply.

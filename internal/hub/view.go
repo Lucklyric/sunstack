@@ -355,6 +355,9 @@ func (v *OrgView) Text(view string, local *core.Org) string {
 		if h.State != "live" {
 			fmt.Fprintf(&b, "  last known state, %s old\n", Age(h.SnapAge))
 		}
+		if h.Org.Trimmed != "" {
+			fmt.Fprintf(&b, "  %s\n", h.Org.Trimmed)
+		}
 		own, shared := Split(h.Org, local)
 		o := *own
 		o.Notes = nil
