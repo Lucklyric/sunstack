@@ -65,6 +65,7 @@ type OrgAgent struct {
 // FreeGroup is free sessions outside teams, grouped by git remote or folder.
 type FreeGroup struct {
 	Group    string         `json:"group"`
+	Kind     string         `json:"kind,omitempty"` // remote or folder: what Group is (§28.2)
 	Sessions []*HostSession `json:"sessions"`
 }
 
@@ -90,18 +91,18 @@ func BuildOrg() *Org {
 		if s.Agent != "" || s.Team != "" {
 			continue
 		}
-		g := realPath(s.Cwd)
+		g, kind := realPath(s.Cwd), "folder"
 		if r, ok := remotes[s.Cwd]; ok {
-			g = r
+			g, kind = r, "remote"
 		} else if r := gitRemote(s.Cwd); r != "" {
-			remotes[s.Cwd], g = r, r
+			remotes[s.Cwd], g, kind = r, r, "remote"
 		}
 		if g == "" {
 			g = "(unknown folder)"
 		}
 		s.Group = g
 		if groups[g] == nil {
-			groups[g] = &FreeGroup{Group: g}
+			groups[g] = &FreeGroup{Group: g, Kind: kind}
 			o.Free = append(o.Free, groups[g])
 		}
 		groups[g].Sessions = append(groups[g].Sessions, s)

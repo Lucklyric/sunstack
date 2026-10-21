@@ -73,8 +73,19 @@ func TestTreeShowsHostTeamAgentSession(t *testing.T) {
 		t.Errorf("project order:\n%s", v)
 	}
 	requireAll(t, v, "Sessions by project")
+	// A group or "no team" row counts its sessions that need the user.
+	for _, n := range m.treeNodes() {
+		if n.kind == "group" && n.need != 1 {
+			t.Errorf("vault counts %d for you, want 1 (todo waits)", n.need)
+		}
+	}
 	m.key("b")
 	requireAll(t, m.View(), "Sessions by team", "▾ no team", "vault")
+	for _, n := range m.treeNodes() {
+		if n.kind == "outside" && n.need != 1 {
+			t.Errorf("no team counts %d for you, want 1", n.need)
+		}
+	}
 	m.key("b")
 	if strings.Contains(m.View(), "no team") {
 		t.Error("b on one host does not cycle back to project order")

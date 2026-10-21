@@ -41,6 +41,12 @@ type treeNode struct {
 	st    *core.AgentStatus // the agent's files, on the Team tab
 	org   *core.Org         // the snapshot the node comes from (this host's, or another host's)
 	host  *hub.HostView     // set for nodes of another host of the org
+	need  int               // sessions under a group or "no team" row that need the user
+}
+
+// needsYou is the "needs you" filter's test: waiting, blocked or with mail.
+func needsYou(s *core.HostSession) bool {
+	return s.Status == "waiting" || s.Status == "blocked" || s.Pending > 0
 }
 
 var filterModes = []string{"all", "needs you", "busy", "outside tmux"}
@@ -83,7 +89,7 @@ func sessionName(s *core.HostSession) string {
 func (m *model) keep(s *core.HostSession, team, agent string) bool {
 	switch filterModes[m.filterMode] {
 	case "needs you":
-		if s.Status != "waiting" && s.Status != "blocked" && s.Pending == 0 {
+		if !needsYou(s) {
 			return false
 		}
 	case "busy":
@@ -140,7 +146,13 @@ func (m *model) treeNodes() []treeNode {
 	}
 	// By team: the sessions outside teams under one row, by group.
 	if groups := m.groupRows(splits, 1); len(groups) > 0 {
-		out = append(out, treeNode{kind: "outside", key: "noteam", label: "no team", fold: true, org: o})
+		need := 0
+		for _, g := range groups {
+			if g.kind == "group" {
+				need += g.need
+			}
+		}
+		out = append(out, treeNode{kind: "outside", key: "noteam", label: "no team", fold: true, org: o, need: need})
 		if !m.folded["noteam"] {
 			out = append(out, groups...)
 		}
@@ -165,7 +177,7 @@ func (m *model) groupRows(splits []hostSplit, d int) []treeNode {
 		}
 		for _, g := range o.Free {
 			k := "group:" + g.Group
-			if isFolder(g.Group) && h != nil {
+			if groupIsFolder(g) && h != nil {
 				k = "host:" + h.ID + "/" + k
 			}
 			if _, ok := parts[k]; !ok {
@@ -182,12 +194,16 @@ func (m *model) groupRows(splits []hostSplit, d int) []treeNode {
 	for _, k := range keys {
 		ps := parts[k]
 		var ss []treeNode
-		merged := &core.FreeGroup{Group: ps[0].g.Group}
+		need := 0
+		merged := &core.FreeGroup{Group: ps[0].g.Group, Kind: ps[0].g.Kind}
 		for _, p := range ps {
 			for _, s := range p.g.Sessions {
 				if m.keep(s, "", "") {
 					ss = append(ss, treeNode{kind: "session", key: k + "/" + sessionName(s) + "@" + hostID(p.h), depth: d + 1, label: m.sessLabel(s, p.h), sess: s, org: p.o, host: p.h})
 					merged.Sessions = append(merged.Sessions, s)
+					if needsYou(s) {
+						need++
+					}
 				}
 			}
 		}
@@ -195,10 +211,10 @@ func (m *model) groupRows(splits []hostSplit, d int) []treeNode {
 			continue
 		}
 		label := path.Base(strings.ReplaceAll(strings.TrimSuffix(ps[0].g.Group, ".git"), `\`, "/"))
-		if isFolder(ps[0].g.Group) && m.hosts != nil {
+		if groupIsFolder(ps[0].g) && m.hosts != nil {
 			label += " @" + m.hostName(ps[0].h)
 		}
-		out = append(out, treeNode{kind: "group", key: k, depth: d, label: label, fold: true, group: merged, org: ps[0].o, host: ps[0].h})
+		out = append(out, treeNode{kind: "group", key: k, depth: d, label: label, fold: true, group: merged, org: ps[0].o, host: ps[0].h, need: need})
 		if !m.folded[k] {
 			out = append(out, ss...)
 		}
@@ -206,12 +222,19 @@ func (m *model) groupRows(splits []hostSplit, d int) []treeNode {
 	return out
 }
 
-// isFolder says whether a group is keyed by a folder rather than a git
-// remote, whatever system the host that sent it runs: /..., C:\... or \\...
-func isFolder(g string) bool {
-	if strings.HasSuffix(g, ".git") {
-		return false // a remote given as a path (/srv/git/x.git) is still a remote
+// groupIsFolder says whether a group is keyed by a folder rather than a git
+// remote: as its host recorded it, or for a host too old to record it, as
+// the key looks.
+func groupIsFolder(g *core.FreeGroup) bool {
+	if g.Kind != "" {
+		return g.Kind == "folder"
 	}
+	return isFolder(g.Group)
+}
+
+// isFolder guesses from the key, whatever system sent it: /..., C:\... or
+// \\..., or the unknown-folder mark.
+func isFolder(g string) bool {
 	return g == "" || g == "(unknown folder)" || strings.HasPrefix(g, "/") || strings.HasPrefix(g, `\\`) || filepath.IsAbs(g) ||
 		(len(g) >= 3 && g[1] == ':' && (g[2] == '\\' || g[2] == '/'))
 }
@@ -577,6 +600,10 @@ func (m *model) row(n treeNode, w int) string {
 	case "team":
 		if c := len(m.teamWarnings(n)); c > 0 {
 			tail = cWarn.Render(fmt.Sprintf("%d for you", c))
+		}
+	case "group", "outside":
+		if n.need > 0 {
+			tail = cWarn.Render(fmt.Sprintf("%d for you", n.need))
 		}
 	case "host":
 		tail = stateGlyph(n.host.State)
