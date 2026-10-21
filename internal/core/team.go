@@ -599,7 +599,7 @@ type AgentStatus struct {
 	Inbox           int
 	Proposals       []string
 	Threads         []string
-	ContextLines    int
+	OverBudget      string // what makes its loaded files too large (§27), or ""
 	Conflict        bool
 }
 
@@ -645,10 +645,10 @@ func (p *Project) Status() []AgentStatus {
 		s := AgentStatus{
 			ID: id, Title: strings.SplitN(id, ".", 2)[0], Duty: Duty(agent),
 			Claims: claims, ClaimErr: claimErr,
-			Inbox:        len(listNames(p.local("inbox", id), ".md")),
-			Proposals:    section(ctx, "Proposals"),
-			ContextLines: bytes.Count(ctx, []byte("\n")),
-			Conflict:     HasConflictMarkers(ctx) || HasConflictMarkers(agent),
+			Inbox:      len(listNames(p.local("inbox", id), ".md")),
+			Proposals:  section(ctx, "Proposals"),
+			OverBudget: p.OverBudget(id),
+			Conflict:   HasConflictMarkers(ctx) || HasConflictMarkers(agent),
 		}
 		for _, t := range listNames(filepath.Join(p.AgentDir(id), "threads"), ".md") {
 			s.Threads = append(s.Threads, strings.TrimSuffix(t, ".md"))

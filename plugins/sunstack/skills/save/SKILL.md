@@ -173,8 +173,10 @@ context first, then delete against the new checksum.
 
 ## 6. Tidy
 
-Run `sunstack tidy "<id>" --root "<root>"`: it moves Done entries older than a week to the
-archive. If the board is still longer than about 40 lines, shorten Next.
+Run `sunstack tidy "<id>" --root "<root>"`: it moves to the archive Done entries older than a
+week or past the 10 newest, and processed messages older than a week whose message is no longer
+in the inbox. If it says the context or board is over budget, archive superseded decisions and
+fixed pitfalls (step 3's archive rule) or shorten Next, then save again.
 
 ## 7. Before a stop
 

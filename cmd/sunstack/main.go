@@ -903,6 +903,11 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 				name = "team"
 			}
 			fmt.Fprintf(stdout, "sunstack: tidied %s, %d entr(ies) archived\n", name, n)
+			if o != core.TeamID {
+				if over := p.OverBudget(o); over != "" {
+					fmt.Fprintf(stdout, "sunstack: %s\n", over)
+				}
+			}
 		}
 		return nil
 

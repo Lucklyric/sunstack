@@ -698,8 +698,8 @@ func (m *model) agentDetails(a *core.AgentStatus, width int) []string {
 	if len(a.Threads) > 0 {
 		out = append(out, "", cHeader.Render("Threads"), strings.Join(a.Threads, ", "))
 	}
-	if a.ContextLines > 200 {
-		out = append(out, "", cWarn.Render(fmt.Sprintf("context.md has %d lines; compact it", a.ContextLines)))
+	if a.OverBudget != "" {
+		out = append(out, "", cWarn.Render(a.OverBudget))
 	}
 	return out
 }

@@ -693,7 +693,12 @@ func (p *Project) Tidy(owner string) (int, error) {
 	var keep []string
 	sec := ""
 	n := 0
-	for _, l := range strings.Split(strings.TrimRight(strings.ReplaceAll(string(doc), "\r\n", "\n"), "\n"), "\n") {
+	all := strings.Split(strings.TrimRight(strings.ReplaceAll(string(doc), "\r\n", "\n"), "\n"), "\n")
+	overflow := map[int]bool{} // Done entries past the keepDone newest (§27)
+	if owner != TeamID {
+		overflow = doneOverflow(owner, all)
+	}
+	for i, l := range all {
 		t := strings.TrimSpace(l)
 		if strings.HasPrefix(t, "## ") {
 			sec = strings.TrimPrefix(t, "## ")
@@ -704,7 +709,7 @@ func (p *Project) Tidy(owner string) (int, error) {
 			archive := false
 			switch {
 			case owner != TeamID && sec == "Done":
-				archive = old(it.Date, tidyDays)
+				archive = old(it.Date, tidyDays) || overflow[i]
 			case owner == TeamID && sec == "User" && it.Done:
 				archive = old(it.Date, tidyDays)
 			case owner == TeamID && sec == "Directives" && old(it.Date, directiveAge):
@@ -726,8 +731,14 @@ func (p *Project) Tidy(owner string) (int, error) {
 		}
 		keep = append(keep, l)
 	}
+	ctxN := 0
+	if owner != TeamID {
+		if ctxN, err = p.tidyContext(owner, func(date string) bool { return old(date, tidyDays) }); err != nil {
+			return 0, err
+		}
+	}
 	if n == 0 {
-		return 0, nil
+		return ctxN, nil
 	}
 	// Archive first: a crash in between leaves an entry in both, never in neither.
 	for month, lines := range moved {
@@ -750,5 +761,5 @@ func (p *Project) Tidy(owner string) (int, error) {
 		return 0, fail(ExitFail, "fs", "%v", err)
 	}
 	p.LogEvent("tidy", map[bool]string{true: "team", false: owner}[owner == TeamID], fmt.Sprintf("archived=%d", n))
-	return n, nil
+	return n + ctxN, nil
 }

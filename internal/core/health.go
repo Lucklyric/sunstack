@@ -80,9 +80,8 @@ func (p *Project) Health() []Check {
 				cs = append(cs, failed("files", id+"/"+f+" has merge conflict markers", "resolve the conflict"))
 			}
 		}
-		ctx, _ := os.ReadFile(filepath.Join(p.AgentDir(id), "context.md"))
-		if n := strings.Count(string(ctx), "\n"); n > 200 {
-			cs = append(cs, warn("files", fmt.Sprintf("%s/context.md has %d lines", id, n), "compact it in a save as "+id))
+		if over := p.OverBudget(id); over != "" {
+			cs = append(cs, warn("files", over, "save as "+id+" (sunstack tidy "+id+" first)"))
 		}
 	}
 	if fileHasConflict(filepath.Join(p.Dir, "PILLARS.md")) {
