@@ -57,9 +57,7 @@ func RecordIssue(e IssueEntry) {
 	if r := []rune(e.Msg); len(r) > max {
 		e.Msg = string(r[:max])
 	}
-	if len(e.Code) > issueCodeMax {
-		e.Code = e.Code[:issueCodeMax]
-	}
+	e.Code = IssueCode(e.Code)
 	if e.Session == "" {
 		e.Session = os.Getenv("CLAUDE_CODE_SESSION_ID")
 		if e.Session == "" {
@@ -194,7 +192,22 @@ func IssueLine(c map[string]int) string {
 		return codes[i] < codes[j]
 	})
 	for i, k := range codes {
-		codes[i] = fmt.Sprintf("%s %d", k, c[k])
+		codes[i] = fmt.Sprintf("%s %d", IssueCode(k), c[k])
 	}
 	return "issues (7 days): " + strings.Join(codes, ", ")
+}
+
+// IssueCode keeps a code to [a-z0-9_.-] and 40 characters, at recording and
+// again when another host's counts are shown, since a code reaches terminals.
+func IssueCode(c string) string {
+	b := []byte(strings.ToLower(c))
+	if len(b) > issueCodeMax {
+		b = b[:issueCodeMax]
+	}
+	for i, ch := range b {
+		if !(ch >= 'a' && ch <= 'z' || ch >= '0' && ch <= '9' || ch == '_' || ch == '.' || ch == '-') {
+			b[i] = '_'
+		}
+	}
+	return string(b)
 }

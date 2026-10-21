@@ -119,3 +119,15 @@ func TestIssueSessionBounded(t *testing.T) {
 		t.Fatalf("entries: %d", len(got))
 	}
 }
+
+// Codes reach terminals, here and on other hosts: only [a-z0-9_.-].
+func TestIssueCodeSafe(t *testing.T) {
+	t.Setenv("SUNSTACK_HOME", t.TempDir())
+	RecordIssue(IssueEntry{Source: "note", Code: "\x1b]52;c;Y2g=\x07", Msg: "x"})
+	if got := ReadIssues(time.Time{}); len(got) != 1 || strings.ContainsAny(got[0].Code, "\x1b\x07;]") {
+		t.Fatalf("code %q", got[0].Code)
+	}
+	if line := IssueLine(map[string]int{"\x1b[2J": 1}); strings.ContainsAny(line, "\x1b[") {
+		t.Fatalf("line %q", line)
+	}
+}
