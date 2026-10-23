@@ -68,6 +68,9 @@ func SendToSession(s *HostSession, o SendOptions) (*SendResult, error) {
 	if strings.TrimSpace(o.Body) == "" {
 		return nil, fail(ExitUsage, "missing_arguments", "the message text is empty")
 	}
+	if o.Replaces != "" {
+		return nil, fail(ExitUsage, "usage", "--replaces is for a task to an agent")
+	}
 	if len(o.Body) > MaxMessage {
 		return nil, fail(ExitUsage, "usage", "the message is larger than %d KB; put long text in a file and send its path", MaxMessage>>10)
 	}

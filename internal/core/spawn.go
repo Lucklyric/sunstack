@@ -371,6 +371,8 @@ func (p *Project) Kill(t string) (string, error) {
 	if !ours && !paneRunsTool(c.TmuxSocket, c.TmuxPane, c.Tool) {
 		return "", fail(ExitFail, "not_running", "pane %s no longer runs %s for %s, so it is left alone; if that session is gone, close the pane, then sunstack release %s --stale", c.TmuxPane, c.Tool, name, name)
 	}
+	var returned []*Message
+	defer func() { p.notifyReturned(id, returned) }() // after the unlock below
 	unlock, err := p.lock(id)
 	if err != nil {
 		return "", err
@@ -382,7 +384,7 @@ func (p *Project) Kill(t string) (string, error) {
 	p.removeLive(c)
 	os.RemoveAll(p.sessionTmp(id, c.Token))
 	rest, _ := p.Claims(id)
-	p.requeue(id, rest)
+	returned = p.requeue(id, rest, map[string]string{c.Token: name})
 	p.LogEvent("kill", name, "pane="+c.TmuxPane)
 	return "closed " + name + " (pane " + c.TmuxPane + ")", nil
 }

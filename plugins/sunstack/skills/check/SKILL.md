@@ -55,6 +55,23 @@ and ones this session has already taken.
 
 ## 2. For each message
 
+0. **Judge before new work.** Before taking a `task` or `handoff`, compare it with the
+   agent's open work: its Now entries, tasks this session holds, and tasks marked
+   `returned:` (started by a session that ended, now with no owner). If the new one conflicts
+   with, overlaps or may replace an older one, or an older returned one may be out of date, do
+   not choose silently:
+   - ask the older task's sender with `--type question --reply-to <older id>`: still valid, or
+     replaced by `<new id>`? A task from the user through a session goes to its
+     `from_session`; one typed in a terminal is asked in this session's own output;
+   - work on what does not conflict meanwhile;
+   - close an older task only on the sender's answer, or when a newer task from its sender
+     shows `replaces: <older id>`: reply `done --reply-to <older id>` with
+     `closed: replaced by <new id>` (or `closed: no longer needed`) and
+     `verified: none, closed per <sender>`, ack it, and move its key result to Done with that
+     note. If another live session of the agent holds it, send that session an `fyi` with
+     `--reply-to <older id>` instead and leave it.
+   A session spawned for one task flags returned tasks that overlap its own and leaves the rest
+   to the agent's lead or the user.
 1. **Take** it, so another session of the same agent does not start on it too:
    `sunstack take --root "<root>" "<id>" "<message id>" --token "<token>"`.
    Exit 4 `taken` means another session has it: skip it.
@@ -93,7 +110,11 @@ and ones this session has already taken.
      rounds in one chain, send no third: make it an ask to the user on your board. A reply
      that arrives late, after the key result was reassigned or closed, is checked against your
      current board before you use anything from it.
-   - `shutdown`: stop taking new work, run the save skill (with the other messages' records),
+   - `shutdown`: stop taking new work. For each task or handoff this session still holds,
+     finish it, or send its sender an `fyi --reply-to <id>` with `not finished, returned: <state
+     and next step>` (an `fyi`: a `done` would close the task), so the sender can judge it.
+     Then run the
+     save skill (with the other messages' records),
      ack this message, reply `done` with
      `--reply-to` if it came from an agent, run the release skill, then tell the user this
      session can be closed. If any step fails, stop and tell the user.
@@ -104,7 +125,8 @@ and ones this session has already taken.
    `sunstack ack --root "<root>" "<id>" "<message id>" --token "<token>"`.
 
 If you stop before finishing (the user needs you for something else), leave the message
-taken; it goes back to the inbox when this session is released.
+taken; it goes back to the inbox, marked `returned:`, when this session is released, and an
+agent sender is told.
 
 ## 3. Report
 

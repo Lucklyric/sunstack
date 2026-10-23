@@ -91,10 +91,11 @@ Boards:
 Sessions and messages:
   sunstack team --sessions [--json]               every live session (also: sunstack sessions): name, tool, host, tmux place, resume command
   sunstack send <id|title|id_task|team/id|pane-id|session-id> "<text>"|--file F [--type task|question|handoff|fyi|done|shutdown]
-                [--reply-to MSG] [--from ID --token T] [--no-nudge] [--op ID] [--follows TASK]
+                [--reply-to MSG] [--from ID --token T] [--no-nudge] [--op ID] [--follows TASK] [--replaces TASK]
                                                   a task carries a brief: Goal, Scope, Done when, Verify, Report
                                                   (Context, Timebox, Not optional); a brief missing one is refused;
                                                   --follows quotes an earlier task and its replies into the new one
+                                                  --replaces names an open task of yours to the same agent that this one replaces
                                                   write a message to the agent's inbox, then type a one-line nudge
                                                   into a live Claude Code or Codex pane of that agent (tmux)
   sunstack check <id> --token T                   messages this session may handle (pending, and taken by it)
@@ -1005,7 +1006,7 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 		return nil
 
 	case "send":
-		a, err := parse(rest, "root type reply-to from token op file follows", "no-nudge")
+		a, err := parse(rest, "root type reply-to from token op file follows replaces", "no-nudge")
 		if err == nil {
 			err = a.atMost(2, "send")
 		}
@@ -1029,7 +1030,7 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 		}
 		tool, session := detectTool()
 		opts := core.SendOptions{To: a.pos[0], Body: body, Type: a.flags["type"], ReplyTo: a.flags["reply-to"],
-			From: a.flags["from"], Token: a.flags["token"], NoNudge: a.has("no-nudge"), Op: a.flags["op"], FromSession: session, Follows: a.flags["follows"]}
+			From: a.flags["from"], Token: a.flags["token"], NoNudge: a.has("no-nudge"), Op: a.flags["op"], FromSession: session, Follows: a.flags["follows"], Replaces: a.flags["replaces"]}
 		p, perr := core.FindProject(a.flags["root"])
 		if p != nil {
 			opts.Via = p.CallerLabel(tool, session, os.Getenv("TMUX_PANE"), tmuxSocket())
@@ -1038,6 +1039,9 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 		}
 		to := opts.To
 		if _, _, ok := hub.SplitAddress(to); ok && !strings.HasPrefix(to, "%") {
+			if opts.Replaces != "" {
+				return &core.Error{Code: core.ExitUsage, Reason: "usage", Msg: "--replaces works within this host"}
+			}
 			return sendRemote(p, opts, stdout)
 		}
 		external := strings.HasPrefix(to, "%") || core.IsSessionID(to) || strings.Contains(to, "/")
@@ -2237,6 +2241,16 @@ func printMessages(w io.Writer, ms []*core.Message) {
 		}
 		if m.Follows != "" {
 			fmt.Fprintf(stdout, "follows: %s\n", m.Follows)
+		}
+		if m.Replaces != "" {
+			fmt.Fprintf(stdout, "replaces: %s (close it once this is taken)\n", m.Replaces)
+		}
+		if m.ReplacedBy != "" {
+			fmt.Fprintf(stdout, "replaced by %s: its sender says this one no longer holds\n", m.ReplacedBy)
+		}
+		if m.Returned != "" {
+			label, at := m.ReturnedBy()
+			fmt.Fprintf(stdout, "returned: by %s, %s ago, unfinished\n", label, core.Ago(at))
 		}
 		fmt.Fprintf(stdout, "\n%s\n", strings.TrimRight(m.Body, "\n"))
 	}

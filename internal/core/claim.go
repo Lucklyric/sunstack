@@ -438,8 +438,21 @@ func (p *Project) Bundle(r *AsResult) string {
 	for _, n := range listNames(filepath.Join(p.AgentDir(r.ID), "threads"), ".md") {
 		b.WriteString(strings.TrimSuffix(n, ".md") + "\n")
 	}
-	b.WriteString("\n===== inbox (listed only; act on it only if spawned for it or the user asks) =====\n")
+	var inbox, returned []string
 	for _, n := range listNames(p.local("inbox", r.ID), ".md") {
+		if m, err := parseMessage(filepath.Join(p.local("inbox", r.ID), n)); err == nil && m.Returned != "" && (m.Type == "task" || m.Type == "handoff") {
+			label, at := m.ReturnedBy()
+			returned = append(returned, fmt.Sprintf("%s (from %s, returned by %s %s ago)", n, m.From, label, Ago(at)))
+			continue
+		}
+		inbox = append(inbox, n)
+	}
+	if len(returned) > 0 {
+		b.WriteString("\n===== returned, no owner: decide before new work (take it, or ask its sender whether it still holds) =====\n")
+		b.WriteString(strings.Join(returned, "\n") + "\n")
+	}
+	b.WriteString("\n===== inbox (listed only; act on it only if spawned for it or the user asks) =====\n")
+	for _, n := range inbox {
 		b.WriteString(n + "\n")
 	}
 	b.WriteString(p.StateText(r.ID, r.Token, r.Task))
@@ -530,6 +543,8 @@ func (p *Project) Release(id, token string) error {
 	if !ValidID(id) {
 		return fail(ExitUsage, "usage", "invalid id: %s", id)
 	}
+	var returned []*Message
+	defer func() { p.notifyReturned(id, returned) }() // after the unlock below
 	unlock, err := p.lock(id)
 	if err != nil {
 		return err
@@ -548,7 +563,7 @@ func (p *Project) Release(id, token string) error {
 	os.RemoveAll(p.sessionTmp(id, token))
 	p.clearNudged(id, token)
 	rest, _ := p.Claims(id)
-	p.requeue(id, rest) // messages this session took but did not ack go back
+	returned = p.requeue(id, rest, map[string]string{token: cur.Label(id)}) // messages this session took but did not ack go back
 	if len(rest) == 0 {
 		os.RemoveAll(p.local("tmp", id))
 		os.Remove(p.claimDir(id))
@@ -629,11 +644,13 @@ func paneGone(c *Live) bool {
 func (p *Project) pruneStale(id string, claims []*Live, only string) ([]*Live, []string) {
 	var keep []*Live
 	var dropped []string
+	gone := map[string]string{}
 	for _, c := range claims {
 		if (only == "" || c.Label(id) == only) && paneGone(c) {
 			if p.removeLive(c) == nil {
 				os.RemoveAll(p.sessionTmp(id, c.Token))
 				dropped = append(dropped, c.Label(id))
+				gone[c.Token] = c.Label(id)
 				p.LogEvent("prune", c.Label(id), "pane="+c.TmuxPane)
 				continue
 			}
@@ -641,7 +658,7 @@ func (p *Project) pruneStale(id string, claims []*Live, only string) ([]*Live, [
 		keep = append(keep, c)
 	}
 	if len(dropped) > 0 {
-		p.requeue(id, keep)
+		p.requeue(id, keep, gone) // marked and logged; a pruned claim sends no mail
 	}
 	return keep, dropped
 }

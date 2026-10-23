@@ -22,6 +22,7 @@ type TaskInfo struct {
 	ID, From, To, Session, At, Goal, Follows string
 	FromSession                              string // the CLI session that sent it, for one with no agent
 	State                                    string // pending, taken, acked
+	Returned                                 string // "<label> <time>" when put back unfinished (§31)
 	Replies                                  []TaskReply
 	Open                                     bool
 }
@@ -108,7 +109,7 @@ func (p *Project) Tasks() []*TaskInfo {
 		if m.Type != "task" {
 			continue
 		}
-		t := &TaskInfo{ID: m.ID, From: m.From, To: m.To, Session: m.Session, FromSession: m.FromSession, At: m.At, Follows: m.Follows, State: m.State, Replies: replies[m.ID]}
+		t := &TaskInfo{ID: m.ID, From: m.From, To: m.To, Session: m.Session, FromSession: m.FromSession, At: m.At, Follows: m.Follows, State: m.State, Returned: m.Returned, Replies: replies[m.ID]}
 		for _, l := range strings.Split(m.Body, "\n") {
 			if strings.HasPrefix(strings.ToLower(l), "goal:") {
 				t.Goal = strings.TrimSpace(l)
@@ -121,6 +122,22 @@ func (p *Project) Tasks() []*TaskInfo {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
 	return out
+}
+
+// Ago is the time since an RFC 3339 moment, in minutes, hours or days.
+func Ago(at string) string {
+	t, err := time.Parse(time.RFC3339, at)
+	if err != nil {
+		return "some time"
+	}
+	switch d := time.Since(t); {
+	case d < 2*time.Hour:
+		return fmt.Sprintf("%d minutes", int(d.Minutes()))
+	case d < 48*time.Hour:
+		return fmt.Sprintf("%d hours", int(d.Hours()))
+	default:
+		return fmt.Sprintf("%d days", int(d.Hours()/24))
+	}
 }
 
 // idSecond is the time part of a message ID (its first 16 characters).
@@ -151,6 +168,11 @@ func (p *Project) taskFindings(today time.Time) []Issue {
 		if at, err := time.Parse("2006-01-02T15:04:05Z", t.At); err == nil && t.Open && today.Sub(at) > openDays*24*time.Hour {
 			out = append(out, Issue{"blocked", owner, fmt.Sprintf("task %s from %s to %s has been open since %s", t.ID, t.From, t.To, at.Format("2006-01-02")),
 				"sunstack tasks; check progress read-only (org --by agent, peek), never ask \"are you done?\""})
+		}
+		if t.Open && t.State == "pending" && t.Returned != "" {
+			label, at := (&Message{Returned: t.Returned}).ReturnedBy()
+			out = append(out, Issue{"blocked", owner, fmt.Sprintf("task %s from %s to %s was returned unfinished by %s %s ago; nobody has it", t.ID, t.From, t.To, label, Ago(at)),
+				t.From + " judges whether it still holds: leave it for " + t.To + ", re-send it (--follows or --replaces), or tell " + t.To + " it is no longer needed"})
 		}
 		if followed[t.ID] {
 			continue // judged at the end of its chain
@@ -192,6 +214,9 @@ func (p *Project) TasksText(all bool, from string) string {
 		state := t.State
 		if !t.Open {
 			state = "closed"
+		} else if t.State == "pending" && t.Returned != "" {
+			label, at := (&Message{Returned: t.Returned}).ReturnedBy()
+			state = "returned by " + label + " " + Ago(at) + " ago"
 		}
 		fmt.Fprintf(&b, "%s  %s -> %s  %s  since %s\n", t.ID, t.From, to, state, strings.SplitN(t.At, "T", 2)[0])
 		if t.Goal != "" {
@@ -215,6 +240,32 @@ func (p *Project) TasksText(all bool, from string) string {
 		return "no open tasks\n"
 	}
 	return b.String()
+}
+
+// checkReplaces accepts --replaces only for an open task that the same
+// sender (or the user) sent to the same recipient (§31).
+func (p *Project) checkReplaces(o SendOptions, from, to string) error {
+	if o.Type != "task" {
+		return fail(ExitUsage, "usage", "--replaces is for a task")
+	}
+	if !msgIDRe.MatchString(o.Replaces) {
+		return fail(ExitUsage, "usage", "invalid --replaces message id: %s", o.Replaces)
+	}
+	for _, t := range p.Tasks() {
+		if t.ID != o.Replaces {
+			continue
+		}
+		switch {
+		case !t.Open:
+			return fail(ExitUsage, "usage", "--replaces: task %s is already closed", t.ID)
+		case t.To != to:
+			return fail(ExitUsage, "usage", "--replaces: task %s went to %s, not %s", t.ID, t.To, to)
+		case from != "user" && t.From != from:
+			return fail(ExitUsage, "usage", "--replaces: task %s was sent by %s; only its sender or the user may replace it", t.ID, t.From)
+		}
+		return nil
+	}
+	return fail(ExitUsage, "usage", "--replaces: no open task %s in this team", o.Replaces)
 }
 
 // followContext quotes an earlier task and its replies for a follow-up

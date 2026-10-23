@@ -31,6 +31,9 @@ type Message struct {
 	FromSession                                   string // the sender's Claude session or Codex thread ID, for a reply to a session without an agent
 	Follows                                       string // the earlier task this one follows up (§17.4)
 	FromHost                                      string // the host a message from another host came from (§18.8)
+	Returned                                      string // "<session label> <time>": put back unfinished by that session (§31)
+	Replaces                                      string // the earlier task this one replaces, named by its sender (§31)
+	ReplacedBy                                    string // set by check: a newer task that replaces this one
 	Body                                          string
 	State                                         string // pending, taken (by this session), taken by <label>
 	path                                          string
@@ -96,6 +99,10 @@ func parseMessage(path string) (*Message, error) {
 					m.Follows = v
 				case "from_host":
 					m.FromHost = v
+				case "returned":
+					m.Returned = v
+				case "replaces":
+					m.Replaces = v
 				}
 			}
 			m.Body = strings.TrimLeft(s[4+end+5:], "\n")
@@ -133,6 +140,12 @@ func (m *Message) text() string {
 	if m.FromHost != "" {
 		fmt.Fprintf(&b, "from_host: %s\n", m.FromHost)
 	}
+	if m.Replaces != "" {
+		fmt.Fprintf(&b, "replaces: %s\n", m.Replaces)
+	}
+	if m.Returned != "" {
+		fmt.Fprintf(&b, "returned: %s\n", m.Returned)
+	}
 	b.WriteString("---\n")
 	b.WriteString(strings.TrimRight(m.Body, "\n") + "\n")
 	return b.String()
@@ -154,6 +167,7 @@ type SendOptions struct {
 	FromLabel   string
 	FromSession string // the sending CLI session's ID, if known
 	Follows     string // an earlier task this task follows up; its brief and replies are quoted
+	Replaces    string // an earlier task of the same sender to the same recipient that this one replaces
 	// FromAnswer marks the answer command (approval-gated): only it may send
 	// an answer, which speaks for the user on an ask.
 	FromAnswer bool
@@ -272,6 +286,11 @@ func (p *Project) Send(o SendOptions) (*SendResult, error) {
 	if err != nil {
 		return nil, err
 	}
+	if o.Replaces != "" {
+		if err := p.checkReplaces(o, from, id); err != nil {
+			return nil, err
+		}
+	}
 	if o.FromSession != "" && !IsReplySession(o.FromSession) {
 		o.FromSession = ""
 	}
@@ -297,7 +316,7 @@ func (p *Project) Send(o SendOptions) (*SendResult, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, fail(ExitFail, "fs", "%v", err)
 	}
-	m := &Message{From: from, To: id, Session: session, At: now(), Type: o.Type, ReplyTo: o.ReplyTo, Body: o.Body, Op: o.Op, FromSession: o.FromSession, Follows: o.Follows, FromHost: o.FromHost}
+	m := &Message{From: from, To: id, Session: session, At: now(), Type: o.Type, ReplyTo: o.ReplyTo, Body: o.Body, Op: o.Op, FromSession: o.FromSession, Follows: o.Follows, Replaces: o.Replaces, FromHost: o.FromHost}
 	if from == "user" {
 		m.Via = o.Via
 	}
@@ -582,25 +601,75 @@ func typeInto(socket, pane, tool, text string) error {
 
 // requeue returns messages taken by sessions that no longer hold a claim.
 // Caller holds id's lock.
-func (p *Project) requeue(id string, claims []*Live) int {
+func (p *Project) requeue(id string, claims []*Live, gone map[string]string) []*Message {
 	live := map[string]bool{}
 	for _, c := range claims {
 		live[c.Token] = true
 	}
-	n := 0
+	var out []*Message
 	dirs, _ := os.ReadDir(p.local("inbox", id, ".taken"))
 	for _, d := range dirs {
 		if !d.IsDir() || live[d.Name()] {
 			continue
 		}
+		label := gone[d.Name()]
+		if label == "" {
+			label = "a session that ended"
+		}
 		for _, f := range listNames(p.takenDir(id, d.Name()), ".md") {
-			if os.Rename(filepath.Join(p.takenDir(id, d.Name()), f), filepath.Join(p.inboxDir(id), f)) == nil {
-				n++
+			src, dst := filepath.Join(p.takenDir(id, d.Name()), f), filepath.Join(p.inboxDir(id), f)
+			if os.Rename(src, dst) != nil {
+				continue
+			}
+			// Mark it returned, so whoever reads it next knows it was
+			// started and left (§31). One header: the latest return.
+			if m, err := parseMessage(dst); err == nil {
+				m.Returned = label + " " + now()
+				p.rewriteMessage(dst, m)
+				p.LogEvent("requeue", label, m.ID)
+				out = append(out, m)
 			}
 		}
 		os.Remove(p.takenDir(id, d.Name()))
 	}
-	return n
+	return out
+}
+
+// ReturnedBy splits the returned header into the session label and the time.
+func (m *Message) ReturnedBy() (label, at string) {
+	i := strings.LastIndex(m.Returned, " ")
+	if i < 0 {
+		return m.Returned, ""
+	}
+	return m.Returned[:i], m.Returned[i+1:]
+}
+
+// rewriteMessage replaces a message file through a temporary file and a
+// rename, so a reader never sees half of it.
+func (p *Project) rewriteMessage(path string, m *Message) {
+	tmp := path + ".tmp"
+	if os.WriteFile(tmp, []byte(m.text()), 0o644) != nil {
+		os.Remove(tmp)
+		return
+	}
+	if os.Rename(tmp, path) != nil {
+		os.Remove(tmp)
+	}
+}
+
+// notifyReturned tells the agent that sent each returned task or handoff,
+// once, after the caller's locks are freed (§31): the sender judges whether
+// it still holds. Tasks from the user or beyond the team show in tasks,
+// next and org instead.
+func (p *Project) notifyReturned(id string, ms []*Message) {
+	for _, m := range ms {
+		if (m.Type != "task" && m.Type != "handoff") || m.From == id || !p.HasAgent(m.From) {
+			continue
+		}
+		label, _ := m.ReturnedBy()
+		body := fmt.Sprintf("%s returned unfinished by %s. Still valid? Leave it for %s, re-send it with --follows or --replaces, or tell %s it is no longer needed (--reply-to %s).", m.ID, label, id, id, m.ID)
+		p.Send(SendOptions{To: m.From, FromLabel: id, Type: "fyi", Body: body, NoNudge: true})
+	}
 }
 
 // Check lists the messages this session may handle: pending ones addressed
@@ -619,7 +688,7 @@ func (p *Project) Check(id, token string) ([]*Message, error) {
 		return nil, err
 	}
 	claims, _ := p.Claims(id)
-	p.requeue(id, claims)
+	p.requeue(id, claims, nil)
 	p.clearNudged(id, token)
 	label := me.Label(id)
 	orphan := orphanSession(id, claims)
@@ -637,6 +706,15 @@ func (p *Project) Check(id, token string) ([]*Message, error) {
 		}
 		m.State = "pending"
 		out = append(out, m)
+	}
+	byID := map[string]*Message{}
+	for _, m := range out {
+		byID[m.ID] = m
+	}
+	for _, m := range out {
+		if old := byID[m.Replaces]; old != nil && m.Replaces != "" {
+			old.ReplacedBy = m.ID
+		}
 	}
 	return out, nil
 }

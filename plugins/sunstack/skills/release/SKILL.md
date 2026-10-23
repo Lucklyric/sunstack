@@ -10,6 +10,11 @@ Command: `sunstack release`. Skill: `/sunstack:release` in Claude Code, `$sunsta
 Run the save skill first if there is anything worth keeping. If save failed or its result is
 unclear, do not release: tell the user.
 
+Release returns every task or handoff this session still holds to the agent's inbox, marked
+`returned:`. Before releasing, finish each one, or send its sender an `fyi --reply-to <id>`
+with `not finished, returned: <state and next step>` (the send skill; an `fyi`, since a `done`
+would close the task), so the sender can judge whether it still holds.
+
 Then, with the root, id and token from the `session state` block that `sunstack as` printed in
 this session, run this on its own:
 

@@ -72,6 +72,10 @@ sunstack send "<recipient>" "<text>" --type <type> --from "<id>" --token "<token
 A follow-up round of a task (it failed, or needs more) is a fresh task with
 `--follows "<earlier task id>"`: the new brief still needs its own labels, and Sunstack quotes
 the earlier brief and its replies under `Context:`. `sunstack tasks` shows which tasks are open.
+When a new task changes or supersedes an open task you sent the same agent, add
+`--replaces "<earlier task id>"`: the recipient closes the earlier one without asking. A task
+shown as `returned by <session>` in `tasks` was left unfinished: judge whether it still holds,
+then leave it, re-send it, or tell the recipient it is no longer needed.
 
 For a `task`, or any long text, pass the file instead of the text:
 `sunstack send "<recipient>" --type task --file "<brief file>" --from "<id>" --token "<token>"`.
