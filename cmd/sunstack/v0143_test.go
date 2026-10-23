@@ -232,3 +232,13 @@ func TestLatestReplacementNamed(t *testing.T) {
 	c := field(msgRe, sh(t, p, nil, "send", "builder.alice", "--type", "task", "--file", brief, "--replaces", t1).out)
 	requireContains(t, sh(t, p, nil, "check", "builder.alice", "--token", ta).out, "replaced by "+c)
 }
+
+// A returned handoff shows in next, like a returned task (round-3 review).
+func TestReturnedHandoffInNext(t *testing.T) {
+	p := fixture(t)
+	ta := field(tokenRe, sh(t, p, nil, "as", "builder.alice").out)
+	h := field(msgRe, sh(t, p, nil, "send", "builder.alice", "take over the export", "--type", "handoff").out)
+	expect(t, sh(t, p, nil, "take", "builder.alice", h, "--token", ta), 0, "take")
+	expect(t, sh(t, p, nil, "release", "builder.alice", "--token", ta), 0, "release")
+	requireContains(t, sh(t, p, nil, "next", "--all").out, "handoff "+h, "returned unfinished")
+}

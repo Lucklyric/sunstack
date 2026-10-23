@@ -151,6 +151,18 @@ func idSecond(id string) string {
 // taskFindings flags tasks open too long, and chains that failed twice.
 func (p *Project) taskFindings(today time.Time) []Issue {
 	var out []Issue
+	// A returned handoff has no ledger entry; it is flagged while it waits.
+	for _, m := range p.allMessages() {
+		if m.Type == "handoff" && m.State == "pending" && m.Returned != "" {
+			owner := m.From
+			if !p.HasAgent(owner) {
+				owner = "user"
+			}
+			label, at := m.ReturnedBy()
+			out = append(out, Issue{"blocked", owner, fmt.Sprintf("handoff %s from %s to %s was returned unfinished by %s %s ago; nobody has it", m.ID, m.From, m.To, label, Ago(at)),
+				m.From + " judges whether it still holds: leave it for " + m.To + ", send it again, or tell " + m.To + " it is no longer needed"})
+		}
+	}
 	tasks := p.Tasks()
 	byID := map[string]*TaskInfo{}
 	followed := map[string]bool{}
