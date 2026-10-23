@@ -351,7 +351,7 @@ func (p *Project) KillPlan(t string) (string, error) {
 // drops its claim and requeues its taken messages. Unsaved work in that
 // session is lost. It refuses a pane that no longer runs the recorded CLI,
 // unless sunstack spawned it and the pane still carries its mark.
-func (p *Project) Kill(t string) (string, error) {
+func (p *Project) Kill(t string) (msg string, err error) {
 	id, c, err := p.target(t)
 	if err != nil {
 		return "", err
@@ -372,7 +372,11 @@ func (p *Project) Kill(t string) (string, error) {
 		return "", fail(ExitFail, "not_running", "pane %s no longer runs %s for %s, so it is left alone; if that session is gone, close the pane, then sunstack release %s --stale", c.TmuxPane, c.Tool, name, name)
 	}
 	var returned []*Message
-	defer func() { p.notifyReturned(id, returned) }() // after the unlock below
+	defer func() { // after the unlock below
+		if failed := p.notifyReturned(id, returned); len(failed) > 0 && err == nil {
+			err = fail(ExitFail, "notice", "%s, but %s", msg, strings.Join(failed, "; "))
+		}
+	}()
 	unlock, err := p.lock(id)
 	if err != nil {
 		return "", err

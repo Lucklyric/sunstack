@@ -4,10 +4,13 @@ package main
 // the task a new one replaces.
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/Lucklyric/sunstack/internal/core"
 )
 
 func inboxTexts(t *testing.T, p, id string) []string {
@@ -108,4 +111,78 @@ func TestSendReplaces(t *testing.T) {
 	expect(t, sh(t, p, nil, "take", "builder.alice", t1, "--token", ta), 0, "take the old one")
 	// Replaced twice (by t2, then by the user's task): the latest is named.
 	requireContains(t, sh(t, p, nil, "check", "builder.alice", "--token", ta).out, t1+" (taken (by this session))", "replaced by ")
+}
+
+// Review findings (§31.6).
+
+// "replaced by" stays while the newer task is taken by another session or archived.
+func TestReplacedBySeenAcrossSessions(t *testing.T) {
+	p := fixture(t)
+	brief := writeFile(t, t.TempDir(), "b.md", fullBrief)
+	tr := field(tokenRe, sh(t, p, nil, "as", "reviewer").out)
+	ta := field(tokenRe, sh(t, p, nil, "as", "builder.alice", "--task", "api").out)
+	tb := field(tokenRe, sh(t, p, nil, "as", "builder.alice", "--join", "--task", "docs").out)
+	asReviewer := []string{"--from", "reviewer", "--token", tr}
+	t1 := field(msgRe, sh(t, p, nil, append([]string{"send", "builder.alice", "--type", "task", "--file", brief}, asReviewer...)...).out)
+	expect(t, sh(t, p, nil, "take", "builder.alice", t1, "--token", ta), 0, "A takes the old task")
+	t2 := field(msgRe, sh(t, p, nil, append([]string{"send", "builder.alice", "--type", "task", "--file", brief, "--replaces", t1}, asReviewer...)...).out)
+	expect(t, sh(t, p, nil, "take", "builder.alice", t2, "--token", tb), 0, "B takes the new task")
+	requireContains(t, sh(t, p, nil, "check", "builder.alice", "--token", ta).out, "replaced by "+t2)
+	expect(t, sh(t, p, nil, "ack", "builder.alice", t2, "--token", tb), 0, "B acks the new task")
+	requireContains(t, sh(t, p, nil, "check", "builder.alice", "--token", ta).out, "replaced by "+t2)
+}
+
+// A busy sender lock does not lose the notice silently: release says so.
+func TestReturnNoticeBusySender(t *testing.T) {
+	p := fixture(t)
+	brief := writeFile(t, t.TempDir(), "b.md", fullBrief)
+	tr := field(tokenRe, sh(t, p, nil, "as", "reviewer").out)
+	ta := field(tokenRe, sh(t, p, nil, "as", "builder.alice").out)
+	task := field(msgRe, sh(t, p, nil, "send", "builder.alice", "--type", "task", "--file", brief, "--from", "reviewer", "--token", tr).out)
+	expect(t, sh(t, p, nil, "take", "builder.alice", task, "--token", ta), 0, "take")
+	lock := filepath.Join(p, "sunstack", "_local", "locks", "reviewer")
+	must(t, os.MkdirAll(lock, 0o755))
+	owner := fmt.Sprintf("2026-10-23T00:00:00Z pid %d", os.Getpid())
+	if st := core.ProcStart(os.Getpid()); st != "" {
+		owner += " start " + st
+	}
+	must(t, os.WriteFile(filepath.Join(lock, "owner"), []byte(owner+"\n"), 0o644))
+	r := sh(t, p, nil, "release", "builder.alice", "--token", ta)
+	requireContains(t, r.out+r.stderr, "released", "could not tell reviewer", task)
+	must(t, os.RemoveAll(lock))
+	if n := len(inboxTexts(t, p, "builder.alice")); n != 1 {
+		t.Errorf("task not back in the inbox: %d", n)
+	}
+}
+
+// A repeated --op send of a replacement returns the first one even after
+// the old task was closed.
+func TestReplacesRetryWithOp(t *testing.T) {
+	p := fixture(t)
+	brief := writeFile(t, t.TempDir(), "b.md", fullBrief)
+	tr := field(tokenRe, sh(t, p, nil, "as", "reviewer").out)
+	ta := field(tokenRe, sh(t, p, nil, "as", "builder.alice").out)
+	asReviewer := []string{"--from", "reviewer", "--token", tr}
+	t1 := field(msgRe, sh(t, p, nil, append([]string{"send", "builder.alice", "--type", "task", "--file", brief}, asReviewer...)...).out)
+	args := append([]string{"send", "builder.alice", "--type", "task", "--file", brief, "--replaces", t1, "--op", "repl-1"}, asReviewer...)
+	t2 := field(msgRe, sh(t, p, nil, args...).out)
+	expect(t, sh(t, p, nil, "send", "reviewer", "closed: replaced by "+t2+"\nverified: none, closed per reviewer", "--type", "done", "--reply-to", t1, "--from", "builder.alice", "--token", ta), 0, "close the old one")
+	r := sh(t, p, nil, args...)
+	expect(t, r, 0, "retry with the same --op")
+	requireContains(t, r.out, t2, "already sent")
+}
+
+// A returned header that cannot be written still returns the task, logged as unmarked.
+func TestReturnedMarkFailureKeepsTask(t *testing.T) {
+	p := fixture(t)
+	brief := writeFile(t, t.TempDir(), "b.md", fullBrief)
+	ta := field(tokenRe, sh(t, p, nil, "as", "builder.alice").out)
+	task := field(msgRe, sh(t, p, nil, "send", "builder.alice", "--type", "task", "--file", brief).out)
+	expect(t, sh(t, p, nil, "take", "builder.alice", task, "--token", ta), 0, "take")
+	must(t, os.MkdirAll(filepath.Join(p, "sunstack", "_local", "inbox", "builder.alice", ".taken", ta, task+".md.tmp", "x"), 0o755))
+	expect(t, sh(t, p, nil, "release", "builder.alice", "--token", ta), 0, "release")
+	if n := len(inboxTexts(t, p, "builder.alice")); n != 1 {
+		t.Fatalf("task lost: %d in the inbox", n)
+	}
+	requireContains(t, eventsLog(t, p), "requeue  builder.alice  "+task+"  unmarked")
 }

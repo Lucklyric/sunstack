@@ -539,12 +539,16 @@ func (p *Project) requireToken(id, token string) (*Live, error) {
 }
 
 // Release drops this session's claim; other sessions on the same ID keep theirs.
-func (p *Project) Release(id, token string) error {
+func (p *Project) Release(id, token string) (err error) {
 	if !ValidID(id) {
 		return fail(ExitUsage, "usage", "invalid id: %s", id)
 	}
 	var returned []*Message
-	defer func() { p.notifyReturned(id, returned) }() // after the unlock below
+	defer func() { // after the unlock below
+		if failed := p.notifyReturned(id, returned); len(failed) > 0 && err == nil {
+			err = fail(ExitFail, "notice", "released %s, but %s", id, strings.Join(failed, "; "))
+		}
+	}()
 	unlock, err := p.lock(id)
 	if err != nil {
 		return err

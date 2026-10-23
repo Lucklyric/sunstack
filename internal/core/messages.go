@@ -286,11 +286,6 @@ func (p *Project) Send(o SendOptions) (*SendResult, error) {
 	if err != nil {
 		return nil, err
 	}
-	if o.Replaces != "" {
-		if err := p.checkReplaces(o, from, id); err != nil {
-			return nil, err
-		}
-	}
 	if o.FromSession != "" && !IsReplySession(o.FromSession) {
 		o.FromSession = ""
 	}
@@ -326,6 +321,13 @@ func (p *Project) Send(o SendOptions) (*SendResult, error) {
 		}
 		if o.ID != "" && idUsed(o.ID, p.inboxDir(id), p.messageArchive(), p.local("inbox", id, ".taken")) {
 			return nil, fail(ExitFail, "conflict", "a different message with id %s is already here", o.ID)
+		}
+	}
+	// After the --op lookup, so a retry of a delivered replacement returns it
+	// even once the older task is closed.
+	if o.Replaces != "" {
+		if err := p.checkReplaces(o, from, id); err != nil {
+			return nil, err
 		}
 	}
 	// Create the temporary file exclusively, so two senders never share a
@@ -618,17 +620,27 @@ func (p *Project) requeue(id string, claims []*Live, gone map[string]string) []*
 		}
 		for _, f := range listNames(p.takenDir(id, d.Name()), ".md") {
 			src, dst := filepath.Join(p.takenDir(id, d.Name()), f), filepath.Join(p.inboxDir(id), f)
+			// Mark it returned before it moves, so whoever reads it next
+			// knows it was started and left (§31). One header: the latest.
+			m, err := parseMessage(src)
+			marked := false
+			if err == nil {
+				m.Returned = label + " " + now()
+				marked = p.rewriteMessage(src, m) == nil
+			}
 			if os.Rename(src, dst) != nil {
 				continue
 			}
-			// Mark it returned, so whoever reads it next knows it was
-			// started and left (§31). One header: the latest return.
-			if m, err := parseMessage(dst); err == nil {
-				m.Returned = label + " " + now()
-				p.rewriteMessage(dst, m)
-				p.LogEvent("requeue", label, m.ID)
-				out = append(out, m)
+			if m == nil {
+				continue
 			}
+			if !marked {
+				m.Returned = label + " " + now()
+				p.LogEvent("requeue", label, m.ID, "unmarked")
+			} else {
+				p.LogEvent("requeue", label, m.ID)
+			}
+			out = append(out, m)
 		}
 		os.Remove(p.takenDir(id, d.Name()))
 	}
@@ -646,30 +658,35 @@ func (m *Message) ReturnedBy() (label, at string) {
 
 // rewriteMessage replaces a message file through a temporary file and a
 // rename, so a reader never sees half of it.
-func (p *Project) rewriteMessage(path string, m *Message) {
+func (p *Project) rewriteMessage(path string, m *Message) error {
 	tmp := path + ".tmp"
-	if os.WriteFile(tmp, []byte(m.text()), 0o644) != nil {
+	if err := os.WriteFile(tmp, []byte(m.text()), 0o644); err != nil {
 		os.Remove(tmp)
-		return
+		return err
 	}
-	if os.Rename(tmp, path) != nil {
+	if err := os.Rename(tmp, path); err != nil {
 		os.Remove(tmp)
+		return err
 	}
+	return nil
 }
 
 // notifyReturned tells the agent that sent each returned task or handoff,
 // once, after the caller's locks are freed (§31): the sender judges whether
 // it still holds. Tasks from the user or beyond the team show in tasks,
 // next and org instead.
-func (p *Project) notifyReturned(id string, ms []*Message) {
+func (p *Project) notifyReturned(id string, ms []*Message) (failed []string) {
 	for _, m := range ms {
 		if (m.Type != "task" && m.Type != "handoff") || m.From == id || !p.HasAgent(m.From) {
 			continue
 		}
 		label, _ := m.ReturnedBy()
 		body := fmt.Sprintf("%s returned unfinished by %s. Still valid? Leave it for %s, re-send it with --follows or --replaces, or tell %s it is no longer needed (--reply-to %s).", m.ID, label, id, id, m.ID)
-		p.Send(SendOptions{To: m.From, FromLabel: id, Type: "fyi", Body: body, NoNudge: true})
+		if _, err := p.Send(SendOptions{To: m.From, FromLabel: id, Type: "fyi", Body: body, NoNudge: true}); err != nil {
+			failed = append(failed, fmt.Sprintf("could not tell %s that %s was returned unfinished (%v); send that note yourself", m.From, m.ID, err))
+		}
 	}
+	return failed
 }
 
 // Check lists the messages this session may handle: pending ones addressed
@@ -707,14 +724,16 @@ func (p *Project) Check(id, token string) ([]*Message, error) {
 		m.State = "pending"
 		out = append(out, m)
 	}
-	byID := map[string]*Message{}
-	for _, m := range out {
-		byID[m.ID] = m
+	// A replacement counts wherever the newer task is: pending, taken by
+	// another session, or acked.
+	replacedBy := map[string]string{}
+	for _, m := range p.allMessages() {
+		if m.Replaces != "" && m.To == id {
+			replacedBy[m.Replaces] = m.ID
+		}
 	}
 	for _, m := range out {
-		if old := byID[m.Replaces]; old != nil && m.Replaces != "" {
-			old.ReplacedBy = m.ID
-		}
+		m.ReplacedBy = replacedBy[m.ID]
 	}
 	return out, nil
 }

@@ -27,6 +27,8 @@ sunstack release --root "<root>" "<id>" --token "<token>"
 - **4 `token`**: this session no longer holds the claim (someone took over). Tell the user;
   there is nothing to release.
 - **4 `busy`**: retry once, then tell the user.
+- **1 `notice`**: released, but a sender of a returned task was not told. Send the note it
+  names with the send skill, then treat this as released.
 - **1 / 2**: show the error. Do not work around it.
 
 If you do not have the token, recover it as the as skill says (Recover this session's identity); if that finds nothing, stop
