@@ -63,3 +63,16 @@ func TakenAge(oldest time.Time) string {
 	}
 	return fmt.Sprintf(" (oldest taken %d days ago)", d)
 }
+
+// stampTaken sets a taken message's file time to now, for the prompt hook's
+// age. A done reply keeps its time, which orders same-second replies in the
+// ledger (17.2).
+func stampTaken(path string, ack bool) {
+	if ack {
+		return
+	}
+	if m, err := parseMessage(path); err == nil && m.Type != "done" {
+		now := time.Now()
+		os.Chtimes(path, now, now)
+	}
+}

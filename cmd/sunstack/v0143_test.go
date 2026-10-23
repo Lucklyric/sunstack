@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Lucklyric/sunstack/internal/core"
 )
@@ -185,4 +186,49 @@ func TestReturnedMarkFailureKeepsTask(t *testing.T) {
 		t.Fatalf("task lost: %d in the inbox", n)
 	}
 	requireContains(t, eventsLog(t, p), "requeue  builder.alice  "+task+"  unmarked")
+}
+
+// Round-2 review findings.
+
+// Taking and returning a done reply keeps its file time, which orders
+// same-second replies in the ledger.
+func TestReturnKeepsReplyTime(t *testing.T) {
+	p := fixture(t)
+	ta := field(tokenRe, sh(t, p, nil, "as", "builder.alice").out)
+	reply := field(msgRe, sh(t, p, nil, "send", "builder.alice", "done\nverified: x", "--type", "done", "--reply-to", "20260101T000000Z-user-abcdef").out)
+	path := filepath.Join(p, "sunstack", "_local", "inbox", "builder.alice", reply+".md")
+	old := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
+	must(t, os.Chtimes(path, old, old))
+	expect(t, sh(t, p, nil, "take", "builder.alice", reply, "--token", ta), 0, "take the reply")
+	expect(t, sh(t, p, nil, "release", "builder.alice", "--token", ta), 0, "release")
+	st, err := os.Stat(path)
+	must(t, err)
+	if !st.ModTime().Equal(old) {
+		t.Errorf("file time changed: %v", st.ModTime())
+	}
+}
+
+// --op matching includes --replaces.
+func TestOpIncludesReplaces(t *testing.T) {
+	p := fixture(t)
+	brief := writeFile(t, t.TempDir(), "b.md", fullBrief)
+	t1 := field(msgRe, sh(t, p, nil, "send", "builder.alice", "--type", "task", "--file", brief).out)
+	t2 := field(msgRe, sh(t, p, nil, "send", "builder.alice", "--type", "task", "--file", brief, "--op", "round").out)
+	r := sh(t, p, nil, "send", "builder.alice", "--type", "task", "--file", brief, "--op", "round", "--replaces", t1)
+	if strings.Contains(r.out, "already sent") || strings.Contains(r.out, t2) {
+		t.Errorf("a changed --replaces was taken as a repeat: %s", r.out)
+	}
+}
+
+// The newest replacement is named, wherever each one is stored.
+func TestLatestReplacementNamed(t *testing.T) {
+	p := fixture(t)
+	brief := writeFile(t, t.TempDir(), "b.md", fullBrief)
+	ta := field(tokenRe, sh(t, p, nil, "as", "builder.alice").out)
+	t1 := field(msgRe, sh(t, p, nil, "send", "builder.alice", "--type", "task", "--file", brief).out)
+	b := field(msgRe, sh(t, p, nil, "send", "builder.alice", "--type", "task", "--file", brief, "--replaces", t1).out)
+	expect(t, sh(t, p, nil, "ack", "builder.alice", b, "--token", ta), 0, "ack the first replacement")
+	time.Sleep(1100 * time.Millisecond)
+	c := field(msgRe, sh(t, p, nil, "send", "builder.alice", "--type", "task", "--file", brief, "--replaces", t1).out)
+	requireContains(t, sh(t, p, nil, "check", "builder.alice", "--token", ta).out, "replaced by "+c)
 }

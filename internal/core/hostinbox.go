@@ -290,10 +290,7 @@ func HostMove(sid, msgID string, ack bool) error {
 	if err := os.Rename(src, dst); err != nil {
 		return fail(ExitFail, "fs", "%v", err)
 	}
-	if !ack {
-		now := time.Now()
-		os.Chtimes(dst, now, now) // when it was taken, for the prompt hook
-	}
+	stampTaken(dst, ack)
 	return nil
 }
 

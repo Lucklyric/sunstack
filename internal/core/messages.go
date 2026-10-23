@@ -625,8 +625,14 @@ func (p *Project) requeue(id string, claims []*Live, gone map[string]string) []*
 			m, err := parseMessage(src)
 			marked := false
 			if err == nil {
+				// Keep the file's time: the ledger orders same-second
+				// replies by it, and the header holds the return time.
+				st, serr := os.Stat(src)
 				m.Returned = label + " " + now()
 				marked = p.rewriteMessage(src, m) == nil
+				if marked && serr == nil {
+					os.Chtimes(src, st.ModTime(), st.ModTime())
+				}
 			}
 			if os.Rename(src, dst) != nil {
 				continue
@@ -726,14 +732,20 @@ func (p *Project) Check(id, token string) ([]*Message, error) {
 	}
 	// A replacement counts wherever the newer task is: pending, taken by
 	// another session, or acked.
-	replacedBy := map[string]string{}
+	// The newest replacement wins, by its send time, then its ID.
+	replacedBy := map[string]*Message{}
 	for _, m := range p.allMessages() {
-		if m.Replaces != "" && m.To == id {
-			replacedBy[m.Replaces] = m.ID
+		if m.Replaces == "" || m.To != id {
+			continue
+		}
+		if prev := replacedBy[m.Replaces]; prev == nil || m.At > prev.At || (m.At == prev.At && m.ID > prev.ID) {
+			replacedBy[m.Replaces] = m
 		}
 	}
 	for _, m := range out {
-		m.ReplacedBy = replacedBy[m.ID]
+		if r := replacedBy[m.ID]; r != nil {
+			m.ReplacedBy = r.ID
+		}
 	}
 	return out, nil
 }
@@ -807,10 +819,7 @@ func (p *Project) moveMessage(id, token, msgID string, ack bool) error {
 	if err := os.Rename(src, dst); err != nil {
 		return fail(ExitFail, "fs", "%v", err)
 	}
-	if !ack {
-		now := time.Now()
-		os.Chtimes(dst, now, now) // when it was taken, for the prompt hook
-	}
+	stampTaken(dst, ack)
 	if ack {
 		os.Remove(p.takenDir(id, token)) // only when empty
 		p.LogEvent("ack", me.Label(id), msgID)
@@ -943,7 +952,7 @@ func findOp(m *Message, pending, archive, taken string) *Message {
 		for _, n := range listNames(d, ".md") {
 			x, err := parseMessage(filepath.Join(d, n))
 			if err == nil && x.Op == m.Op && x.To == m.To && x.Session == m.Session && x.From == m.From && x.FromSession == m.FromSession &&
-				x.Type == m.Type && x.ReplyTo == m.ReplyTo && strings.TrimSpace(x.Body) == strings.TrimSpace(m.Body) {
+				x.Type == m.Type && x.ReplyTo == m.ReplyTo && x.Replaces == m.Replaces && strings.TrimSpace(x.Body) == strings.TrimSpace(m.Body) {
 				return x
 			}
 		}
