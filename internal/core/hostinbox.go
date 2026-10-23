@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 )
 
 // The host inbox (v0.8.1): messages to a Claude Code or Codex session that
@@ -191,12 +192,16 @@ func nudgeSession(s *HostSession, m *Message) (string, string) {
 		return "", "not nudged (another nudge is in progress)" + wait
 	}
 	defer unlock()
+	if nudgeWaiting(hostNudgedPath(s.SessionID)) {
+		return "", "not nudged (a nudge is already waiting)" + wait
+	}
 	if !paneRunsTool(s.socket, s.Pane, s.Tool) {
 		return "", "not nudged (the pane is not running " + s.Tool + " in the foreground)" + wait
 	}
 	if err := typeInto(s.socket, s.Pane, s.Tool, NudgePrompt(s.Tool, m)); err != nil {
 		return "", "not nudged (" + err.Error() + ")" + wait
 	}
+	markNudged(hostNudgedPath(s.SessionID))
 	return s.Tool + " " + s.Pane, ""
 }
 
@@ -205,6 +210,7 @@ func HostCheck(sid string) ([]*Message, error) {
 	if !IsSessionID(sid) {
 		return nil, fail(ExitUsage, "no_session", "this CLI did not give its session ID (CLAUDE_CODE_SESSION_ID or CODEX_THREAD_ID)")
 	}
+	os.Remove(hostNudgedPath(sid))
 	var out []*Message
 	for _, d := range []struct{ dir, state string }{{hostTakenDir(sid), "taken (by this session)"}, {hostInboxDir(sid), "pending"}} {
 		for _, n := range listNames(d.dir, ".md") {
@@ -215,6 +221,16 @@ func HostCheck(sid string) ([]*Message, error) {
 		}
 	}
 	return out, nil
+}
+
+// HostWaiting counts a session's new and taken host-inbox messages, with the
+// time the oldest taken one was taken.
+func HostWaiting(sid string) (fresh, taken int, oldest time.Time) {
+	if !IsSessionID(sid) {
+		return 0, 0, time.Time{}
+	}
+	taken, oldest = takenIn(hostTakenDir(sid))
+	return len(listNames(hostInboxDir(sid), ".md")), taken, oldest
 }
 
 // HostPending counts what waits for a session in the host inbox.
@@ -243,6 +259,7 @@ func HostMove(sid, msgID string, ack bool) error {
 		return err
 	}
 	defer unlock()
+	os.Remove(hostNudgedPath(sid))
 	pending := filepath.Join(hostInboxDir(sid), msgID+".md")
 	taken := filepath.Join(hostTakenDir(sid), msgID+".md")
 	src := ""
@@ -268,6 +285,10 @@ func HostMove(sid, msgID string, ack bool) error {
 	}
 	if err := os.Rename(src, dst); err != nil {
 		return fail(ExitFail, "fs", "%v", err)
+	}
+	if !ack {
+		now := time.Now()
+		os.Chtimes(dst, now, now) // when it was taken, for the prompt hook
 	}
 	return nil
 }

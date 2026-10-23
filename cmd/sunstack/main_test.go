@@ -837,7 +837,7 @@ func TestMessages(t *testing.T) {
 	hook.Env = cleanEnv()
 	hook.Stdin = strings.NewReader(`{"session_id":"sess-a","cwd":"` + filepath.ToSlash(p) + `"}`)
 	out, _ := hook.Output()
-	if !strings.Contains(string(out), "builder.alice_api has 1 message(s) waiting") || !strings.Contains(string(out), "additionalContext") {
+	if !strings.Contains(string(out), "builder.alice_api has 1 new message(s) waiting") || !strings.Contains(string(out), "additionalContext") {
 		t.Errorf("hook output: %s", out)
 	}
 
@@ -1147,7 +1147,7 @@ func TestHostInbox(t *testing.T) {
 	hook.Env = append(cleanEnv(), env...)
 	hook.Stdin = strings.NewReader(`{"session_id":"` + sid + `","cwd":"` + filepath.ToSlash(free) + `"}`)
 	out, _ := hook.Output()
-	if !strings.Contains(string(out), "1 message(s) are waiting for this session") {
+	if !strings.Contains(string(out), "1 new message(s) are waiting for this session") {
 		t.Errorf("hook outside a team: %s", out)
 	}
 	me := append([]string{"CLAUDECODE=1", "CLAUDE_CODE_SESSION_ID=" + sid}, env...)

@@ -779,10 +779,10 @@ func TestPromptHooksBothInboxes(t *testing.T) {
 	expect(t, sh(t, p, asEnv, "as", "reviewer"), 0, "claim again")
 	out := runHook(t, env, "UserPromptSubmit", "", sid, p)
 	ctx := hookContextText(t, out, "UserPromptSubmit")
-	requireContains(t, ctx, "reviewer", "1 message(s) for this session itself", "sunstack check --session")
+	requireContains(t, ctx, "reviewer", "1 new message(s) are waiting for this session", "sunstack check --session")
 	// Outside any team the hook still reports the host inbox alone.
 	out = runHook(t, env, "UserPromptSubmit", "", sid, t.TempDir())
-	requireContains(t, hookContextText(t, out, "UserPromptSubmit"), "1 message(s) are waiting for this session")
+	requireContains(t, hookContextText(t, out, "UserPromptSubmit"), "1 new message(s) are waiting for this session")
 	if out := runHook(t, env, "UserPromptSubmit", "", "00000000-0000-4000-8000-000000000043", t.TempDir()); out != "" {
 		t.Errorf("empty free session printed %q", out)
 	}

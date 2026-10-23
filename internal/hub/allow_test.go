@@ -158,6 +158,8 @@ func TestAgentGrants(t *testing.T) {
 // writer is holding it, and concurrent user/agent changes must all survive.
 func TestGrantWritesLocked(t *testing.T) {
 	t.Setenv("SUNSTACK_HOME", t.TempDir())
+	// A slow runner under -race can hold the lock longer than the real budget.
+	defer core.SetLockWait(50, 200*time.Millisecond)()
 	keys, err := LoadKeys()
 	if err != nil {
 		t.Fatal(err)

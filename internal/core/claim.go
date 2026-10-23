@@ -546,6 +546,7 @@ func (p *Project) Release(id, token string) error {
 		exec.Command("tmux", TmuxArgs(cur.TmuxSocket, "select-pane", "-t", cur.TmuxPane, "-T", cur.PaneTitle)...).Run()
 	}
 	os.RemoveAll(p.sessionTmp(id, token))
+	p.clearNudged(id, token)
 	rest, _ := p.Claims(id)
 	p.requeue(id, rest) // messages this session took but did not ack go back
 	if len(rest) == 0 {

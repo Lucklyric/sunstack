@@ -1665,8 +1665,8 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 		if err != nil {
 			// Outside a team, only the host inbox can hold something.
 			if in.Event != "SessionStart" {
-				if n := core.HostPending(in.SessionID); n > 0 {
-					hookContext(stdout, fmt.Sprintf("[sunstack] %d message(s) are waiting for this session. Use the Sunstack check skill (sunstack check --session) when it fits the current work.", n))
+				if lines := hostWaitingLines(in.SessionID); len(lines) > 0 {
+					hookContext(stdout, "[sunstack] "+strings.Join(lines, "; ")+". Use the Sunstack check skill (sunstack check --session) when it fits the current work.")
 				}
 			}
 			return nil
@@ -1684,8 +1684,8 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 			return nil
 		}
 		lines := p.PendingForSession(in.SessionID, os.Getenv("TMUX_PANE"), tmuxSocket())
-		if n := core.HostPending(in.SessionID); n > 0 {
-			lines = append(lines, fmt.Sprintf("%d message(s) for this session itself (sunstack check --session)", n))
+		if host := hostWaitingLines(in.SessionID); len(host) > 0 {
+			lines = append(lines, strings.Join(host, "; ")+" (sunstack check --session)")
 		}
 		halt := ""
 		if h := p.HaltLine(); h != "" && len(p.HeldBy(in.SessionID, os.Getenv("TMUX_PANE"), tmuxSocket())) > 0 {
@@ -2363,4 +2363,18 @@ func orDefault(s, d string) string {
 		return d
 	}
 	return s
+}
+
+// hostWaitingLines are the prompt hook's lines for a session's host inbox:
+// new messages, and taken ones not finished.
+func hostWaitingLines(sid string) []string {
+	fresh, taken, oldest := core.HostWaiting(sid)
+	var out []string
+	if fresh > 0 {
+		out = append(out, fmt.Sprintf("%d new message(s) are waiting for this session", fresh))
+	}
+	if taken > 0 {
+		out = append(out, fmt.Sprintf("%d message(s) taken for this session are not finished%s", taken, core.TakenAge(oldest)))
+	}
+	return out
 }

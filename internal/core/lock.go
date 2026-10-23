@@ -18,6 +18,14 @@ var (
 	lockWait  = 200 * time.Millisecond
 )
 
+// SetLockWait sets the lock budget and returns a function that restores it.
+// Only tests call it, for runners slow enough to outlast the real budget.
+func SetLockWait(tries int, wait time.Duration) func() {
+	t, w := lockTries, lockWait
+	lockTries, lockWait = tries, wait
+	return func() { lockTries, lockWait = t, w }
+}
+
 // lock takes the per-ID mkdir lock and returns its release function.
 func (p *Project) lock(id string) (func(), error) {
 	root := p.local("locks")

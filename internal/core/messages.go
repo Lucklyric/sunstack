@@ -378,6 +378,14 @@ func (p *Project) nudge(id, session string, m *Message) (string, string) {
 		return "", "no live session; the message waits in the inbox (sunstack spawn starts one)"
 	}
 	sort.Slice(claims, func(i, j int) bool { return claims[i].LastContact > claims[j].LastContact })
+	// A check is already coming: from that session for a message to it, from
+	// any session of the agent for one to the agent.
+	for _, c := range claims {
+		if (session == "" || c.Label(id) == session) && nudgeWaiting(p.nudgedPath(id, c.Token)) {
+			p.LogEvent("nudge-held", c.Label(id), m.ID)
+			return "", "not nudged (a nudge is already waiting); the message waits in the inbox"
+		}
+	}
 	busy := ""
 	for _, c := range claims {
 		if session != "" && c.Label(id) != session {
@@ -394,6 +402,7 @@ func (p *Project) nudge(id, session string, m *Message) (string, string) {
 			busy = c.Label(id) + ": " + err.Error()
 			continue
 		}
+		markNudged(p.nudgedPath(id, c.Token))
 		p.LogEvent("nudge", c.Label(id), m.ID)
 		return c.Label(id), ""
 	}
@@ -608,6 +617,7 @@ func (p *Project) Check(id, token string) ([]*Message, error) {
 	}
 	claims, _ := p.Claims(id)
 	p.requeue(id, claims)
+	p.clearNudged(id, token)
 	label := me.Label(id)
 	orphan := orphanSession(id, claims)
 	var out []*Message
@@ -661,6 +671,7 @@ func (p *Project) moveMessage(id, token, msgID string, ack bool) error {
 	if err != nil {
 		return err
 	}
+	p.clearNudged(id, token)
 	pending := p.msgPath(p.inboxDir(id), msgID)
 	mine := p.msgPath(p.takenDir(id, token), msgID)
 	src := ""
@@ -695,6 +706,10 @@ func (p *Project) moveMessage(id, token, msgID string, ack bool) error {
 	}
 	if err := os.Rename(src, dst); err != nil {
 		return fail(ExitFail, "fs", "%v", err)
+	}
+	if !ack {
+		now := time.Now()
+		os.Chtimes(dst, now, now) // when it was taken, for the prompt hook
 	}
 	if ack {
 		os.Remove(p.takenDir(id, token)) // only when empty
@@ -765,9 +780,11 @@ func (p *Project) PendingForSession(session, pane, socket string) []string {
 					n++
 				}
 			}
-			n += len(listNames(p.takenDir(id, c.Token), ".md"))
 			if n > 0 {
-				out = append(out, fmt.Sprintf("%s has %d message(s) waiting", c.Label(id), n))
+				out = append(out, fmt.Sprintf("%s has %d new message(s) waiting", c.Label(id), n))
+			}
+			if k, oldest := takenIn(p.takenDir(id, c.Token)); k > 0 {
+				out = append(out, fmt.Sprintf("%s has %d taken message(s) not finished%s", c.Label(id), k, TakenAge(oldest)))
 			}
 		}
 	}
