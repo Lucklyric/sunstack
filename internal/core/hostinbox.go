@@ -198,10 +198,11 @@ func nudgeSession(s *HostSession, m *Message) (string, string) {
 	if !paneRunsTool(s.socket, s.Pane, s.Tool) {
 		return "", "not nudged (the pane is not running " + s.Tool + " in the foreground)" + wait
 	}
+	markNudged(hostNudgedPath(s.SessionID)) // first, as for an agent nudge
 	if err := typeInto(s.socket, s.Pane, s.Tool, NudgePrompt(s.Tool, m)); err != nil {
+		os.Remove(hostNudgedPath(s.SessionID))
 		return "", "not nudged (" + err.Error() + ")" + wait
 	}
-	markNudged(hostNudgedPath(s.SessionID))
 	return s.Tool + " " + s.Pane, ""
 }
 

@@ -398,11 +398,14 @@ func (p *Project) nudge(id, session string, m *Message) (string, string) {
 		if prompt == "" {
 			continue
 		}
+		// The marker goes first, so a check the prompt sets off always
+		// finds and clears it.
+		markNudged(p.nudgedPath(id, c.Token))
 		if err := typeInto(c.TmuxSocket, c.TmuxPane, c.Tool, prompt); err != nil {
+			os.Remove(p.nudgedPath(id, c.Token))
 			busy = c.Label(id) + ": " + err.Error()
 			continue
 		}
-		markNudged(p.nudgedPath(id, c.Token))
 		p.LogEvent("nudge", c.Label(id), m.ID)
 		return c.Label(id), ""
 	}

@@ -4,6 +4,7 @@ package main
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -168,4 +169,30 @@ func TestHookHostNewAndTaken(t *testing.T) {
 	must(t, os.WriteFile(filepath.Join(inbox, "20261022T151203Z-user-bbbbbb.md"), msg("20261022T151203Z-user-bbbbbb"), 0o600))
 	out = runHook(t, home, "UserPromptSubmit", "", sid, fixture(t))
 	requireContains(t, out, "1 new message(s) are waiting for this session", "1 message(s) taken for this session are not finished")
+}
+
+// A check that runs right after the nudge's Enter, before the sender returns,
+// clears the marker: the next message nudges again (review finding, §30).
+func TestNudgeMarkerBeforeEnter(t *testing.T) {
+	real, err := exec.LookPath("tmux")
+	if err != nil {
+		t.Skip("needs tmux")
+	}
+	p := fixture(t)
+	s := privateTmux(t, p, isolatedEnv(t))
+	s.start(t, "claude", "idle")
+	tok := field(tokenRe, sh(t, p, s.env, "as", "reviewer", "--tool", "claude").out)
+	// A tmux wrapper that runs the recipient's check as soon as Enter is sent.
+	shim := t.TempDir()
+	script := "#!/bin/sh\n\"" + real + "\" \"$@\"; rc=$?\n" +
+		"for a in \"$@\"; do last=$a; done\n" +
+		"if [ \"$last\" = Enter ]; then \"" + bin + "\" check reviewer --token " + tok + " --root \"" + p + "\" >/dev/null 2>&1; fi\nexit $rc\n"
+	must(t, os.WriteFile(filepath.Join(shim, "tmux"), []byte(script), 0o755))
+	env := append(append([]string{}, s.env...), "PATH="+shim+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	r := sh(t, p, env, "send", "reviewer", "one")
+	requireContains(t, r.out, "nudged session reviewer")
+	eventually(t, "first nudge", func() bool { return len(submitted(t, s.env)) == 1 })
+	r = sh(t, p, env, "send", "reviewer", "two")
+	requireContains(t, r.out, "nudged session reviewer")
 }
