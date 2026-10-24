@@ -10,8 +10,8 @@ Command: `sunstack send`. Skill: `/sunstack:send` in Claude Code, `$sunstack:sen
 Messages are files in the recipient's inbox (`sunstack/_local/inbox/<id>/`). Sending also
 types a one-line nudge into a live Claude Code or Codex pane of that agent, when there is one
 in tmux; otherwise the message waits and shows at that session's next prompt. An `fyi` from an
-agent does not nudge: it waits for the recipient's next check. Add `--nudge` only when it must
-be read now.
+agent does not nudge: it waits for the recipient's next check. Add `--nudge`, within this
+host, only when it must be read now.
 
 ## Rules
 
@@ -40,7 +40,8 @@ be read now.
     (`sunstack org` lists the hosts and their sessions). It goes through the org hub and
     arrives within seconds when both hosts keep a connection open. A bare agent name or a pane
     ID is refused there; `shutdown` and `answer` cannot cross hosts, and `--follows` is for
-    tasks within this host's teams. `sunstack tasks` shows whether it is queued, at the hub,
+    tasks within this host's teams. `--nudge` is refused there: an `fyi` waits for the
+    recipient's next check. `sunstack tasks` shows whether it is queued, at the hub,
     delivered or refused.
 - **Type**: `task` (work with a result, carried by a brief; see below), `question` (needs an answer), `handoff` (the recipient takes over a piece of work as it stands),
   `fyi` (no action needed), `done` (the reply that closes a question or handoff; use

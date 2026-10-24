@@ -106,6 +106,10 @@ func (p *Project) Snapshot(id, rel, token string) (string, error) {
 				if errors.As(err, &ce) && ce.Reason == "token" {
 					return "", err
 				}
+				// A lock timeout skips the check under the lock: check again.
+				if cerr := claimed(); cerr != nil {
+					return "", cerr
+				}
 				RecordIssue(IssueEntry{Source: "cli", Cmd: "snapshot", Code: "tidy", Msg: err.Error()})
 			}
 		}
