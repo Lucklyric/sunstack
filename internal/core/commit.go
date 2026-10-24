@@ -89,6 +89,13 @@ func (p *Project) Snapshot(id, rel, token string) (string, error) {
 			return "", fail(ExitClaim, "token", "token does not match any claim on %s", id)
 		}
 		candDir = p.sessionTmp(id, token)
+		// Tidy first, so a save cannot skip it and the checksum is of the
+		// tidied file (§32). A failed tidy never blocks the snapshot.
+		if t.owner != TeamID && (t.rel == "board.md" || t.rel == "context.md") {
+			if _, err := p.Tidy(t.owner); err != nil {
+				RecordIssue(IssueEntry{Source: "cli", Cmd: "snapshot", Code: "tidy", Msg: err.Error()})
+			}
+		}
 	}
 	b, ok, err := readMaybe(t.path)
 	if err != nil {

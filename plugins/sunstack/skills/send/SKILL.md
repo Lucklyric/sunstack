@@ -9,7 +9,9 @@ Command: `sunstack send`. Skill: `/sunstack:send` in Claude Code, `$sunstack:sen
 
 Messages are files in the recipient's inbox (`sunstack/_local/inbox/<id>/`). Sending also
 types a one-line nudge into a live Claude Code or Codex pane of that agent, when there is one
-in tmux; otherwise the message waits and shows at that session's next prompt.
+in tmux; otherwise the message waits and shows at that session's next prompt. An `fyi` from an
+agent does not nudge: it waits for the recipient's next check. Add `--nudge` only when it must
+be read now.
 
 ## Rules
 

@@ -101,7 +101,8 @@ and ones this session has already taken.
      schedule it; to an agent, reply `done` with `--reply-to` when finished, or send a
      `question` if blocked.
    - `fyi`: note what matters in context or on your board; no reply needed. An "Align your
-     board" request is done by updating the board as asked at the save in step 3.
+     board" request is done by updating the board as asked at the save in step 3. An `fyi` that
+     changes nothing on your board or context: ack it now, with no record.
    - `done`: a reply to something you sent; close the matching key result or open question. A
      reply to a `task` without a `verified:` line is a failed round. Send a fresh task with
      `--follows <task id>` (the send skill), never a bare "please retry". To another host,
@@ -117,7 +118,8 @@ and ones this session has already taken.
      save skill (with the other messages' records),
      ack this message, reply `done` with
      `--reply-to` if it came from an agent, run the release skill, then tell the user this
-     session can be closed. If any step fails, stop and tell the user.
+     session can be closed. If any step fails, stop and tell the user, except a release that
+     exits 1 `notice`: it released, so send the note it names by hand and go on.
 3. **Record**: once every message is handled, run the save skill once, writing those that had
    real effects under `## Processed messages` in context
    (`- <date> <message id> from <sender>: <what was done>`).

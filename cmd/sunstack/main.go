@@ -91,7 +91,7 @@ Boards:
 Sessions and messages:
   sunstack team --sessions [--json]               every live session (also: sunstack sessions): name, tool, host, tmux place, resume command
   sunstack send <id|title|id_task|team/id|pane-id|session-id> "<text>"|--file F [--type task|question|handoff|fyi|done|shutdown]
-                [--reply-to MSG] [--from ID --token T] [--no-nudge] [--op ID] [--follows TASK] [--replaces TASK]
+                [--reply-to MSG] [--from ID --token T] [--nudge|--no-nudge] [--op ID] [--follows TASK] [--replaces TASK]
                                                   a task carries a brief: Goal, Scope, Done when, Verify, Report
                                                   (Context, Timebox, Not optional); a brief missing one is refused;
                                                   --follows quotes an earlier task and its replies into the new one
@@ -1006,9 +1006,12 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 		return nil
 
 	case "send":
-		a, err := parse(rest, "root type reply-to from token op file follows replaces", "no-nudge")
+		a, err := parse(rest, "root type reply-to from token op file follows replaces", "no-nudge nudge")
 		if err == nil {
 			err = a.atMost(2, "send")
+		}
+		if err == nil && a.has("nudge") && a.has("no-nudge") {
+			err = &core.Error{Code: core.ExitUsage, Reason: "usage", Msg: "give --nudge or --no-nudge, not both"}
 		}
 		if err != nil {
 			return err
@@ -1030,7 +1033,7 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 		}
 		tool, session := detectTool()
 		opts := core.SendOptions{To: a.pos[0], Body: body, Type: a.flags["type"], ReplyTo: a.flags["reply-to"],
-			From: a.flags["from"], Token: a.flags["token"], NoNudge: a.has("no-nudge"), Op: a.flags["op"], FromSession: session, Follows: a.flags["follows"], Replaces: a.flags["replaces"]}
+			From: a.flags["from"], Token: a.flags["token"], NoNudge: a.has("no-nudge"), Nudge: a.has("nudge"), Op: a.flags["op"], FromSession: session, Follows: a.flags["follows"], Replaces: a.flags["replaces"]}
 		p, perr := core.FindProject(a.flags["root"])
 		if p != nil {
 			opts.Via = p.CallerLabel(tool, session, os.Getenv("TMUX_PANE"), tmuxSocket())
@@ -1041,6 +1044,9 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 		if _, _, ok := hub.SplitAddress(to); ok && !strings.HasPrefix(to, "%") {
 			if opts.Replaces != "" {
 				return &core.Error{Code: core.ExitUsage, Reason: "usage", Msg: "--replaces works within this host"}
+			}
+			if opts.Nudge {
+				return &core.Error{Code: core.ExitUsage, Reason: "usage", Msg: "--nudge works within this host"}
 			}
 			return sendRemote(p, opts, stdout)
 		}

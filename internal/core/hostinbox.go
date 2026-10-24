@@ -175,6 +175,10 @@ func SendToSession(s *HostSession, o SendOptions) (*SendResult, error) {
 		res.Note = "not nudged (--no-nudge)"
 		return res, nil
 	}
+	if quietFyi(o, from) {
+		res.Note = fyiNote
+		return res, nil
+	}
 	res.Nudged, res.Note = nudgeSession(s, m)
 	return res, nil
 }

@@ -161,6 +161,7 @@ type SendOptions struct {
 	Token   string // the sender's token, required with From
 	Via     string // the agent session that sent it in the user's name, if any
 	NoNudge bool
+	Nudge   bool   // nudge for an fyi from an agent too (§32)
 	Op      string // optional operation ID: the same ID and text return the earlier message
 	// FromLabel is a sender already checked in another team (<team>/<id>);
 	// the CLI sets it for messages between teams.
@@ -380,8 +381,20 @@ func (p *Project) Send(o SendOptions) (*SendResult, error) {
 		res.Note = "not nudged (--no-nudge)"
 		return res, nil
 	}
+	if quietFyi(o, from) {
+		res.Note = fyiNote
+		return res, nil
+	}
 	res.Nudged, res.Note = p.nudge(id, session, m)
 	return res, nil
+}
+
+// An fyi needs no action, so one from an agent waits for the recipient's next
+// check instead of interrupting it (§32). One from the user still nudges.
+const fyiNote = "not nudged (an fyi waits for the next check)"
+
+func quietFyi(o SendOptions, from string) bool {
+	return o.Type == "fyi" && !o.Nudge && from != "user" && !strings.HasSuffix(from, ":user")
 }
 
 // nudge types a one-line prompt into the pane of the best live session:
