@@ -676,7 +676,10 @@ func appendToSection(doc []byte, name, line string) []byte {
 // directives older than directiveAge that every addressee has aligned with).
 // It creates a missing board. The archive is never loaded by as; it is kept
 // for reference, one file per month.
-func (p *Project) Tidy(owner string) (int, error) {
+func (p *Project) Tidy(owner string) (int, error) { return p.tidy(owner, nil) }
+
+// tidy runs check, if set, once it holds the owner's lock and stops on its error.
+func (p *Project) tidy(owner string, check func() error) (int, error) {
 	path := p.teamBoardPath()
 	tmpl := assets.TeamBoardTemplate
 	if owner != TeamID {
@@ -694,6 +697,11 @@ func (p *Project) Tidy(owner string) (int, error) {
 		return 0, err
 	}
 	defer unlock()
+	if check != nil {
+		if err := check(); err != nil {
+			return 0, err
+		}
+	}
 	if err := p.noSymlink(path); err != nil {
 		return 0, err
 	}

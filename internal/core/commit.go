@@ -1,6 +1,7 @@
 package core
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -81,18 +82,30 @@ func (p *Project) Snapshot(id, rel, token string) (string, error) {
 		if token == "" {
 			return "", fail(ExitClaim, "token", "missing --token")
 		}
-		claims, err := p.Claims(id)
-		if err != nil {
-			return "", err
+		claimed := func() error {
+			claims, err := p.Claims(id)
+			if err != nil {
+				return err
+			}
+			if findToken(claims, token) == nil {
+				return fail(ExitClaim, "token", "token does not match any claim on %s", id)
+			}
+			return nil
 		}
-		if findToken(claims, token) == nil {
-			return "", fail(ExitClaim, "token", "token does not match any claim on %s", id)
+		if err := claimed(); err != nil {
+			return "", err
 		}
 		candDir = p.sessionTmp(id, token)
 		// Tidy first, so a save cannot skip it and the checksum is of the
-		// tidied file (§32). A failed tidy never blocks the snapshot.
+		// tidied file (§32). The claim is checked again under the lock, since
+		// a release may have ended it meanwhile; any other tidy failure never
+		// blocks the snapshot.
 		if t.owner != TeamID && (t.rel == "board.md" || t.rel == "context.md") {
-			if _, err := p.Tidy(t.owner); err != nil {
+			if _, err := p.tidy(t.owner, claimed); err != nil {
+				var ce *Error
+				if errors.As(err, &ce) && ce.Reason == "token" {
+					return "", err
+				}
 				RecordIssue(IssueEntry{Source: "cli", Cmd: "snapshot", Code: "tidy", Msg: err.Error()})
 			}
 		}

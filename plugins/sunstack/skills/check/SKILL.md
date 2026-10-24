@@ -69,7 +69,7 @@ and ones this session has already taken.
      `closed: replaced by <new id>` (or `closed: no longer needed`) and
      `verified: none, closed per <sender>`, ack it, and move its key result to Done with that
      note. If another live session of the agent holds it, send that session an `fyi` with
-     `--reply-to <older id>` instead and leave it.
+     `--reply-to <older id>` and `--nudge` instead and leave it.
    A session spawned for one task flags returned tasks that overlap its own and leaves the rest
    to the agent's lead or the user.
 1. **Take** it, so another session of the same agent does not start on it too:
@@ -123,7 +123,7 @@ and ones this session has already taken.
 3. **Record**: once every message is handled, run the save skill once, writing those that had
    real effects under `## Processed messages` in context
    (`- <date> <message id> from <sender>: <what was done>`).
-4. **Ack** each handled message after that save:
+4. **Ack** each handled message not acked already, after that save:
    `sunstack ack --root "<root>" "<id>" "<message id>" --token "<token>"`.
 
 If you stop before finishing (the user needs you for something else), leave the message

@@ -127,3 +127,19 @@ func TestSnapshotTidiesFirst(t *testing.T) {
 	must(t, os.WriteFile(filepath.Join(dir, "context.md"), []byte("<<<<<<< HEAD\n- a\n=======\n- b\n>>>>>>> x\n"), 0o644))
 	expect(t, sh(t, p, nil, "snapshot", "builder.alice", "board.md", "--token", tok), 0, "snapshot with an untidyable context")
 }
+
+// The check skill nudges the holder of a replaced task, and never acks an
+// early-acked fyi a second time.
+func TestCheckSkillFyiRules(t *testing.T) {
+	b, err := os.ReadFile("../../plugins/sunstack/skills/check/SKILL.md")
+	must(t, err)
+	s := strings.Join(strings.Fields(string(b)), " ")
+	for _, want := range []string{
+		"send that session an `fyi` with `--reply-to <older id>` and `--nudge`",
+		"not acked already",
+	} {
+		if !strings.Contains(s, want) {
+			t.Errorf("check skill lacks %q", want)
+		}
+	}
+}
