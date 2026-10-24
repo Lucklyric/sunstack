@@ -151,7 +151,7 @@ func TestSendSkillNudgeLocal(t *testing.T) {
 	s := strings.Join(strings.Fields(string(b)), " ")
 	for _, want := range []string{
 		"Add `--nudge`, within this host, only when it must be read now",
-		"`--nudge` is refused there: an `fyi` waits for the recipient's next check",
+		"`--nudge` is refused there: an `fyi` from an agent waits for the recipient's next check",
 	} {
 		if !strings.Contains(s, want) {
 			t.Errorf("send skill lacks %q", want)

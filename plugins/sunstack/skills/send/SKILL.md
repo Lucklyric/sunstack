@@ -40,8 +40,8 @@ host, only when it must be read now.
     (`sunstack org` lists the hosts and their sessions). It goes through the org hub and
     arrives within seconds when both hosts keep a connection open. A bare agent name or a pane
     ID is refused there; `shutdown` and `answer` cannot cross hosts, and `--follows` is for
-    tasks within this host's teams. `--nudge` is refused there: an `fyi` waits for the
-    recipient's next check. `sunstack tasks` shows whether it is queued, at the hub,
+    tasks within this host's teams. `--nudge` is refused there: an `fyi` from an agent waits
+    for the recipient's next check. `sunstack tasks` shows whether it is queued, at the hub,
     delivered or refused.
 - **Type**: `task` (work with a result, carried by a brief; see below), `question` (needs an answer), `handoff` (the recipient takes over a piece of work as it stands),
   `fyi` (no action needed), `done` (the reply that closes a question or handoff; use
