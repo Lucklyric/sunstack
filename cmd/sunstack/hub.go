@@ -516,7 +516,7 @@ func sentText(all bool, typ string) string {
 		}
 		if s.Letter.Type == "question" {
 			for _, w := range mail {
-				if w.Letter.ReplyTo == s.Mail.ID && w.Letter.From == s.Letter.From && (w.Letter.Type == "fyi" || w.Letter.Type == "done") {
+				if w.Letter.ReplyTo == s.Mail.ID && core.SameSender(w.Letter.From, w.Letter.FromSession, s.Letter.From, s.Letter.FromSession) && (w.Letter.Type == "fyi" || w.Letter.Type == "done") {
 					return true
 				}
 			}

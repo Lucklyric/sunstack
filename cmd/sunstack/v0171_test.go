@@ -171,3 +171,43 @@ func TestRemoteAnsweredHostWide(t *testing.T) {
 		t.Error("a session recipient's reply in a host inbox did not close the task")
 	}
 }
+
+// Review r0171b: a free session cannot withdraw another free session's
+// question, locally or remotely; an agent answering a task sent to its
+// session's ID on another host closes it.
+func TestWithdrawSameSessionAndAgentSession(t *testing.T) {
+	p, env := team086(t)
+	home := envValue(env, "SUNSTACK_HOME")
+	t.Setenv("SUNSTACK_HOME", home)
+	a := append(append([]string{}, env...), "CLAUDECODE=1", "CLAUDE_CODE_SESSION_ID=00000000-0000-4000-8000-00000000000a")
+	b := append(append([]string{}, env...), "CLAUDECODE=1", "CLAUDE_CODE_SESSION_ID=00000000-0000-4000-8000-00000000000b")
+	r := sh(t, p, a, "send", "builder.bob", "which one?", "--type", "question")
+	expect(t, r, 0, "question from A")
+	q := field(msgRe, r.out)
+	expect(t, sh(t, p, b, "send", "builder.bob", "still need this", "--reply-to", q), 0, "fyi from B")
+	requireContains(t, sh(t, p, env, "tasks", "--type", "question").out, q)
+	expect(t, sh(t, p, a, "send", "builder.bob", "closed: answered in chat", "--reply-to", q), 0, "A withdraws")
+	if strings.Contains(sh(t, p, env, "tasks", "--type", "question").out, q) {
+		t.Error("A could not withdraw its own question")
+	}
+
+	out := filepath.Join(home, "outbox")
+	must(t, os.MkdirAll(out, 0o700))
+	rq := "20260101T000001Z-user-bbbbb1"
+	writeFile(t, out, rq+".json", `{"mail":{"id":"`+rq+`"},"letter":{"from":"user","from_session":"00000000-0000-4000-8000-00000000000a","type":"question","to":"proj/builder.bob"},"to_name":"remote","status":"delivered"}`)
+	writeFile(t, out, "20260101T000002Z-user-bbbbb2.json", `{"mail":{"id":"20260101T000002Z-user-bbbbb2"},"letter":{"from":"user","from_session":"00000000-0000-4000-8000-00000000000b","type":"fyi","to":"proj/builder.bob","reply_to":"`+rq+`"},"to_name":"remote","status":"delivered"}`)
+	if !strings.Contains(sentText(false, ""), rq) {
+		t.Error("another session withdrew a remote question")
+	}
+
+	sid := "00000000-0000-4000-8000-000000001713"
+	rt := "20260101T000003Z-user-bbbbb3"
+	writeFile(t, out, rt+".json", `{"mail":{"id":"`+rt+`"},"letter":{"from":"user","type":"task","to":"`+sid+`"},"to_name":"remote","status":"delivered"}`)
+	pr, err := core.FindProject(p)
+	must(t, err)
+	_, err = pr.Send(core.SendOptions{To: "builder.alice", Type: "done", ReplyTo: rt, Body: "done", FromLabel: "remote:shop/builder.carl", FromHost: "remote", NoNudge: true})
+	must(t, err)
+	if strings.Contains(sentText(false, ""), rt) {
+		t.Error("an agent's answer to a task sent to its session ID did not close it")
+	}
+}

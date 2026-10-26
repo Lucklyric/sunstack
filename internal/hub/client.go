@@ -379,7 +379,7 @@ func queueTo(id, name string, l *Letter, keep bool) (*Sent, error) {
 	if keep {
 		s.Letter = *l
 	} else {
-		s.Letter = Letter{From: l.From, To: l.To, Type: l.Type, ReplyTo: l.ReplyTo, At: l.At}
+		s.Letter = Letter{From: l.From, To: l.To, Type: l.Type, ReplyTo: l.ReplyTo, FromSession: l.FromSession, At: l.At}
 	}
 	if err := writeJSON(filepath.Join(outboxDir(), m.ID+".json"), s, 0o600); err != nil {
 		return nil, err

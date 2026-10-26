@@ -92,10 +92,10 @@ func (p *Project) Tasks() []*TaskInfo {
 			to[m.ID] = m.To
 		}
 	}
-	kind, sender := map[string]string{}, map[string]string{}
+	kind, sender, senderSession := map[string]string{}, map[string]string{}, map[string]string{}
 	for _, m := range msgs {
 		if ledgerType(m.Type) {
-			kind[m.ID], sender[m.ID] = m.Type, m.From
+			kind[m.ID], sender[m.ID], senderSession[m.ID] = m.Type, m.From, m.FromSession
 		}
 	}
 	replies := map[string][]TaskReply{}
@@ -108,7 +108,7 @@ func (p *Project) Tasks() []*TaskInfo {
 		// from its sender (withdrawn) (§33, v0.17.1).
 		ok := m.Type == "done" && m.From == to[m.ReplyTo]
 		if kind[m.ReplyTo] == "question" {
-			ok = (m.Type == "done" || m.Type == "fyi") && (m.From == to[m.ReplyTo] || m.From == sender[m.ReplyTo])
+			ok = (m.Type == "done" || m.Type == "fyi") && (m.From == to[m.ReplyTo] || SameSender(m.From, m.FromSession, sender[m.ReplyTo], senderSession[m.ReplyTo]))
 		}
 		if ok {
 			replies[m.ReplyTo] = append(replies[m.ReplyTo], TaskReply{ID: m.ID, At: m.At, Verified: hasVerifiedLine(m.Body), Rev: verifiedRev(m.Body), mod: m.mod})
@@ -529,7 +529,18 @@ func RemoteReply(m *Message, typ, host, to string) bool {
 	}
 	want := host + ":" + to
 	if IsSessionID(to) {
-		return m.FromSession == want
+		// Only that session got it. It replies as user with its from_session,
+		// or as the agent it works as, from the same host.
+		return m.FromSession == want || strings.HasPrefix(m.From, host+":")
 	}
 	return m.From == want || strings.HasPrefix(want, m.From+"_")
+}
+
+// SameSender says whether a message comes from the sender of another: the
+// same agent, or for the user, the same session when the first names one.
+func SameSender(from, fromSession, origFrom, origSession string) bool {
+	if from != origFrom {
+		return false
+	}
+	return origSession == "" || from != "user" || fromSession == origSession
 }
