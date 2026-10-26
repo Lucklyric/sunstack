@@ -33,6 +33,11 @@ func (p *Project) Next(caller string, today time.Time) []Issue {
 			out = append(out, is)
 		}
 	}
+	if c, ok := TriageCheck(today); ok {
+		if is, ok := CheckIssue(c); ok {
+			out = append(out, is)
+		}
+	}
 	out = append(out, p.waiting()...)
 	out = append(out, p.Findings(today)...)
 	Rank(out, caller)
@@ -63,7 +68,7 @@ func SessionNext(sid string) []Issue {
 		}
 		for _, t := range p.Tasks() {
 			if t.Open && t.FromSession == sid {
-				out = append(out, Issue{"blocked", "user", fmt.Sprintf("task %s from this session to %s/%s has no reply yet (%s since %s)", t.ID, name, t.To, t.State, strings.SplitN(t.At, "T", 2)[0]),
+				out = append(out, Issue{"blocked", "user", fmt.Sprintf("%s %s from this session to %s/%s has no reply yet (%s since %s)", t.Type, t.ID, name, t.To, t.State, strings.SplitN(t.At, "T", 2)[0]),
 					"wait for the done reply; sunstack tasks --root " + p.Root + " shows it"})
 			}
 		}

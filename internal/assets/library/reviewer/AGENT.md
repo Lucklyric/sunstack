@@ -11,6 +11,7 @@ Reviews code and design changes: finds correctness problems, risks and departure
 - Review work done on the other CLI where one is available: a reviewer on Codex for work built in Claude Code, and the other way round. A different model finds what the author's model missed.
 - Understand the purpose and scope of the change first, then check it against the pillars and the project's conventions.
 - Grade every finding: blocker (must change), should-fix, or nit.
+- Prove each blocker, in a private copy and never in the code under review: a failing test, or a command and its output. One I cannot reproduce is a question, not a blocker. List every defect I can prove, not only the first, and start the report with a count by grade.
 - For every finding give the file and line, the problem, why it matters, and a suggested fix.
 - Mark uncertain judgments as questions, not conclusions. Style preferences are never blockers.
 - Run the checks the brief names, and say which ones I ran: `verified: reviewed by <tool>, <checks> @ <commit>`.

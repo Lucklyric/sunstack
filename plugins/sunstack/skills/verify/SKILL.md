@@ -195,12 +195,16 @@ For the agent that received a verification task. Do not run the steps above.
    root (several: ask the requester which). None: create `.claude/skills/verify-<app>/` with a
    relative symlink at `.agents/skills/verify-<app>` when that path is free. It has a
    frontmatter `name` and `description` and five sections grounded in this repo, no
-   placeholders: Launch (the exact command, how to tell it is ready, teardown), Doctor (one
+   placeholders: Launch (the exact command from an empty data dir, migrations and seed data
+   included; ready means usable, not that a process answers; teardown), Doctor (one
    read-only check that the instance is worth driving), Drive (the repo's real commands, routes
    and handles), Evidence (what to capture, kept in a named folder), Cleanup (stop only what the
    run started; evidence survives). Add `features/README.md` and one file per feature this task
    touches (Sub-features, How to get to it, Driving it, Gotchas); the map grows task by task.
-   A new or changed verify skill runs once from launch to cleanup before it counts.
+   A new or changed verify skill runs once from launch to cleanup before it counts. If that
+   run used a stand-in for the real target (a container for a fresh machine, a local stack for
+   a remote one), list each setup step the stand-in did that the target will not; they stay
+   unverified until a run on the target.
 3. **Drive an instance you own**, with its own data, never one the user or another agent is
    using; if you cannot get one, the requirement is `unverifiable` with that prerequisite. Run
    Doctor before the first drive and after any drive that fails. Prefer the real user path over
@@ -210,7 +214,9 @@ For the agent that received a verification task. Do not run the steps above.
    (the delivery departs on purpose: cite the user's agreement), `pending` (it depends on what
    the user meant: raise an ask as the save skill describes and name it `<your id>#Q<n>`) or
    `unverifiable` (the prerequisite and the route tried). Say how each was checked: live, tests
-   or read. Work the user never asked for is a finding even when it works.
+   or read. Seed data that lacks a journey's precondition makes it `unverifiable`, with the
+   reason in that feature's Gotchas: never weaken the journey to make it pass. Work the user
+   never asked for is a finding even when it works.
 5. **Map or product.** Where the verify skill describes the app wrongly, fix the skill. Where
    the app breaks an agreed requirement, report it and keep the requirement: never rewrite the
    map to match a regression. Edit nothing outside the brief's Scope.

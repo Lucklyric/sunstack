@@ -49,10 +49,10 @@ Skills run as `/sunstack:<name>` in Claude Code and `$sunstack:<name>` in Codex.
 - **Messages:** `send` → skill `send` (a `task` carries a brief: Goal, Scope, Done when, Verify, Report; to an agent, `<team>/<id>` in another team, or any Claude Code or Codex session by pane or session ID); `check`, `take`, `ack` → skill `check` (with `--session` for a session without an agent)
 - **Sessions:** `sessions`, `spawn` (`--brief` for a first task, the agent's own `tool:`, refused at the team's `max_sessions` and while halted), `dismiss`, `kill` → skill `spawn`; `clean` (also `kill --idle`: agent and free sessions at their prompt over 24h, and panes whose CLI exited; one confirmation) → skill `clean`
 - **Acceptance checks:** skill `verify` (no command of its own): checks the active task against your requirements, the task's own and the standing ones from the team's history, after a short Q&A with you; a verifier agent on the other CLI drives the real app and answers per requirement with evidence
-- **Delegation:** `tasks` (tasks sent and not yet answered), `send --follows` (a follow-up round that quotes the earlier one) → skills `org` and `send`
+- **Delegation:** `tasks` (tasks and questions sent and not yet answered; a verified reply that names its commit shows the commits since), `send --follows` (a follow-up round that quotes the earlier one) → skills `org` and `send`
 - **Staffing:** `hr` → skill `hr` (suggests, from the project and the boards, more sessions of an agent or a wider role before a new hire, and retirements)
 - **Your org on this machine:** `org` (work by team, people, hosts), `teams`, `peek`, `team`, `log`, `inbox`, `pillar` → skill `org`; `tui` (also a bare `sunstack`): in a team folder it opens on the team, outside one on a picker of this host's teams; tabs Team, Next and Org, each a list on the left with the selected item's details on the right. The Team tab is that tree for the current team (each agent with its sessions; an agent shows its pillars and board), and the Org tab is a tree of sessions in one of three orders, `b` cycling them: by project (teams, then folders and repos of sessions outside teams), by team (sessions outside teams under `no team`), or by host; each session names its host, with state marks (● busy, ◐ waiting, ⧗ blocked, ○ idle, ✕ gone); a session shows its doing line, last prompt and reply, and the end of its pane, and `enter` goes to its pane, `m` messages it, `R` reopens it in tmux, `K` closes an agent's session (both ask), `/` filters and `f` shows only what needs you, busy or outside tmux; `t` switches team, `?` lists the keys, `--org` opens on the host view; it reopens on the last tab and team (`~/.sunstack/tui.json`), and a team folder always opens its own team
-- **What went wrong:** `issues` (this host's issue log, grouped by code: every failed command, connector failures and notes; `health` flags a code that repeats, and `org` shows each host's counts), `issue "<text>"` (a note from an agent or skill) → skills `as`, `check`, `send`, `spawn` and `save` say when
+- **What went wrong:** `issues` (this host's issue log, grouped by code: every failed command, connector failures and notes; `health` flags a code that repeats, and `org` shows each host's counts), `issue "<text>"` (a note from an agent or skill) → skills `as`, `check`, `send`, `spawn` and `save` say when; skill `issues` triages the log: it sorts each code as agent misuse, a Sunstack bug, environment or expected, proposes a fix for each, and `issues --triaged` marks it read (`next` reminds you after 7 days)
 - **Who am I:** `whoami` → skill `as`; `doing` (one line on what a session works on) → skills `as` and `save`
 
 ## How agents reach each other
@@ -115,6 +115,10 @@ scripts/release.sh v0.8.14 --update-local
 ```
 
 It checks the tree and the manifests, runs the tests, pushes `main`, and waits for CI. It tags only when `scripts/ci-green.sh` reports that all three OS jobs passed, then waits for the release build, and updates this machine (`--update-local`) only after that succeeds. `scripts/ci-green.sh <commit>` alone says whether a commit is safe to tag.
+
+## Credits
+
+Several of Sunstack's working rules are adapted from [pstack](https://github.com/backnotprop/pstack), the standalone mirror of Cursor's [pstack plugin](https://github.com/cursor/plugins/tree/main/pstack) (MIT): task briefs and proof of done, rules that return after compaction, asks with a default, the delegation ledger, halt, follow-up rounds with the whole scope, review on another model, acceptance checks through a `verify-<app>` skill (whose section names follow pstack's), and triage of the issue log. Sunstack adapts the ideas to its own CLI and skills; no pstack code or text is included.
 
 ## License
 

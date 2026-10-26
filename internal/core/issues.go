@@ -217,3 +217,57 @@ func IssueCode(c string) string {
 	}
 	return string(b)
 }
+
+// triageEvery is how long a triage of the issue log holds before next asks
+// for another one (§33).
+const triageEvery = 7 * 24 * time.Hour
+
+func triagedPath() string { return filepath.Join(Home(), "log", "triaged") }
+
+// LastTriage is when the issue log was last triaged; zero if never.
+func LastTriage() time.Time {
+	fi, err := os.Stat(triagedPath())
+	if err != nil {
+		return time.Time{}
+	}
+	return fi.ModTime()
+}
+
+// TriageSince is where a triage starts: the last one, or 7 days back.
+func TriageSince(now time.Time) time.Time {
+	if t := LastTriage(); !t.IsZero() {
+		return t
+	}
+	return now.Add(-triageEvery)
+}
+
+// MarkTriaged records that the log was read up to now.
+func MarkTriaged() error {
+	path := triagedPath()
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return fail(ExitFail, "fs", "%v", err)
+	}
+	if err := writeAtomic(path, []byte(now()+"\n")); err != nil {
+		return fail(ExitFail, "write_failed", "could not write %s: %v", path, err)
+	}
+	return nil
+}
+
+// TriageCheck asks for a triage when entries arrived since the last one
+// and that one is over 7 days old, or never ran.
+func TriageCheck(now time.Time) (Check, bool) {
+	last := LastTriage()
+	if !last.IsZero() && now.Sub(last) <= triageEvery {
+		return Check{}, false
+	}
+	since := TriageSince(now)
+	n := 0
+	for _, c := range IssueCounts(since) {
+		n += c
+	}
+	if n == 0 {
+		return Check{}, false
+	}
+	return Check{Level: "warn", Area: "issues", Msg: fmt.Sprintf("%d issue log entries since %s not triaged", n, since.Format("2006-01-02")),
+		Fix: "the issues skill (/sunstack:issues, $sunstack:issues)"}, true
+}

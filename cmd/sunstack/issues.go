@@ -15,17 +15,19 @@ import (
 // issues prints this host's issue log grouped by code (§26).
 func issues(a *args, out io.Writer) error {
 	since := time.Now().Add(-7 * 24 * time.Hour)
-	if v := a.flags["since"]; v != "" {
+	if v := a.flags["since"]; v == "triaged" {
+		since = core.TriageSince(time.Now())
+	} else if v != "" {
 		if d, ok := strings.CutSuffix(v, "d"); ok {
 			n, err := strconv.Atoi(d)
 			if err != nil || n < 0 {
-				return &core.Error{Code: core.ExitUsage, Reason: "usage", Msg: "--since takes a number of days (7d) or a date (2026-10-20)"}
+				return &core.Error{Code: core.ExitUsage, Reason: "usage", Msg: "--since takes a number of days (7d), a date (2026-10-20) or triaged"}
 			}
 			since = time.Now().Add(-time.Duration(n) * 24 * time.Hour)
 		} else if t, err := time.ParseInLocation("2006-01-02", v, time.Local); err == nil {
 			since = t
 		} else {
-			return &core.Error{Code: core.ExitUsage, Reason: "usage", Msg: "--since takes a number of days (7d) or a date (2026-10-20)"}
+			return &core.Error{Code: core.ExitUsage, Reason: "usage", Msg: "--since takes a number of days (7d), a date (2026-10-20) or triaged"}
 		}
 	}
 	var list []core.IssueEntry

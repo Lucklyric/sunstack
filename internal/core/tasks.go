@@ -1,16 +1,20 @@
 package core
 
 import (
+	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
 
 // The delegation ledger (§17.2), derived from messages, never stored: a task
-// is open until a done message replies to it. A task from the user or
+// or a question (§33) is open until a done message replies to it. A task from the user or
 // another team, whose reply cannot land in this team, is also closed once
 // its recipient acks it.
 
@@ -19,18 +23,19 @@ const openDays = 3
 
 // TaskInfo is one task message and what came of it.
 type TaskInfo struct {
-	ID, From, To, Session, At, Goal, Follows string
-	FromSession                              string // the CLI session that sent it, for one with no agent
-	State                                    string // pending, taken, acked
-	Returned                                 string // "<label> <time>" when put back unfinished (§31)
-	Replies                                  []TaskReply
-	Open                                     bool
+	ID, Type, From, To, Session, At, Goal, Follows string // Type: task or question
+	FromSession                                    string // the CLI session that sent it, for one with no agent
+	State                                          string // pending, taken, acked
+	Returned                                       string // "<label> <time>" when put back unfinished (§31)
+	Replies                                        []TaskReply
+	Open                                           bool
 }
 
 // TaskReply is a done message answering a task.
 type TaskReply struct {
 	ID, At   string
-	Verified bool // it carries a verified: line
+	Verified bool   // it carries a verified: line
+	Rev      string // the commit its verified: line names after @ (§33)
 	mod      time.Time
 }
 
@@ -83,14 +88,14 @@ func (p *Project) Tasks() []*TaskInfo {
 	// A reply counts only when it comes from the agent the task went to.
 	to := map[string]string{}
 	for _, m := range msgs {
-		if m.Type == "task" {
+		if ledgerType(m.Type) {
 			to[m.ID] = m.To
 		}
 	}
 	replies := map[string][]TaskReply{}
 	for _, m := range msgs {
 		if m.Type == "done" && m.ReplyTo != "" && to[m.ReplyTo] != "" && m.From == to[m.ReplyTo] {
-			replies[m.ReplyTo] = append(replies[m.ReplyTo], TaskReply{ID: m.ID, At: m.At, Verified: hasVerifiedLine(m.Body), mod: m.mod})
+			replies[m.ReplyTo] = append(replies[m.ReplyTo], TaskReply{ID: m.ID, At: m.At, Verified: hasVerifiedLine(m.Body), Rev: verifiedRev(m.Body), mod: m.mod})
 		}
 	}
 	for id := range replies {
@@ -106,11 +111,15 @@ func (p *Project) Tasks() []*TaskInfo {
 	}
 	var out []*TaskInfo
 	for _, m := range msgs {
-		if m.Type != "task" {
+		if !ledgerType(m.Type) {
 			continue
 		}
-		t := &TaskInfo{ID: m.ID, From: m.From, To: m.To, Session: m.Session, FromSession: m.FromSession, At: m.At, Follows: m.Follows, State: m.State, Returned: m.Returned, Replies: replies[m.ID]}
+		t := &TaskInfo{ID: m.ID, Type: m.Type, From: m.From, To: m.To, Session: m.Session, FromSession: m.FromSession, At: m.At, Follows: m.Follows, State: m.State, Returned: m.Returned, Replies: replies[m.ID]}
 		for _, l := range strings.Split(m.Body, "\n") {
+			if m.Type == "question" && strings.TrimSpace(l) != "" {
+				t.Goal = strings.TrimSpace(l) // its first line stands in for the Goal
+				break
+			}
 			if strings.HasPrefix(strings.ToLower(l), "goal:") {
 				t.Goal = strings.TrimSpace(l)
 				break
@@ -178,8 +187,11 @@ func (p *Project) taskFindings(today time.Time) []Issue {
 			owner = "user"
 		}
 		if at, err := time.Parse("2006-01-02T15:04:05Z", t.At); err == nil && t.Open && today.Sub(at) > openDays*24*time.Hour {
-			out = append(out, Issue{"blocked", owner, fmt.Sprintf("task %s from %s to %s has been open since %s", t.ID, t.From, t.To, at.Format("2006-01-02")),
+			out = append(out, Issue{"blocked", owner, fmt.Sprintf("%s %s from %s to %s has been open since %s", t.Type, t.ID, t.From, t.To, at.Format("2006-01-02")),
 				"sunstack tasks; check progress read-only (org --by agent, peek), never ask \"are you done?\""})
+		}
+		if t.Type != "task" {
+			continue // returns and failed rounds are about tasks
 		}
 		if t.Open && t.State == "pending" && t.Returned != "" {
 			label, at := (&Message{Returned: t.Returned}).ReturnedBy()
@@ -210,12 +222,12 @@ func (p *Project) taskFindings(today time.Time) []Issue {
 	return out
 }
 
-// TasksText renders sunstack tasks.
-func (p *Project) TasksText(all bool, from string) string {
+// TasksText renders sunstack tasks; typ, when set, keeps one type.
+func (p *Project) TasksText(all bool, from, typ string) string {
 	var b strings.Builder
 	n := 0
 	for _, t := range p.Tasks() {
-		if (!all && !t.Open) || (from != "" && t.From != from) {
+		if (!all && !t.Open) || (from != "" && t.From != from) || (typ != "" && t.Type != typ) {
 			continue
 		}
 		n++
@@ -230,7 +242,11 @@ func (p *Project) TasksText(all bool, from string) string {
 			label, at := (&Message{Returned: t.Returned}).ReturnedBy()
 			state = "returned by " + label + " " + Ago(at) + " ago"
 		}
-		fmt.Fprintf(&b, "%s  %s -> %s  %s  since %s\n", t.ID, t.From, to, state, strings.SplitN(t.At, "T", 2)[0])
+		kind := ""
+		if t.Type == "question" {
+			kind = "question  "
+		}
+		fmt.Fprintf(&b, "%s  %s%s -> %s  %s  since %s\n", t.ID, kind, t.From, to, state, strings.SplitN(t.At, "T", 2)[0])
 		if t.Goal != "" {
 			fmt.Fprintf(&b, "    %s\n", t.Goal)
 		}
@@ -241,6 +257,14 @@ func (p *Project) TasksText(all bool, from string) string {
 			v := "done with verified:"
 			if !r.Verified {
 				v = "done without verified:"
+			} else if r.Rev != "" {
+				v = "done, verified @ " + r.Rev
+				if n, ok := p.commitsSince(r.Rev); ok {
+					v += fmt.Sprintf(", %d commits since", n)
+				}
+			}
+			if t.Type == "question" {
+				v = "answered"
 			}
 			fmt.Fprintf(&b, "    reply %s: %s\n", r.ID, v)
 		}
@@ -264,7 +288,7 @@ func (p *Project) checkReplaces(o SendOptions, from, to string) error {
 		return fail(ExitUsage, "usage", "invalid --replaces message id: %s", o.Replaces)
 	}
 	for _, t := range p.Tasks() {
-		if t.ID != o.Replaces {
+		if t.ID != o.Replaces || t.Type != "task" {
 			continue
 		}
 		switch {
@@ -383,7 +407,7 @@ func (p *Project) TaskDetails(today time.Time) []*TaskDetail {
 			d.Lifecycle = "pending"
 		}
 		for _, is := range findings {
-			if !strings.Contains(is.Text, "task "+t.ID+" ") {
+			if !strings.Contains(is.Text, t.Type+" "+t.ID+" ") {
 				continue
 			}
 			if strings.Contains(is.Text, "failed twice") {
@@ -403,4 +427,40 @@ func claimLabel(id string, c *Live) string {
 		return id + "_" + c.Task
 	}
 	return id
+}
+
+// ledgerType says whether a message type is tracked until a done reply.
+func ledgerType(t string) bool { return t == "task" || t == "question" }
+
+var revRe = regexp.MustCompile(`@\s*([0-9a-f]{7,40})\b`)
+
+// verifiedRev is the commit a reply's own verified: line names after @.
+func verifiedRev(body string) string {
+	for _, l := range strings.Split(body, "\n") {
+		l = strings.TrimSpace(l)
+		if strings.HasPrefix(l, ">") {
+			continue
+		}
+		if v, ok := strings.CutPrefix(strings.TrimPrefix(strings.ToLower(l), "("), "verified:"); ok {
+			if m := revRe.FindStringSubmatch(v); m != nil {
+				return m[1]
+			}
+		}
+	}
+	return ""
+}
+
+// commitsSince counts the commits after rev that touch the project folder,
+// so a parent repo's commits elsewhere do not count.
+func (p *Project) commitsSince(rev string) (int, bool) {
+	ctx, cancel := context.WithTimeout(context.Background(), gitWait)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "git", "-C", p.Root, "rev-list", "--count", rev+"..HEAD", "--", ".")
+	cmd.WaitDelay = gitWait
+	out, err := cmd.Output()
+	if err != nil {
+		return 0, false
+	}
+	n, err := strconv.Atoi(strings.TrimSpace(string(out)))
+	return n, err == nil
 }

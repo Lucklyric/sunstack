@@ -50,7 +50,7 @@ const shortUsage = `sunstack — agent-team layer for Claude Code and Codex
   sunstack update                       update this binary and the plugin
 
 Skills have the command's name: /sunstack:<name> in Claude Code, $sunstack:<name> in Codex
-(as, board, check, clean, direct, fire, health, hire, hr, next, org, release, send, spawn; save and
+(as, board, check, clean, direct, fire, health, hire, hr, issues, next, org, release, send, spawn; save and
 verify are skills only). Every command and flag: sunstack help all
 `
 
@@ -84,7 +84,8 @@ Boards:
                                                   then this session's own next step; each with the command to run.
                                                   In a team (or --root): that team. Outside a team: this session's
                                                   inbox and open tasks only, plus a count of the rest (org --attention)
-  sunstack tasks [--all] [--from ID]              open tasks (a task stays open until a done reply), with replies
+  sunstack tasks [--all] [--from ID] [--type task|question]
+                                                  open tasks and questions (open until a done reply), with replies
   sunstack halt "<reason>" | --off                pause the whole team: work in progress saves, nothing new starts
   sunstack tidy <id> | --team | --all             archive old finished entries by month; creates a missing board
 
@@ -165,8 +166,9 @@ Org (every team and Claude Code or Codex session on this host):
   sunstack pillar <id> | --team                   effective pillars with their source
   sunstack health                                 read-only checks of the project and the install
   sunstack issue "<text>" [--code C]              note what went wrong in this host's issue log (no bodies or secrets)
-  sunstack issues [--since 7d|DATE] [--code C] [--json]
-                                                  this host's issue log grouped by code: count, last time, commands, last message
+  sunstack issues [--since 7d|DATE|triaged] [--code C] [--json] | --triaged
+                                                  this host's issue log grouped by code: count, last time, commands, last message;
+                                                  --triaged marks it read up to now (the issues skill)
   sunstack tui [--org]                            dashboard: this team, or outside a team a picker of this host's teams;
                                                   --org opens the host view of every team and session (also: bare sunstack)
 
@@ -816,9 +818,12 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 
 	case "tasks":
 		// The delegation ledger (§17.2), derived from messages.
-		a, err := parse(rest, "root from", "all")
+		a, err := parse(rest, "root from type", "all")
 		if err == nil {
 			err = a.atMost(0, "tasks")
+		}
+		if typ := a.flags["type"]; err == nil && typ != "" && typ != "task" && typ != "question" {
+			err = &core.Error{Code: core.ExitUsage, Reason: "usage", Msg: "--type takes task or question"}
 		}
 		if err != nil {
 			return err
@@ -827,7 +832,7 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 		if err != nil {
 			return err
 		}
-		fmt.Fprint(stdout, p.TasksText(a.has("all"), a.flags["from"]))
+		fmt.Fprint(stdout, p.TasksText(a.has("all"), a.flags["from"], a.flags["type"]))
 		fmt.Fprint(stdout, sentText(a.has("all")))
 		return nil
 
@@ -1749,12 +1754,19 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 		return nil
 
 	case "issues":
-		a, err := parse(rest, "since code", "json")
+		a, err := parse(rest, "since code", "json triaged")
 		if err != nil {
 			return err
 		}
 		if err := a.atMost(0, "issues"); err != nil {
 			return err
+		}
+		if a.has("triaged") {
+			if err := core.MarkTriaged(); err != nil {
+				return err
+			}
+			fmt.Fprintln(stdout, "issue log triaged up to now; the next triage starts here")
+			return nil
 		}
 		return issues(a, stdout)
 
@@ -1944,6 +1956,9 @@ func health(root string, out io.Writer) error {
 		cs = append(cs, core.Check{Level: "fail", Area: "project", Msg: "no sunstack/ here or above", Fix: "sunstack init (sets up sunstack/ in the current folder)"})
 	}
 	cs = append(cs, installChecks()...)
+	if c, ok := core.TriageCheck(time.Now()); ok {
+		cs = append(cs, c)
+	}
 	counts := core.IssueCounts(time.Now().Add(-24 * time.Hour))
 	for _, code := range sortedCodes(counts) {
 		if n := counts[code]; n >= 5 {

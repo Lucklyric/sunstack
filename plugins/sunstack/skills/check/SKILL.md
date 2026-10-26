@@ -105,7 +105,10 @@ and ones this session has already taken.
      changes nothing on your board or context: ack it now, with no record.
    - `done`: a reply to something you sent; close the matching key result or open question. A
      reply to a `task` without a `verified:` line is a failed round. Send a fresh task with
-     `--follows <task id>` (the send skill), never a bare "please retry". To another host,
+     `--follows <task id>` (the send skill), never a bare "please retry", and change what
+     failed: out of time or context, a smaller scope; a tool or model failure, the other CLI
+     (`--tool`); blocked outside the brief, an ask to the user instead; unclear, the same brief
+     once. To another host,
      `--follows` is refused: send a fresh task whose `Context:` quotes the first brief's scope,
      the failed requirements and the replies so far, and count the rounds on your board. After two failed
      rounds in one chain, send no third: make it an ask to the user on your board. A reply
