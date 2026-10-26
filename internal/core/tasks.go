@@ -488,15 +488,48 @@ func (p *Project) commitsSince(rev string) (int, bool) {
 	return n, err == nil
 }
 
-// RemoteAnswered says whether a done reply to a message sent to another host
-// came back from its recipient there: <host>:<team>/<id>, the session part
-// of a <team>/<id>_<task> address aside.
-func (p *Project) RemoteAnswered(id, host, to string) bool {
-	want := host + ":" + to
-	for _, m := range p.allMessages() {
-		if m.Type == "done" && m.ReplyTo == id && (m.From == want || strings.HasPrefix(want, m.From+"_")) {
-			return true
+// RepliesOnHost lists every message on this host that replies to another:
+// in each indexed team (pending, taken, archived) and in the host inboxes
+// and their archive. Replies to mail sent to other hosts land in any of them.
+func RepliesOnHost() []*Message {
+	var out []*Message
+	for _, p := range IndexedProjects() {
+		for _, m := range p.allMessages() {
+			if m.ReplyTo != "" {
+				out = append(out, m)
+			}
 		}
 	}
-	return false
+	add := func(dir string) {
+		for _, n := range listNames(dir, ".md") {
+			if m, err := parseMessage(filepath.Join(dir, n)); err == nil && m.ReplyTo != "" {
+				out = append(out, m)
+			}
+		}
+	}
+	sids, _ := os.ReadDir(filepath.Join(Home(), "inbox"))
+	for _, d := range sids {
+		if d.IsDir() && IsSessionID(d.Name()) {
+			add(hostInboxDir(d.Name()))
+			add(hostTakenDir(d.Name()))
+		}
+	}
+	add(hostArchive())
+	return out
+}
+
+// RemoteReply says whether m, received from another host, answers a message
+// of type typ that was sent there to address to: a done from that recipient,
+// or for a question also an fyi (§33, v0.17.1). The recipient is
+// <host>:<team>/<id> (a <team>/<id>_<task> address matches its agent), or,
+// for a session-ID address, the reply's from_session.
+func RemoteReply(m *Message, typ, host, to string) bool {
+	if m.Type != "done" && !(typ == "question" && m.Type == "fyi") {
+		return false
+	}
+	want := host + ":" + to
+	if IsSessionID(to) {
+		return m.FromSession == want
+	}
+	return m.From == want || strings.HasPrefix(want, m.From+"_")
 }

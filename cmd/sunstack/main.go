@@ -833,7 +833,7 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 			return err
 		}
 		fmt.Fprint(stdout, p.TasksText(a.has("all"), a.flags["from"], a.flags["type"]))
-		fmt.Fprint(stdout, sentText(a.has("all"), a.flags["type"], p))
+		fmt.Fprint(stdout, sentText(a.has("all"), a.flags["type"]))
 		return nil
 
 	case "halt":

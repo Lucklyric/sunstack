@@ -498,18 +498,37 @@ func sendRemote(p *core.Project, o core.SendOptions, stdout io.Writer) error {
 }
 
 // sentText lists messages sent to other hosts with their place.
-func sentText(all bool, typ string, p *core.Project) string {
+func sentText(all bool, typ string) string {
 	var b strings.Builder
-	for _, s := range hub.SentMail() {
+	mail := hub.SentMail()
+	var replies []*core.Message
+	if !all {
+		replies = core.RepliesOnHost()
+	}
+	// closed: a delivered task or question stays until its recipient answers;
+	// a question also closes when its sender withdraws it (an fyi or done
+	// with --reply-to, sent to the same place).
+	closed := func(s *hub.Sent) bool {
+		for _, m := range replies {
+			if m.ReplyTo == s.Mail.ID && core.RemoteReply(m, s.Letter.Type, s.ToName, s.Letter.To) {
+				return true
+			}
+		}
+		if s.Letter.Type == "question" {
+			for _, w := range mail {
+				if w.Letter.ReplyTo == s.Mail.ID && w.Letter.From == s.Letter.From && (w.Letter.Type == "fyi" || w.Letter.Type == "done") {
+					return true
+				}
+			}
+		}
+		return false
+	}
+	for _, s := range mail {
 		if typ != "" && s.Letter.Type != typ {
 			continue
 		}
-		if !all && s.Status == "delivered" {
-			// A delivered task or question stays until its recipient replies done.
-			open := s.Letter.Type == "task" || s.Letter.Type == "question"
-			if !open || (p != nil && p.RemoteAnswered(s.Mail.ID, s.ToName, s.Letter.To)) {
-				continue
-			}
+		if !all && s.Status == "delivered" && (s.Letter.Type != "task" && s.Letter.Type != "question" || closed(s)) {
+			continue
 		}
 		if b.Len() == 0 {
 			b.WriteString("\nSent to other hosts\n")

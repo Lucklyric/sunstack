@@ -81,20 +81,20 @@ func TestRemoteAnswered(t *testing.T) {
 	writeFile(t, out, q+".json", `{"mail":{"id":"`+q+`"},"letter":{"from":"builder.alice","type":"question","to":"proj/builder.bob"},"to_name":"remote","status":"delivered"}`)
 	pr, err := core.FindProject(p)
 	must(t, err)
-	if !strings.Contains(sentText(false, "", pr), q) {
+	if !strings.Contains(sentText(false, ""), q) {
 		t.Fatal("an unanswered remote question is not listed")
 	}
 	_, err = pr.Send(core.SendOptions{To: "builder.alice", Type: "done", ReplyTo: q, Body: "no", FromLabel: "remote:proj/reviewer.rita", FromHost: "remote", NoNudge: true})
 	must(t, err)
-	if !strings.Contains(sentText(false, "", pr), q) {
+	if !strings.Contains(sentText(false, ""), q) {
 		t.Error("an unrelated sender's reply answered the remote question")
 	}
 	_, err = pr.Send(core.SendOptions{To: "builder.alice", Type: "done", ReplyTo: q, Body: "CSV.", FromLabel: "remote:proj/builder.bob", FromHost: "remote", NoNudge: true})
 	must(t, err)
-	if strings.Contains(sentText(false, "", pr), q) {
+	if strings.Contains(sentText(false, ""), q) {
 		t.Error("an answered remote question is still listed")
 	}
-	if !strings.Contains(sentText(true, "", pr), q) {
+	if !strings.Contains(sentText(true, ""), q) {
 		t.Error("--all drops the answered remote question")
 	}
 }
@@ -105,5 +105,69 @@ func TestCheckSkillWithdraw(t *testing.T) {
 	s := strings.Join(strings.Fields(string(b)), " ")
 	if !strings.Contains(s, "withdraw it with an `fyi --reply-to <its id>`") {
 		t.Error("check skill lacks the withdrawal rule")
+	}
+}
+
+// Review r0171: the answer may be in another team on this host, in a host
+// inbox, an fyi to a question, the sender's own withdrawal in the outbox, or
+// from a session-ID recipient.
+func TestRemoteAnsweredHostWide(t *testing.T) {
+	_, env := team086(t)
+	home := envValue(env, "SUNSTACK_HOME")
+	t.Setenv("SUNSTACK_HOME", home)
+	other := t.TempDir()
+	expect(t, sh(t, other, env, "init"), 0, "init other")
+	expect(t, sh(t, other, env, "hire", "builder", "carl"), 0, "hire carl")
+	pr, err := core.FindProject(other)
+	must(t, err)
+	out := filepath.Join(home, "outbox")
+	must(t, os.MkdirAll(out, 0o700))
+	sent := func(id, from, typ, to, replyTo string) {
+		rt := ""
+		if replyTo != "" {
+			rt = `,"reply_to":"` + replyTo + `"`
+		}
+		writeFile(t, out, id+".json", `{"mail":{"id":"`+id+`"},"letter":{"from":"`+from+`","type":"`+typ+`","to":"`+to+`"`+rt+`},"to_name":"remote","status":"delivered"}`)
+	}
+	listed := func(id string) bool { return strings.Contains(sentText(false, ""), id) }
+
+	// A task answered in the other team's inbox.
+	t1 := "20260101T000001Z-builder.carl-aaaaa1"
+	sent(t1, "other/builder.carl", "task", "proj/builder.bob", "")
+	_, err = pr.Send(core.SendOptions{To: "builder.carl", Type: "done", ReplyTo: t1, Body: "done", FromLabel: "remote:proj/builder.bob", FromHost: "remote", NoNudge: true})
+	must(t, err)
+	if listed(t1) {
+		t.Error("a task answered in another team is still listed")
+	}
+	// A question answered with an fyi.
+	q1 := "20260101T000002Z-builder.carl-aaaaa2"
+	sent(q1, "other/builder.carl", "question", "proj/builder.bob", "")
+	_, err = pr.Send(core.SendOptions{To: "builder.carl", Type: "fyi", ReplyTo: q1, Body: "CSV", FromLabel: "remote:proj/builder.bob", FromHost: "remote", NoNudge: true})
+	must(t, err)
+	if listed(q1) {
+		t.Error("a remote question answered by fyi is still listed")
+	}
+	// A question the sender withdrew; a task cannot be withdrawn that way.
+	q2 := "20260101T000003Z-builder.carl-aaaaa3"
+	sent(q2, "other/builder.carl", "question", "proj/builder.bob", "")
+	sent("20260101T000004Z-builder.carl-aaaaa4", "other/builder.carl", "fyi", "proj/builder.bob", q2)
+	if listed(q2) {
+		t.Error("a withdrawn remote question is still listed")
+	}
+	t2 := "20260101T000005Z-builder.carl-aaaaa5"
+	sent(t2, "other/builder.carl", "task", "proj/builder.bob", "")
+	sent("20260101T000006Z-builder.carl-aaaaa6", "other/builder.carl", "fyi", "proj/builder.bob", t2)
+	if !listed(t2) {
+		t.Error("an fyi from the sender closed a remote task")
+	}
+	// A task to a remote session, answered into a host inbox.
+	sid := "00000000-0000-4000-8000-000000001712"
+	t3 := "20260101T000007Z-user-aaaaa7"
+	sent(t3, "user", "task", sid, "")
+	dir := filepath.Join(home, "inbox", "00000000-0000-4000-8000-000000000001")
+	must(t, os.MkdirAll(dir, 0o700))
+	writeFile(t, dir, "20260101T000008Z-remote-user-aaaaa8.md", "---\nid: 20260101T000008Z-remote-user-aaaaa8\nfrom: remote:user\nto: 00000000-0000-4000-8000-000000000001\nat: 2026-01-01T00:00:08Z\ntype: done\nreply_to: "+t3+"\nfrom_session: remote:"+sid+"\nfrom_host: remote\n---\ndone\n")
+	if listed(t3) {
+		t.Error("a session recipient's reply in a host inbox did not close the task")
 	}
 }
