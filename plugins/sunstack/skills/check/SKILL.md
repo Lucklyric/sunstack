@@ -85,7 +85,9 @@ and ones this session has already taken.
      handling), so other sessions of this agent see it and its key. Then do it inside its
      Scope. Stop at its Timebox if one is set, and report what is done so far. Reply
      `done --reply-to <message id>` with what Report asks for and a `verified:` line naming
-     the checks you actually ran (`verified: none, <reason>` when there was nothing to run). Put findings outside the scope in the reply as
+     the checks you actually ran (`verified: none, <reason>` when there was nothing to run).
+     In a git project the line ends with `@ <short commit>` you checked, so the sender sees
+     the commits since. Put findings outside the scope in the reply as
      follow-ups; do not act on them. Keep each `Done when` criterion in the Now entry; one you
      choose not to meet stays, marked `skip: <reason>`, and the reply names it. Label every
      claim in the reply: measured (with its evidence), inferred, or a guess. You may decline a
@@ -106,8 +108,8 @@ and ones this session has already taken.
    - `done`: a reply to something you sent; close the matching key result or open question. A
      reply to a `task` without a `verified:` line is a failed round. Send a fresh task with
      `--follows <task id>` (the send skill), never a bare "please retry", and change what
-     failed: out of time or context, a smaller scope; a tool or model failure, the other CLI
-     (`--tool`); blocked outside the brief, an ask to the user instead; unclear, the same brief
+     failed: out of time or context, a smaller scope; a tool or model failure, a session on the other
+     CLI (`spawn --tool`, then send the round to it); blocked outside the brief, an ask to the user instead; unclear, the same brief
      once. To another host,
      `--follows` is refused: send a fresh task whose `Context:` quotes the first brief's scope,
      the failed requirements and the replies so far, and count the rounds on your board. After two failed

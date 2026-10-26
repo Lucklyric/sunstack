@@ -20,3 +20,17 @@ func TestTriageSameSecond(t *testing.T) {
 		t.Error("no reminder for an issue in the triage's second")
 	}
 }
+
+// Review r33-r2: the commit is the last @ <sha> on the verified: line.
+func TestVerifiedRevLast(t *testing.T) {
+	for body, want := range map[string]string{
+		"verified: git diff @ 8a9c8f4 @ 5cfc9ed":  "5cfc9ed",
+		"(verified: go test ./... @ abcdef1)":      "abcdef1",
+		"verified: read the diff":                  "",
+		"> verified: quoted @ 1234567\nverified: x": "",
+	} {
+		if got := verifiedRev(body); got != want {
+			t.Errorf("verifiedRev(%q) = %q, want %q", body, got, want)
+		}
+	}
+}

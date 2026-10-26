@@ -33,11 +33,6 @@ func (p *Project) Next(caller string, today time.Time) []Issue {
 			out = append(out, is)
 		}
 	}
-	if c, ok := TriageCheck(today); ok {
-		if is, ok := CheckIssue(c); ok {
-			out = append(out, is)
-		}
-	}
 	out = append(out, p.waiting()...)
 	out = append(out, p.Findings(today)...)
 	Rank(out, caller)

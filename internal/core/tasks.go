@@ -432,9 +432,10 @@ func claimLabel(id string, c *Live) string {
 // ledgerType says whether a message type is tracked until a done reply.
 func ledgerType(t string) bool { return t == "task" || t == "question" }
 
-var revRe = regexp.MustCompile(`@\s*([0-9a-f]{7,40})\b`)
+var revRe = regexp.MustCompile(`@\s*([0-9a-f]{7,40})\s*\)?\s*$`)
 
-// verifiedRev is the commit a reply's own verified: line names after @.
+// verifiedRev is the commit a reply's own verified: line ends with, after @;
+// an @ inside the check itself (git diff @ <rev>) does not count.
 func verifiedRev(body string) string {
 	for _, l := range strings.Split(body, "\n") {
 		l = strings.TrimSpace(l)

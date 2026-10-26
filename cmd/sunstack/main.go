@@ -2052,6 +2052,11 @@ func nextCommand(a *args, hostWide bool, stdout io.Writer) error {
 			items = append(items, is)
 		}
 	}
+	if c, ok := core.TriageCheck(time.Now()); ok {
+		if is, ok := core.CheckIssue(c); ok {
+			items = append(items, is)
+		}
+	}
 	if latest := setup.CachedLatest(); latest != "" && setup.Older(version, latest) {
 		items = append(items, core.Issue{Kind: "user", Owner: "user", Text: "sunstack " + latest + " is out; this host runs " + version, Do: "sunstack update"})
 	}

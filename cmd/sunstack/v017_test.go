@@ -97,6 +97,9 @@ func TestVerifiedCommitsSince(t *testing.T) {
 	expect(t, sh(t, p, env, "send", "builder.alice", "Done.\nverified: read the diff", "--type", "done", "--reply-to", t2, "--from", "builder.bob", "--token", tb), 0, "reply 2")
 	out := sh(t, p, env, "tasks", "--all").out
 	block := out[strings.Index(out, t2):]
+	if i := strings.Index(block[1:], "\n2"); i >= 0 { // up to the next task, IDs sort in either order
+		block = block[:i+1]
+	}
 	if strings.Contains(block, "commits since") {
 		t.Errorf("a reply without @ shows a count:\n%s", block)
 	}
@@ -137,7 +140,7 @@ func TestPstackPassText(t *testing.T) {
 	for path, wants := range map[string][]string{
 		"../../plugins/sunstack/skills/check/SKILL.md": {
 			"out of time or context, a smaller scope",
-			"a tool or model failure, the other CLI",
+			"a tool or model failure, a session on the other CLI",
 		},
 		"../../plugins/sunstack/skills/verify/SKILL.md": {
 			"from an empty data dir",
@@ -186,4 +189,35 @@ func TestTasksArgsAndSentFilter(t *testing.T) {
 		t.Errorf("--type question lists a remote task:\n%s", r.out)
 	}
 	requireContains(t, sh(t, p, env, "tasks", "--type", "task").out, "20260101T000000Z-user-aaaaaa")
+}
+
+// Review r33-r2: a delivered remote question stays listed until answered;
+// the triage reminder shows outside a team and in org --attention; the check
+// skill asks for the commit and points to spawn for the other CLI.
+func TestPstackRound2(t *testing.T) {
+	p, env := team086(t)
+	out := filepath.Join(envValue(env, "SUNSTACK_HOME"), "outbox")
+	must(t, os.MkdirAll(out, 0o700))
+	writeFile(t, out, "20260101T000000Z-user-bbbbbb.json", `{"mail":{"id":"20260101T000000Z-user-bbbbbb"},"letter":{"type":"question","to":"proj/builder"},"to_name":"remote","status":"delivered"}`)
+	requireContains(t, sh(t, p, env, "tasks").out, "20260101T000000Z-user-bbbbbb")
+
+	expect(t, sh(t, p, env, "issue", "a note"), 0, "note")
+	outside := t.TempDir()
+	requireContains(t, sh(t, outside, env, "next", "--all").out, "not triaged")
+	requireContains(t, sh(t, outside, env, "org", "--attention", "--all").out, "not triaged")
+	if n := strings.Count(sh(t, p, env, "next", "--all").out, "not triaged"); n != 1 {
+		t.Errorf("triage reminder listed %d times in a team", n)
+	}
+
+	b, err := os.ReadFile("../../plugins/sunstack/skills/check/SKILL.md")
+	must(t, err)
+	s := strings.Join(strings.Fields(string(b)), " ")
+	for _, w := range []string{"ends with `@ <short commit>`", "`spawn --tool`"} {
+		if !strings.Contains(s, w) {
+			t.Errorf("check skill lacks %q", w)
+		}
+	}
+	if strings.Contains(s, "the other CLI (`--tool`)") {
+		t.Error("check skill still suggests send --tool")
+	}
 }
