@@ -542,5 +542,6 @@ func SameSender(from, fromSession, origFrom, origSession string) bool {
 	if from != origFrom {
 		return false
 	}
-	return origSession == "" || from != "user" || fromSession == origSession
+	user := from == "user" || strings.HasSuffix(from, ":user") // here, or <host>:user
+	return origSession == "" || !user || fromSession == origSession
 }

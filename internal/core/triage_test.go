@@ -34,3 +34,24 @@ func TestVerifiedRevLast(t *testing.T) {
 		}
 	}
 }
+
+// Review r0171c: a user on another host (<host>:user) is one session too.
+func TestSameSender(t *testing.T) {
+	a, b := "laptop:00000000-0000-4000-8000-000000001721", "laptop:00000000-0000-4000-8000-000000001722"
+	cases := []struct {
+		from, fs, of, os string
+		want             bool
+	}{
+		{"laptop:user", b, "laptop:user", a, false},
+		{"laptop:user", a, "laptop:user", a, true},
+		{"user", "s2", "user", "s1", false},
+		{"user", "", "user", "", true},
+		{"builder.alice", "x", "builder.alice", "y", true},
+		{"builder.bob", "", "builder.alice", "", false},
+	}
+	for _, c := range cases {
+		if got := SameSender(c.from, c.fs, c.of, c.os); got != c.want {
+			t.Errorf("SameSender(%q,%q,%q,%q) = %v", c.from, c.fs, c.of, c.os, got)
+		}
+	}
+}
