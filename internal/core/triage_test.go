@@ -9,7 +9,7 @@ import (
 // still new, since issue times have whole seconds.
 func TestTriageSameSecond(t *testing.T) {
 	t.Setenv("SUNSTACK_HOME", t.TempDir())
-	if err := MarkTriaged(); err != nil {
+	if err := MarkTriaged(time.Time{}); err != nil {
 		t.Fatal(err)
 	}
 	RecordIssue(IssueEntry{Source: "note", Code: "note", Msg: "right after the triage"})

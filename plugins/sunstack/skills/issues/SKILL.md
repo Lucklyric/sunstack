@@ -25,8 +25,10 @@ pstack's issue triage.
 sunstack issues --since triaged --json
 ```
 
-It lists the entries since the last triage, or the last 7 days if there was none. Group them
-by `code`, with the count (`n` counts repeats), the commands and the newest message.
+It lists the entries since the last triage, or the last 7 days if there was none. Note the
+`at` of the newest entry: the mark in step 4 stops there, so entries that arrive while you
+work wait for the next triage. Group them by `code`, with the count (`n` counts repeats), the
+commands and the newest message.
 
 ## 2. Sort each code
 
@@ -57,7 +59,7 @@ approved.
 When the list is handled (fixed, sent as tasks, or set aside on purpose):
 
 ```sh
-sunstack issues --triaged
+sunstack issues --triaged --upto <at of the newest entry read>
 ```
 
 The next triage, and `next`'s reminder, start from here. Tell the user in a line or two what

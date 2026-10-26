@@ -166,9 +166,9 @@ Org (every team and Claude Code or Codex session on this host):
   sunstack pillar <id> | --team                   effective pillars with their source
   sunstack health                                 read-only checks of the project and the install
   sunstack issue "<text>" [--code C]              note what went wrong in this host's issue log (no bodies or secrets)
-  sunstack issues [--since 7d|DATE|triaged] [--code C] [--json] | --triaged
+  sunstack issues [--since 7d|DATE|triaged] [--code C] [--json] | --triaged [--upto AT]
                                                   this host's issue log grouped by code: count, last time, commands, last message;
-                                                  --triaged marks it read up to now (the issues skill)
+                                                  --triaged marks it read up to AT, the newest entry read (the issues skill)
   sunstack tui [--org]                            dashboard: this team, or outside a team a picker of this host's teams;
                                                   --org opens the host view of every team and session (also: bare sunstack)
 
@@ -833,7 +833,7 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 			return err
 		}
 		fmt.Fprint(stdout, p.TasksText(a.has("all"), a.flags["from"], a.flags["type"]))
-		fmt.Fprint(stdout, sentText(a.has("all"), a.flags["type"]))
+		fmt.Fprint(stdout, sentText(a.has("all"), a.flags["type"], p))
 		return nil
 
 	case "halt":
@@ -1754,18 +1754,29 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 		return nil
 
 	case "issues":
-		a, err := parse(rest, "since code", "json triaged")
+		a, err := parse(rest, "since code upto", "json triaged")
 		if err != nil {
 			return err
 		}
 		if err := a.atMost(0, "issues"); err != nil {
 			return err
 		}
+		if a.flags["upto"] != "" && !a.has("triaged") {
+			return &core.Error{Code: core.ExitUsage, Reason: "usage", Msg: "--upto goes with --triaged"}
+		}
 		if a.has("triaged") {
-			if err := core.MarkTriaged(); err != nil {
+			var upto time.Time
+			if v := a.flags["upto"]; v != "" {
+				t, err := time.Parse(time.RFC3339, v)
+				if err != nil || t.After(time.Now()) {
+					return &core.Error{Code: core.ExitUsage, Reason: "usage", Msg: "--upto takes the at time of the newest entry read (2026-10-26T04:14:32Z)"}
+				}
+				upto = t
+			}
+			if err := core.MarkTriaged(upto); err != nil {
 				return err
 			}
-			fmt.Fprintln(stdout, "issue log triaged up to now; the next triage starts here")
+			fmt.Fprintln(stdout, "issue log triaged; the next triage starts after the entries read")
 			return nil
 		}
 		return issues(a, stdout)

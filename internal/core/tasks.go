@@ -92,9 +92,25 @@ func (p *Project) Tasks() []*TaskInfo {
 			to[m.ID] = m.To
 		}
 	}
+	kind, sender := map[string]string{}, map[string]string{}
+	for _, m := range msgs {
+		if ledgerType(m.Type) {
+			kind[m.ID], sender[m.ID] = m.Type, m.From
+		}
+	}
 	replies := map[string][]TaskReply{}
 	for _, m := range msgs {
-		if m.Type == "done" && m.ReplyTo != "" && to[m.ReplyTo] != "" && m.From == to[m.ReplyTo] {
+		if m.ReplyTo == "" || to[m.ReplyTo] == "" {
+			continue
+		}
+		// A task closes on a done from its recipient. A question closes on a
+		// done or fyi from its recipient (an answer, however it came), or
+		// from its sender (withdrawn) (§33, v0.17.1).
+		ok := m.Type == "done" && m.From == to[m.ReplyTo]
+		if kind[m.ReplyTo] == "question" {
+			ok = (m.Type == "done" || m.Type == "fyi") && (m.From == to[m.ReplyTo] || m.From == sender[m.ReplyTo])
+		}
+		if ok {
 			replies[m.ReplyTo] = append(replies[m.ReplyTo], TaskReply{ID: m.ID, At: m.At, Verified: hasVerifiedLine(m.Body), Rev: verifiedRev(m.Body), mod: m.mod})
 		}
 	}
@@ -226,6 +242,7 @@ func (p *Project) taskFindings(today time.Time) []Issue {
 func (p *Project) TasksText(all bool, from, typ string) string {
 	var b strings.Builder
 	n := 0
+	since := map[string]string{} // one git call per commit, however many replies name it
 	for _, t := range p.Tasks() {
 		if (!all && !t.Open) || (from != "" && t.From != from) || (typ != "" && t.Type != typ) {
 			continue
@@ -259,9 +276,14 @@ func (p *Project) TasksText(all bool, from, typ string) string {
 				v = "done without verified:"
 			} else if r.Rev != "" {
 				v = "done, verified @ " + r.Rev
-				if n, ok := p.commitsSince(r.Rev); ok {
-					v += fmt.Sprintf(", %d commits since", n)
+				c, seen := since[r.Rev]
+				if !seen {
+					if n, ok := p.commitsSince(r.Rev); ok {
+						c = fmt.Sprintf(", %d commits since", n)
+					}
+					since[r.Rev] = c
 				}
+				v += c
 			}
 			if t.Type == "question" {
 				v = "answered"
@@ -464,4 +486,17 @@ func (p *Project) commitsSince(rev string) (int, bool) {
 	}
 	n, err := strconv.Atoi(strings.TrimSpace(string(out)))
 	return n, err == nil
+}
+
+// RemoteAnswered says whether a done reply to a message sent to another host
+// came back from its recipient there: <host>:<team>/<id>, the session part
+// of a <team>/<id>_<task> address aside.
+func (p *Project) RemoteAnswered(id, host, to string) bool {
+	want := host + ":" + to
+	for _, m := range p.allMessages() {
+		if m.Type == "done" && m.ReplyTo == id && (m.From == want || strings.HasPrefix(want, m.From+"_")) {
+			return true
+		}
+	}
+	return false
 }

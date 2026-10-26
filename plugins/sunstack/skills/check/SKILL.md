@@ -98,7 +98,9 @@ and ones this session has already taken.
      move that ask to Done with `(answered: <answer>)`, record the decision under Decisions, and
      unblock the key results that named `user#Q<n>`.
    - `question`: answer it; to an agent, with the send skill
-     (`--type done --reply-to <message id>`).
+     (`--type done --reply-to <message id>`). A question you sent stays open in `sunstack
+     tasks` until its recipient replies. If it was answered another way or no longer matters,
+     withdraw it with an `fyi --reply-to <its id>` saying `closed: <why>`.
    - `handoff`: add the work to your board as a key result (with its objective), then do it or
      schedule it; to an agent, reply `done` with `--reply-to` when finished, or send a
      `question` if blocked.

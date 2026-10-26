@@ -498,11 +498,18 @@ func sendRemote(p *core.Project, o core.SendOptions, stdout io.Writer) error {
 }
 
 // sentText lists messages sent to other hosts with their place.
-func sentText(all bool, typ string) string {
+func sentText(all bool, typ string, p *core.Project) string {
 	var b strings.Builder
 	for _, s := range hub.SentMail() {
-		if (!all && s.Status == "delivered" && s.Letter.Type != "task" && s.Letter.Type != "question") || (typ != "" && s.Letter.Type != typ) {
+		if typ != "" && s.Letter.Type != typ {
 			continue
+		}
+		if !all && s.Status == "delivered" {
+			// A delivered task or question stays until its recipient replies done.
+			open := s.Letter.Type == "task" || s.Letter.Type == "question"
+			if !open || (p != nil && p.RemoteAnswered(s.Mail.ID, s.ToName, s.Letter.To)) {
+				continue
+			}
 		}
 		if b.Len() == 0 {
 			b.WriteString("\nSent to other hosts\n")

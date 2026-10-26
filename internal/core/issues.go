@@ -233,22 +233,33 @@ func LastTriage() time.Time {
 	return fi.ModTime()
 }
 
-// TriageSince is where a triage starts: the last one, or 7 days back. Issue
-// times have whole seconds, so the triage's own second counts as new.
+// TriageSince is where a triage starts: the cutoff the last one recorded
+// (the newest entry it read), or 7 days back. Issue times have whole
+// seconds, so the cutoff's own second counts as new.
 func TriageSince(now time.Time) time.Time {
 	if t := LastTriage(); !t.IsZero() {
+		if b, err := os.ReadFile(triagedPath()); err == nil {
+			if c, err := time.Parse(time.RFC3339, strings.TrimSpace(string(b))); err == nil {
+				return c.Truncate(time.Second)
+			}
+		}
 		return t.Truncate(time.Second)
 	}
 	return now.Add(-triageEvery)
 }
 
-// MarkTriaged records that the log was read up to now.
-func MarkTriaged() error {
+// MarkTriaged records that the log was read up to upto (now when zero): the
+// next triage starts there. The file's time is when the triage ended.
+func MarkTriaged(upto time.Time) error {
+	cut := now()
+	if !upto.IsZero() {
+		cut = upto.UTC().Format(time.RFC3339)
+	}
 	path := triagedPath()
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return fail(ExitFail, "fs", "%v", err)
 	}
-	if err := writeAtomic(path, []byte(now()+"\n")); err != nil {
+	if err := writeAtomic(path, []byte(cut+"\n")); err != nil {
 		return fail(ExitFail, "write_failed", "could not write %s: %v", path, err)
 	}
 	return nil
