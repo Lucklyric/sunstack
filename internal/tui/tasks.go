@@ -152,7 +152,7 @@ func (m *model) taskDetails(r taskRow, w int) []string {
 	}
 	t := r.t
 	out := []string{wrap(cHeader.Render(taskGoal(t)), w), "",
-		f("id", t.ID), f("from", t.From), f("to", t.To), f("sent", t.At), f("state", t.Lifecycle)}
+		f("id", t.ID), f("type", t.Type), f("from", t.From), f("to", t.To), f("sent", t.At), f("state", t.Lifecycle)}
 	if len(t.Findings) > 0 {
 		out = append(out, cWarn.Render(f("findings", strings.Join(t.Findings, ", "))))
 	}
@@ -165,13 +165,16 @@ func (m *model) taskDetails(r taskRow, w int) []string {
 		}
 		out = append(out, f("follows", follows))
 	}
-	out = append(out, "", cHeader.Render("Task"), core.VisibleControls(strings.TrimRight(t.Body, "\n")))
+	question := t.Type == "question"
+	out = append(out, "", cHeader.Render(map[bool]string{true: "Question", false: "Task"}[question]), core.VisibleControls(strings.TrimRight(t.Body, "\n")))
 	for _, rp := range t.Replies {
-		v := "no verified: line"
-		if rp.Verified {
+		head, v := "Reply ", "no verified: line"
+		if question {
+			head, v = "Answer ", "answered"
+		} else if rp.Verified {
 			v = "verified: line present"
 		}
-		out = append(out, "", cHeader.Render("Reply "+rp.ID), cDim.Render(rp.From+", "+v), core.VisibleControls(strings.TrimRight(rp.Body, "\n")))
+		out = append(out, "", cHeader.Render(head+rp.ID), cDim.Render(rp.From+", "+v), core.VisibleControls(strings.TrimRight(rp.Body, "\n")))
 	}
 	out = append(out, "", cDim.Render("v opens the message file   a "+map[bool]string{true: "open only", false: "closed too"}[m.tasks.all]))
 	var wrapped []string

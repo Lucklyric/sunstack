@@ -822,18 +822,18 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 		if err == nil {
 			err = a.atMost(0, "tasks")
 		}
-		if typ := a.flags["type"]; err == nil && typ != "" && typ != "task" && typ != "question" {
-			err = &core.Error{Code: core.ExitUsage, Reason: "usage", Msg: "--type takes task or question"}
-		}
 		if err != nil {
 			return err
+		}
+		if typ := a.flags["type"]; typ != "" && typ != "task" && typ != "question" {
+			return &core.Error{Code: core.ExitUsage, Reason: "usage", Msg: "--type takes task or question"}
 		}
 		p, err := core.FindProject(a.flags["root"])
 		if err != nil {
 			return err
 		}
 		fmt.Fprint(stdout, p.TasksText(a.has("all"), a.flags["from"], a.flags["type"]))
-		fmt.Fprint(stdout, sentText(a.has("all")))
+		fmt.Fprint(stdout, sentText(a.has("all"), a.flags["type"]))
 		return nil
 
 	case "halt":

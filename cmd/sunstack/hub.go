@@ -498,10 +498,10 @@ func sendRemote(p *core.Project, o core.SendOptions, stdout io.Writer) error {
 }
 
 // sentText lists messages sent to other hosts with their place.
-func sentText(all bool) string {
+func sentText(all bool, typ string) string {
 	var b strings.Builder
 	for _, s := range hub.SentMail() {
-		if !all && s.Status == "delivered" && s.Letter.Type != "task" {
+		if (!all && s.Status == "delivered" && s.Letter.Type != "task") || (typ != "" && s.Letter.Type != typ) {
 			continue
 		}
 		if b.Len() == 0 {

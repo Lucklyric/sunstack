@@ -112,6 +112,7 @@ func TestIssuesTriage(t *testing.T) {
 	requireContains(t, sh(t, p, env, "next", "--all").out, "not triaged")
 	requireContains(t, sh(t, p, env, "issues", "--since", "triaged").out, "the save skill stopped")
 
+	time.Sleep(1100 * time.Millisecond) // past the note's second, which still counts as new
 	expect(t, sh(t, p, env, "issues", "--triaged"), 0, "mark triaged")
 	if _, err := os.Stat(filepath.Join(home, "log", "triaged")); err != nil {
 		t.Fatal("no triaged mark:", err)
@@ -165,4 +166,24 @@ func TestPstackPassText(t *testing.T) {
 			}
 		}
 	}
+}
+
+// Review r33-r1: malformed tasks arguments are usage errors, not panics, and
+// --type filters the remote-mail section too.
+func TestTasksArgsAndSentFilter(t *testing.T) {
+	p, env := team086(t)
+	for _, args := range [][]string{{"tasks", "--type"}, {"tasks", "--root"}, {"tasks", "--bogus"}} {
+		r := sh(t, p, env, args...)
+		expect(t, r, 2, strings.Join(args, " "))
+		if strings.Contains(r.stderr, "panic") {
+			t.Errorf("%v panicked:\n%s", args, r.stderr)
+		}
+	}
+	out := filepath.Join(envValue(env, "SUNSTACK_HOME"), "outbox")
+	must(t, os.MkdirAll(out, 0o700))
+	writeFile(t, out, "20260101T000000Z-user-aaaaaa.json", `{"mail":{"id":"20260101T000000Z-user-aaaaaa"},"letter":{"type":"task","to":"proj/builder"},"to_name":"remote","status":"queued"}`)
+	if r := sh(t, p, env, "tasks", "--type", "question"); strings.Contains(r.out, "20260101T000000Z-user-aaaaaa") {
+		t.Errorf("--type question lists a remote task:\n%s", r.out)
+	}
+	requireContains(t, sh(t, p, env, "tasks", "--type", "task").out, "20260101T000000Z-user-aaaaaa")
 }

@@ -233,10 +233,11 @@ func LastTriage() time.Time {
 	return fi.ModTime()
 }
 
-// TriageSince is where a triage starts: the last one, or 7 days back.
+// TriageSince is where a triage starts: the last one, or 7 days back. Issue
+// times have whole seconds, so the triage's own second counts as new.
 func TriageSince(now time.Time) time.Time {
 	if t := LastTriage(); !t.IsZero() {
-		return t
+		return t.Truncate(time.Second)
 	}
 	return now.Add(-triageEvery)
 }
