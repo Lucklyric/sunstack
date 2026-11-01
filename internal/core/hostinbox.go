@@ -58,6 +58,7 @@ func FindSession(ref, callerSocket string) (*HostSession, error) {
 		}
 		if strings.HasPrefix(ref, "%") && s.Pane == ref {
 			if pid, ok := serverPID(s.socket); ok && pid == caller {
+				s.Dup = dup[s.SessionID] // by pane too: the other process shares it
 				return s, nil
 			}
 		}

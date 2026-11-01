@@ -770,6 +770,10 @@ func (p *Project) tidy(owner string, check func() error) (int, error) {
 		keep = append(keep, l)
 	}
 	ctxN := 0
+	// Both sources' archives are checked before either changes (§34.2).
+	if err := p.archivesClean(owner, moved); err != nil {
+		return 0, err
+	}
 	if owner != TeamID {
 		if ctxN, err = p.tidyContext(owner, func(date string) bool { return old(date, tidyDays) }); err != nil {
 			return 0, err

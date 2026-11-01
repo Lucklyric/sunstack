@@ -213,7 +213,8 @@ func classify(sessions []*HostSession, teams []*Project) map[string]map[string][
 					// With the session in two panes, only the claim's own
 					// pane matches (§34.1).
 					bySession := c.Session != "" && x.SessionID == c.Session &&
-						(dup[c.Session] == nil || c.TmuxPane == "" || x.Pane == c.TmuxPane)
+						(dup[c.Session] == nil || c.TmuxPane != "" && x.Pane == c.TmuxPane && sameServer(c) &&
+							sameTmuxServer(c, serverOf(x.socket), serverOf))
 					// A pane can be reused by a later session: when both sides
 					// know their session ID, they must agree.
 					byPane := c.TmuxPane != "" && x.Pane == c.TmuxPane && sameServer(c) &&

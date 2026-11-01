@@ -421,12 +421,25 @@ func (p *Project) nudge(id, session string, m *Message) (string, string) {
 		}
 	}
 	busy := ""
+	var dup map[string][]string // scanned once, only when a claim names its session
 	for _, c := range claims {
 		if session != "" && c.Label(id) != session {
 			continue
 		}
 		if c.TmuxPane == "" || c.TmuxSocket == "" || !sameServer(c) || !paneRunsTool(c.TmuxSocket, c.TmuxPane, c.Tool) {
 			continue
+		}
+		if c.Session != "" {
+			if dup == nil {
+				all, _ := ScanSessions()
+				if dup = DuplicateSessions(all); dup == nil {
+					dup = map[string][]string{}
+				}
+			}
+			if panes := dup[c.Session]; panes != nil {
+				busy = c.Label(id) + ": " + dupNote(c.Session, panes) // §34.1
+				continue
+			}
 		}
 		prompt := NudgePrompt(c.Tool, m)
 		if prompt == "" {
@@ -623,7 +636,10 @@ func (p *Project) requeue(id string, claims []*Live, gone map[string]string) (ou
 	for _, c := range claims {
 		live[c.Token] = true
 	}
-	dirs, _ := os.ReadDir(p.local("inbox", id, ".taken"))
+	dirs, err := os.ReadDir(p.local("inbox", id, ".taken"))
+	if err != nil && !os.IsNotExist(err) {
+		stuck = append(stuck, "the unreadable taken folder of "+id)
+	}
 	for _, d := range dirs {
 		if !d.IsDir() || live[d.Name()] {
 			continue
@@ -632,7 +648,13 @@ func (p *Project) requeue(id string, claims []*Live, gone map[string]string) (ou
 		if label == "" {
 			label = "a session that ended"
 		}
-		for _, f := range listNames(p.takenDir(id, d.Name()), ".md") {
+		names, err := readNames(p.takenDir(id, d.Name()), ".md")
+		if err != nil {
+			// Unreadable: what it holds cannot be put back or named (§34.5).
+			stuck = append(stuck, "the unreadable folder of session "+label)
+			continue
+		}
+		for _, f := range names {
 			src, dst := filepath.Join(p.takenDir(id, d.Name()), f), filepath.Join(p.inboxDir(id), f)
 			// Mark it returned before it moves, so whoever reads it next
 			// knows it was started and left (§31). One header: the latest.
@@ -1012,4 +1034,21 @@ func paneToolStart(socket, pane, tool string) (time.Time, bool) {
 		}
 	}
 	return time.Time{}, false
+}
+
+// readNames is listNames that reports a folder it cannot read; a missing
+// folder holds nothing.
+func readNames(dir, suffix string) ([]string, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil && !os.IsNotExist(err) {
+		return nil, err
+	}
+	var out []string
+	for _, e := range entries {
+		n := e.Name()
+		if !e.IsDir() && strings.HasSuffix(n, suffix) && !strings.HasPrefix(n, ".") {
+			out = append(out, n)
+		}
+	}
+	return out, nil
 }

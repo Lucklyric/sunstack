@@ -497,10 +497,8 @@ func (p *Project) HeldBy(session, pane, socket string) []Held {
 			case session != "" && c.Session == session:
 				// The same session ID in another pane that still runs it is a
 				// second process, not this one: never hand it the claim (§34.1).
-				if pane != "" && c.TmuxPane != "" && !samePane(c, pane, socket) {
-					if runs, known := paneTool(c.TmuxSocket, c.TmuxPane, c.Tool); runs || !known {
-						continue
-					}
+				if pane != "" && c.TmuxPane != "" && !samePane(c, pane, socket) && p.paneRunsSession(c) {
+					continue
 				}
 				bySession = append(bySession, Held{id, c, false})
 			case pane != "" && samePane(c, pane, socket) && sameServer(c):
@@ -729,4 +727,18 @@ func (p *Project) SetDoing(id, token, line string) error {
 		return fail(ExitFail, "fs", "%v", err)
 	}
 	return nil
+}
+
+// paneRunsSession says whether the claim's own pane still runs its session,
+// or a session the scan cannot name: then a second pane with the same
+// session ID is another process, not a move (§34.1).
+func (p *Project) paneRunsSession(c *Live) bool {
+	all, _ := ScanSessions()
+	serverOf := func(socket string) string { pid, _ := serverPID(socket); return pid }
+	for _, s := range all {
+		if s.Pane == c.TmuxPane && sameTmuxServer(c, serverOf(s.socket), serverOf) {
+			return s.SessionID == "" || s.SessionID == c.Session
+		}
+	}
+	return false
 }
