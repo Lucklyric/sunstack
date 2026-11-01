@@ -42,6 +42,7 @@ type HostSession struct {
 	Pane       string   `json:"pane,omitempty"`
 	Where      string   `json:"where,omitempty"` // tmux session:window.pane
 	socket     string   // tmux server the pane was found on
+	Dup        []string `json:"-"` // every pane running this session ID, when more than one (§34.1)
 	Transcript string   `json:"-"`
 	Activity   Activity `json:"activity"`
 

@@ -495,6 +495,13 @@ func (p *Project) HeldBy(session, pane, socket string) []Held {
 		for _, c := range claims {
 			switch {
 			case session != "" && c.Session == session:
+				// The same session ID in another pane that still runs it is a
+				// second process, not this one: never hand it the claim (§34.1).
+				if pane != "" && c.TmuxPane != "" && !samePane(c, pane, socket) {
+					if runs, known := paneTool(c.TmuxSocket, c.TmuxPane, c.Tool); runs || !known {
+						continue
+					}
+				}
 				bySession = append(bySession, Held{id, c, false})
 			case pane != "" && samePane(c, pane, socket) && sameServer(c):
 				byPane = append(byPane, Held{id, c, true})
@@ -544,9 +551,14 @@ func (p *Project) Release(id, token string) (err error) {
 		return fail(ExitUsage, "usage", "invalid id: %s", id)
 	}
 	var returned []*Message
+	var stuck []string
 	defer func() { // after the unlock below
 		if failed := p.notifyReturned(id, returned); len(failed) > 0 && err == nil {
 			err = fail(ExitFail, "notice", "released %s, but %s", id, strings.Join(failed, "; "))
+		}
+		var ce *Error
+		if len(stuck) > 0 && (err == nil || errors.As(err, &ce) && ce.Reason == "notice") {
+			err = fail(ExitFail, "stranded", "released %s, but message(s) %s could not go back to its inbox and stay taken with no session: fix the inbox folder's permissions, then run sunstack check as %s", id, strings.Join(stuck, ", "), id)
 		}
 	}()
 	unlock, err := p.lock(id)
@@ -567,7 +579,7 @@ func (p *Project) Release(id, token string) (err error) {
 	os.RemoveAll(p.sessionTmp(id, token))
 	p.clearNudged(id, token)
 	rest, _ := p.Claims(id)
-	returned = p.requeue(id, rest, map[string]string{token: cur.Label(id)}) // messages this session took but did not ack go back
+	returned, stuck = p.requeue(id, rest, map[string]string{token: cur.Label(id)}) // messages this session took but did not ack go back
 	if len(rest) == 0 {
 		os.RemoveAll(p.local("tmp", id))
 		os.Remove(p.claimDir(id))
@@ -662,7 +674,7 @@ func (p *Project) pruneStale(id string, claims []*Live, only string) ([]*Live, [
 		keep = append(keep, c)
 	}
 	if len(dropped) > 0 {
-		p.requeue(id, keep, gone) // marked and logged; a pruned claim sends no mail
+		p.requeue(id, keep, gone) // marked and logged; a pruned claim sends no mail; a stuck one waits for the next
 	}
 	return keep, dropped
 }

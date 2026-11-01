@@ -29,6 +29,9 @@ sunstack release --root "<root>" "<id>" --token "<token>"
 - **4 `busy`**: retry once, then tell the user.
 - **1 `notice`**: released, but a sender of a returned task was not told. Send the note it
   names with the send skill, then treat this as released.
+- **1 `stranded`**: released, but the messages it names could not go back to the inbox and stay
+  taken with no session. Treat this as released and tell the user the error as printed: it
+  says what to fix.
 - **1 / 2**: show the error. Do not work around it.
 
 If you do not have the token, recover it as the as skill says (Recover this session's identity); if that finds nothing, stop

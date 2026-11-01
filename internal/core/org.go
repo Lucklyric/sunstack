@@ -194,6 +194,7 @@ func classify(sessions []*HostSession, teams []*Project) map[string]map[string][
 		return pid
 	}
 	out := map[string]map[string][]*HostSession{}
+	dup := DuplicateSessions(sessions)
 	for _, p := range teams {
 		tf, ok := p.Team()
 		tid := tf.ID
@@ -209,7 +210,10 @@ func classify(sessions []*HostSession, teams []*Project) map[string]map[string][
 					if x.Agent != "" {
 						continue
 					}
-					bySession := c.Session != "" && x.SessionID == c.Session
+					// With the session in two panes, only the claim's own
+					// pane matches (§34.1).
+					bySession := c.Session != "" && x.SessionID == c.Session &&
+						(dup[c.Session] == nil || c.TmuxPane == "" || x.Pane == c.TmuxPane)
 					// A pane can be reused by a later session: when both sides
 					// know their session ID, they must agree.
 					byPane := c.TmuxPane != "" && x.Pane == c.TmuxPane && sameServer(c) &&

@@ -1970,6 +1970,7 @@ func health(root string, out io.Writer) error {
 	if c, ok := core.TriageCheck(time.Now()); ok {
 		cs = append(cs, c)
 	}
+	cs = append(cs, core.DuplicateChecks()...)
 	counts := core.IssueCounts(time.Now().Add(-24 * time.Hour))
 	for _, code := range sortedCodes(counts) {
 		if n := counts[code]; n >= 5 {
@@ -2064,6 +2065,11 @@ func nextCommand(a *args, hostWide bool, stdout io.Writer) error {
 		}
 	}
 	if c, ok := core.TriageCheck(time.Now()); ok {
+		if is, ok := core.CheckIssue(c); ok {
+			items = append(items, is)
+		}
+	}
+	for _, c := range core.DuplicateChecks() {
 		if is, ok := core.CheckIssue(c); ok {
 			items = append(items, is)
 		}

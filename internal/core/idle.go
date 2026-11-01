@@ -50,13 +50,14 @@ func (p *Project) idleAgents(sessions []*HostSession, now time.Time) []IdleSessi
 			byLabel[s.Label] = s
 		}
 	}
+	dup := DuplicateSessions(sessions)
 	var out []IdleSession
 	for _, id := range p.Agents() {
 		claims, _ := p.Claims(id)
 		for _, c := range claims {
 			name := c.Label(id)
 			s := byLabel[name+"@"+host]
-			if s == nil || s.Status != "idle" || c.TmuxPane == "" || !sameServer(c) || os.Getenv("TMUX_PANE") == c.TmuxPane {
+			if s == nil || s.Status != "idle" || c.TmuxPane == "" || !sameServer(c) || os.Getenv("TMUX_PANE") == c.TmuxPane || dup[s.SessionID] != nil {
 				continue
 			}
 			if len(listNames(p.local("inbox", id, ".taken", c.Token), ".md")) > 0 {
@@ -78,13 +79,14 @@ func (p *Project) idleAgents(sessions []*HostSession, now time.Time) []IdleSessi
 func (p *Project) idleFree(sessions []*HostSession, now time.Time) []IdleSession {
 	ps, _ := freePanes()
 	scope := p.HomeScope()
+	dup := DuplicateSessions(sessions)
 	var out []IdleSession
 	for _, fp := range ps {
 		if fp.scope != scope || os.Getenv("TMUX_PANE") == fp.pane {
 			continue
 		}
 		for _, s := range sessions {
-			if s.Pane != fp.pane || !onDefaultServer(s.socket) || s.Status != "idle" || s.SessionID == "" {
+			if s.Pane != fp.pane || !onDefaultServer(s.socket) || s.Status != "idle" || s.SessionID == "" || dup[s.SessionID] != nil {
 				continue
 			}
 			if len(listNames(hostTakenDir(s.SessionID), ".md")) > 0 {

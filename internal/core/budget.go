@@ -130,6 +130,9 @@ func (p *Project) tidyContext(id string, old func(date string) bool) (int, error
 	if n == 0 {
 		return 0, nil
 	}
+	if err := p.archivesClean(id, moved); err != nil {
+		return 0, err
+	}
 	// Archive first: a crash in between leaves an entry in both, never in neither.
 	for month, lines := range moved {
 		ap := filepath.Join(p.archiveDir(id), month+".md")

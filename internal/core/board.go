@@ -386,6 +386,9 @@ func (b *Boards) Findings(today time.Time) []Issue {
 			switch {
 			case !ok:
 				add("drift", it.Owner, fix, "%s needs %s, which does not exist", it.Ref(), n)
+			case !dep.Done && dep.Owner == "user":
+				// The user's own key result on the team board (§34.6).
+				add("user", "user", "the board skill: finish or update your "+n+" on the team board", "%s is waiting on your %s (%s)", it.Ref(), n, strings.ToLower(dep.Section))
 			case !dep.Done:
 				add("blocked", it.Owner, "sunstack tasks, or ask "+dep.Owner+" with the send skill", "%s is waiting on %s (%s)", it.Ref(), n, strings.ToLower(dep.Section))
 			}
@@ -775,6 +778,9 @@ func (p *Project) tidy(owner string, check func() error) (int, error) {
 	if n == 0 {
 		return ctxN, nil
 	}
+	if err := p.archivesClean(owner, moved); err != nil {
+		return 0, err
+	}
 	// Archive first: a crash in between leaves an entry in both, never in neither.
 	for month, lines := range moved {
 		ap := filepath.Join(p.archiveDir(owner), month+".md")
@@ -797,4 +803,20 @@ func (p *Project) tidy(owner string, check func() error) (int, error) {
 	}
 	p.LogEvent("tidy", map[bool]string{true: "team", false: owner}[owner == TeamID], fmt.Sprintf("archived=%d", n))
 	return n + ctxN, nil
+}
+
+// archivesClean refuses to tidy into a monthly archive with merge conflict
+// markers: an entry added inside one side of a conflict is lost when the
+// other side is kept (§34.2). Nothing is moved until it is resolved.
+func (p *Project) archivesClean(owner string, months map[string][]string) error {
+	for month := range months {
+		b, _, err := readMaybe(filepath.Join(p.archiveDir(owner), month+".md"))
+		if err != nil {
+			return fail(ExitFail, "fs", "%v", err)
+		}
+		if HasConflictMarkers(b) {
+			return fail(ExitFail, "conflict", "merge conflict markers in archive/%s.md; resolve them, then tidy again", month)
+		}
+	}
+	return nil
 }

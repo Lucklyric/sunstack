@@ -382,13 +382,18 @@ func (p *Project) Kill(t string) (msg string, err error) {
 		return "", err
 	}
 	defer unlock()
+	// A resume may have moved the claim while kill waited (§34.4).
+	claims, _ := p.Claims(id)
+	if now := findToken(claims, c.Token); now == nil || now.TmuxPane != c.TmuxPane || now.TmuxSocket != c.TmuxSocket || now.TmuxServer != c.TmuxServer {
+		return "", fail(ExitFail, "changed", "%s changed while kill waited (resumed, moved or released); run kill again to close it where it is now", name)
+	}
 	if err := exec.Command("tmux", TmuxArgs(c.TmuxSocket, "kill-pane", "-t", c.TmuxPane)...).Run(); err != nil {
 		return "", fail(ExitFail, "tmux", "could not close pane %s: %v", c.TmuxPane, err)
 	}
 	p.removeLive(c)
 	os.RemoveAll(p.sessionTmp(id, c.Token))
 	rest, _ := p.Claims(id)
-	returned = p.requeue(id, rest, map[string]string{c.Token: name})
+	returned, _ = p.requeue(id, rest, map[string]string{c.Token: name}) // a stuck one is tried again at the next check
 	p.LogEvent("kill", name, "pane="+c.TmuxPane)
 	return "closed " + name + " (pane " + c.TmuxPane + ")", nil
 }

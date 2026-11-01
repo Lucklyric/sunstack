@@ -616,12 +616,13 @@ func typeInto(socket, pane, tool, text string) error {
 
 // requeue returns messages taken by sessions that no longer hold a claim.
 // Caller holds id's lock.
-func (p *Project) requeue(id string, claims []*Live, gone map[string]string) []*Message {
+// stuck lists the messages that could not go back (§34.5); they stay taken
+// in a folder with no claim, and the next requeue tries them again.
+func (p *Project) requeue(id string, claims []*Live, gone map[string]string) (out []*Message, stuck []string) {
 	live := map[string]bool{}
 	for _, c := range claims {
 		live[c.Token] = true
 	}
-	var out []*Message
 	dirs, _ := os.ReadDir(p.local("inbox", id, ".taken"))
 	for _, d := range dirs {
 		if !d.IsDir() || live[d.Name()] {
@@ -648,6 +649,7 @@ func (p *Project) requeue(id string, claims []*Live, gone map[string]string) []*
 				}
 			}
 			if os.Rename(src, dst) != nil {
+				stuck = append(stuck, strings.TrimSuffix(f, ".md"))
 				continue
 			}
 			if m == nil {
@@ -663,7 +665,7 @@ func (p *Project) requeue(id string, claims []*Live, gone map[string]string) []*
 		}
 		os.Remove(p.takenDir(id, d.Name()))
 	}
-	return out
+	return out, stuck
 }
 
 // ReturnedBy splits the returned header into the session label and the time.
@@ -724,7 +726,7 @@ func (p *Project) Check(id, token string) ([]*Message, error) {
 		return nil, err
 	}
 	claims, _ := p.Claims(id)
-	p.requeue(id, claims, nil)
+	p.requeue(id, claims, nil) // a stuck one is tried again at the next check
 	p.clearNudged(id, token)
 	label := me.Label(id)
 	orphan := orphanSession(id, claims)
@@ -799,6 +801,12 @@ func (p *Project) moveMessage(id, token, msgID string, ack bool) error {
 	p.clearNudged(id, token)
 	pending := p.msgPath(p.inboxDir(id), msgID)
 	mine := p.msgPath(p.takenDir(id, token), msgID)
+	// Every folder a move reads or writes stays inside the project (§34.3).
+	for _, path := range []string{pending, mine, p.msgPath(p.messageArchive(), msgID)} {
+		if err := p.noSymlink(path); err != nil {
+			return err
+		}
+	}
 	src := ""
 	switch {
 	case exists(mine):

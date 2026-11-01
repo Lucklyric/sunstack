@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 )
@@ -49,8 +50,10 @@ func FindSession(ref, callerSocket string) (*HostSession, error) {
 		}
 		caller = pid
 	}
+	dup := DuplicateSessions(all)
 	for _, s := range all {
 		if ref != "" && s.SessionID == ref {
+			s.Dup = dup[ref]
 			return s, nil
 		}
 		if strings.HasPrefix(ref, "%") && s.Pane == ref {
@@ -177,6 +180,11 @@ func SendToSession(s *HostSession, o SendOptions) (*SendResult, error) {
 	}
 	if quietFyi(o, from) {
 		res.Note = fyiNote
+		return res, nil
+	}
+	if len(s.Dup) > 1 {
+		// Two processes share it: a nudge could reach the stale one (§34.1).
+		res.Note = "not nudged (" + dupNote(s.SessionID, s.Dup) + "); the message waits and shows at that session's next prompt"
 		return res, nil
 	}
 	res.Nudged, res.Note = nudgeSession(s, m)
@@ -341,4 +349,39 @@ func (p *Project) VerifySender(id, token string) error {
 		return fail(ExitClaim, "token", "sending as %s needs this session's --token", id)
 	}
 	return nil
+}
+
+// DuplicateSessions maps each CLI session ID seen in more than one live pane
+// to those panes (§34.1).
+func DuplicateSessions(all []*HostSession) map[string][]string {
+	panes := map[string][]string{}
+	for _, s := range all {
+		if s.SessionID != "" && s.Pane != "" {
+			panes[s.SessionID] = append(panes[s.SessionID], s.Pane)
+		}
+	}
+	for id, ps := range panes {
+		if len(ps) < 2 {
+			delete(panes, id)
+		}
+	}
+	return panes
+}
+
+// dupNote says a session runs in more than one pane.
+func dupNote(sid string, panes []string) string {
+	return fmt.Sprintf("session %s runs in panes %s: close one", sid, strings.Join(panes, ", "))
+}
+
+// DuplicateChecks warns about each CLI session running in more than one
+// pane: nudges, clean and recovery skip it until one is closed (§34.1).
+func DuplicateChecks() []Check {
+	all, _ := ScanSessions()
+	var out []Check
+	for sid, panes := range DuplicateSessions(all) {
+		out = append(out, Check{Level: "warn", Area: "sessions", Msg: dupNote(sid, panes),
+			Fix: "close the older pane's CLI; nudges, clean and identity recovery skip this session until then"})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Msg < out[j].Msg })
+	return out
 }

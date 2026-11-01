@@ -80,6 +80,13 @@ func (p *Project) Health() []Check {
 				cs = append(cs, failed("files", id+"/"+f+" has merge conflict markers", "resolve the conflict"))
 			}
 		}
+		// A conflicted archive stops tidy, so saves stop archiving (§34.2).
+		archives, _ := filepath.Glob(filepath.Join(p.archiveDir(id), "*.md"))
+		for _, f := range archives {
+			if fileHasConflict(f) {
+				cs = append(cs, warn("files", id+"/archive/"+filepath.Base(f)+" has merge conflict markers; tidy skips it until resolved", "resolve the conflict"))
+			}
+		}
 		if over := p.OverBudget(id); over != "" {
 			cs = append(cs, warn("files", over, "save as "+id+" (sunstack tidy "+id+" first)"))
 		}
