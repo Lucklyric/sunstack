@@ -259,9 +259,25 @@ func Leave() error {
 			return err
 		}
 	}
+	// The membership goes first: a running connector sees it gone and stops
+	// before the org's files are removed, so it cannot write them back (§34.7).
+	if err := os.Remove(configPath()); err != nil {
+		return err
+	}
+	if path, err := ServiceFile(); err == nil {
+		if _, err := os.Stat(path); err == nil {
+			_ = Uninstall(io.Discard) // the service manager would restart it
+		}
+	}
+	for deadline := time.Now().Add(10 * time.Second); ConnectorRunning() && time.Now().Before(deadline); {
+		time.Sleep(100 * time.Millisecond)
+	}
 	os.RemoveAll(remoteDir())
 	os.RemoveAll(outboxDir())
-	return os.Remove(configPath())
+	if ConnectorRunning() {
+		return failErr("connector", "left the org, but the connector is still running; stop it (sunstack hub connect --uninstall, or kill it)")
+	}
+	return nil
 }
 
 func readError(resp *http.Response) string {

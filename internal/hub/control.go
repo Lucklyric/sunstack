@@ -161,6 +161,10 @@ func takeReply(m *Mail, l *Letter) (string, string, bool) {
 		a.HostID != m.FromHost || l.Type != a.Kind+"-reply" {
 		return "refused", "no open request matches this reply", true
 	}
+	if t, ok := parseStamp(a.Expires); ok && time.Now().After(t.Add(skew)) {
+		os.Remove(filepath.Join(askedDir(), l.ReplyTo+".json")) // nobody waits for it now (§34.12)
+		return "refused", "the request this replies to has expired", true
+	}
 	if err := writeJSON(filepath.Join(repliesDir(), l.ReplyTo+".json"), m, 0o600); err != nil {
 		return "", err.Error(), false
 	}

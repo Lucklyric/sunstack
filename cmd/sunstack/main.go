@@ -1903,7 +1903,16 @@ func lifecycle(cmd string, t setup.Targets, yes, skipBinary bool, args []string,
 		// the rest is offered by the as and health skills.
 		core.ThisHost()
 		asks := 0
+		// An update another host asked for updates this host only: team files
+		// sync through git, so their migration stays with the user (§34.9).
+		hostOnly := os.Getenv("SUNSTACK_SERVICE") != "" || os.Getenv("SUNSTACK_HOST_ONLY") == "1"
+		if hostOnly {
+			fmt.Fprintln(out, "host-only update: team migrations wait for sunstack update or migrate run by you on this host")
+		}
 		for _, p := range core.IndexedProjects() {
+			if hostOnly {
+				break
+			}
 			done, err := p.Migrate(false)
 			if err != nil {
 				step("migrate "+p.Root, err)

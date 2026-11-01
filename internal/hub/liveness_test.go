@@ -163,6 +163,9 @@ func TestRetryMailOfferedAgain(t *testing.T) {
 	var log bytes.Buffer
 	ended := make(chan error, 1)
 	cl := &client{c: &Config{OrgID: "0123456789abcdef", OrgName: "o", Hub: "h", HubURL: ts.URL, Token: "t"}}
+	if err := saveConfig(cl.c); err != nil { // the connector runs only while this host is a member
+		t.Fatal(err)
+	}
 	go func() { ended <- session(cl, &log) }()
 	defer func() {
 		ts.CloseClientConnections()

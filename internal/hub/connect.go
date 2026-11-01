@@ -28,6 +28,9 @@ func snapEvery() time.Duration {
 // ErrRevoked ends the connector: the hub no longer knows this host.
 var ErrRevoked = errors.New("this host is no longer in the org; the connector stops")
 
+// errLeft ends a connector whose host left the org it connected for.
+var errLeft = errors.New("this host left the org")
+
 // ConnectorRunning reports whether a connector holds the lock on this host.
 func ConnectorRunning() bool {
 	unlock, err := core.LockDirOnce(connectLock())
@@ -84,6 +87,10 @@ func Connect(logw io.Writer) error {
 		if errors.Is(err, ErrRevoked) {
 			return err
 		}
+		if errors.Is(err, errLeft) {
+			fmt.Fprintf(logw, "%s this host left its org; the connector stops\n", stamp(time.Now()))
+			return nil
+		}
 		if time.Since(start) > 30*time.Second {
 			backoff = time.Second
 		}
@@ -108,6 +115,12 @@ func session(cl *client, logw io.Writer) error {
 		return err
 	}
 	defer resp.Body.Close()
+	// After org leave, or a join to another org, nothing more goes in or
+	// out on this membership (§34.7).
+	member := func() bool {
+		c, err := LoadConfig()
+		return err == nil && c != nil && c.OrgID == cl.c.OrgID && c.Token == cl.c.Token
+	}
 	post := func(path string, v any) (*frame, error) {
 		b, _ := json.Marshal(v)
 		return cl.call("POST", path, b)
@@ -150,6 +163,10 @@ func session(cl *client, logw io.Writer) error {
 			var f frame
 			if json.Unmarshal(line, &f) != nil {
 				continue
+			}
+			if !member() {
+				ended <- errLeft
+				return
 			}
 			if handle(&f, send, logw) {
 				ended <- ErrRevoked
@@ -216,9 +233,15 @@ func session(cl *client, logw io.Writer) error {
 		case err = <-ended:
 			return err
 		case <-snapTick.C:
+			if !member() {
+				return errLeft
+			}
 			connIssues.Flush(time.Now())
 			err = pushSnap()
 		case <-mailTick.C:
+			if !member() {
+				return errLeft
+			}
 			err = flush()
 		}
 		if err != nil {

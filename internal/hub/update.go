@@ -56,6 +56,7 @@ func updateHandler(_, _ string, raw json.RawMessage) (any, error) {
 		cmd = exec.CommandContext(ctx, "/bin/sh", "-c", c)
 	}
 	cmd.Stdin = nil
+	cmd.Env = append(os.Environ(), "SUNSTACK_HOST_ONLY=1") // no team migrations (§34.9)
 	ownGroup(cmd)
 	cmd.WaitDelay = time.Second // do not wait long on output a killed child held
 	out, err := cmd.CombinedOutput()

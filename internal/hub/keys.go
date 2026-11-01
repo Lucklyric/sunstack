@@ -36,14 +36,25 @@ type PublicKeys struct {
 
 func keysPath() string { return filepath.Join(core.Home(), "keys.json") }
 
-// LoadKeys reads this host's keys, making them on first use.
+// LoadKeys reads this host's keys, making them on first use. Making them
+// runs under a lock and reads again, so every caller gets the pair on disk
+// (§34.11).
 func LoadKeys() (*Keys, error) {
-	var k Keys
-	if err := readJSON(keysPath(), &k); err == nil && len(k.Seal) == 32 && len(k.Sign) == ed25519.PrivateKeySize {
-		return &k, nil
-	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
+	if k, err := readKeys(); k != nil || err != nil {
+		return k, err
+	}
+	if err := os.MkdirAll(filepath.Join(core.Home(), "locks"), 0o700); err != nil {
 		return nil, err
 	}
+	unlock, err := core.LockDir(filepath.Join(core.Home(), "locks", "keys"), "the host keys")
+	if err != nil {
+		return nil, err
+	}
+	defer unlock()
+	if k, err := readKeys(); k != nil || err != nil {
+		return k, err
+	}
+	var k Keys
 	sk, err := ecdh.X25519().GenerateKey(rand.Reader)
 	if err != nil {
 		return nil, err
@@ -57,6 +68,17 @@ func LoadKeys() (*Keys, error) {
 		return nil, err
 	}
 	return &k, nil
+}
+
+// readKeys returns the keys on disk, or nil when there are none yet.
+func readKeys() (*Keys, error) {
+	var k Keys
+	if err := readJSON(keysPath(), &k); err == nil && len(k.Seal) == 32 && len(k.Sign) == ed25519.PrivateKeySize {
+		return &k, nil
+	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return nil, err
+	}
+	return nil, nil
 }
 
 // Public returns the public halves.
@@ -201,6 +223,10 @@ type Pin struct {
 	Name    string      `json:"name"`
 	Keys    PublicKeys  `json:"keys"`
 	Changed *PublicKeys `json:"changed,omitempty"` // a different key the roster now shows
+	// Former names this host was trusted under. They stay its own, so no
+	// other host can take one over through later roster renames; org trust
+	// moves one (§34.8).
+	Former []string `json:"former,omitempty"`
 }
 
 func pinsPath() string { return filepath.Join(remoteDir(), "pins.json") }
@@ -228,9 +254,12 @@ func pinRoster(r *Roster) error {
 	}
 	defer unlock()
 	pins := loadPins()
-	named := map[string]string{} // lower-case name -> ID, before this roster
+	named := map[string]string{} // lower-case name -> ID, before this roster, former names too
 	for id, p := range pins {
 		named[strings.ToLower(p.Name)] = id
+		for _, n := range p.Former {
+			named[strings.ToLower(n)] = id
+		}
 	}
 	changed := false
 	for _, h := range r.Hosts {
@@ -256,6 +285,7 @@ func pinRoster(r *Roster) error {
 		if p != nil && p.Name != h.Name {
 			// A name another pinned host had stays with that host.
 			if id, ok := named[strings.ToLower(h.Name)]; !ok || id == h.ID {
+				p.Former = addName(p.Former, p.Name)
 				p.Name, changed = h.Name, true
 			}
 		}
@@ -295,6 +325,20 @@ func Trust(name string) (string, error) {
 	case same != nil:
 		return "", failErr("unchanged", "%s's key has not changed (%s)", same.Name, same.Keys.Fingerprint())
 	}
+	// A name the roster gave another host than the one first trusted with
+	// it: trusting it moves the name, after the user compared fingerprints.
+	if r := cachedHosts(); r != nil {
+		if h := r.byName(name); h != nil {
+			if p := pins[h.ID]; p != nil && p.Keys == h.Keys {
+				for _, o := range pins {
+					o.Former = dropName(o.Former, name)
+				}
+				p.Former = addName(p.Former, p.Name)
+				p.Name = h.Name
+				return p.Keys.Fingerprint(), writeJSON(pinsPath(), pins, 0o600)
+			}
+		}
+	}
 	return "", failErr("not_found", "no pinned host %s (sunstack org keys lists them)", name)
 }
 
@@ -324,4 +368,23 @@ func KeysText() (string, error) {
 		b.WriteString(line + "\n")
 	}
 	return b.String(), nil
+}
+
+func addName(list []string, n string) []string {
+	for _, x := range list {
+		if strings.EqualFold(x, n) {
+			return list
+		}
+	}
+	return append(list, n)
+}
+
+func dropName(list []string, n string) []string {
+	var out []string
+	for _, x := range list {
+		if !strings.EqualFold(x, n) {
+			out = append(out, x)
+		}
+	}
+	return out
 }

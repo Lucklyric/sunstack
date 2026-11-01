@@ -28,6 +28,7 @@ func PeekFor(addr string, n int) (label, text string, err error) {
 		n = PeekLimit
 	}
 	var socket, pane, tool string
+	var since time.Time // the claim's last contact: a CLI started after it is not that session
 	if IsSessionID(addr) {
 		sessions, _ := ScanSessions()
 		var found []*HostSession
@@ -61,6 +62,11 @@ func PeekFor(addr string, n int) (label, text string, err error) {
 				return "", "", fail(ExitFail, "no_pane", "%s is not in a tmux pane sunstack knows", c.Label(id))
 			}
 			socket, pane, tool, label = c.TmuxSocket, c.TmuxPane, c.Tool, c.Label(id)
+			for _, at := range []string{c.Claimed, c.LastContact} {
+				if t, err := time.Parse(time.RFC3339, at); err == nil && t.After(since) {
+					since = t
+				}
+			}
 		case errors.As(err, &ce) && ce.Reason == "not_found":
 			// A free session in the team, by its label: a new one has no
 			// session ID until its first prompt.
@@ -90,6 +96,11 @@ func PeekFor(addr string, n int) (label, text string, err error) {
 	// session ends.
 	if !paneRunsTool(socket, pane, tool) {
 		return "", "", fail(ExitFail, "not_running", "the pane of %s no longer runs %s", label, tool)
+	}
+	// The same CLI in the same pane may be a new session that never took
+	// this claim (§34.10).
+	if start, ok := paneToolStart(socket, pane, tool); ok && !since.IsZero() && start.After(since) { // both whole seconds; the claimed CLI started before its claim
+		return "", "", fail(ExitFail, "not_running", "the pane of %s now runs another %s session, started after its claim", label, tool)
 	}
 	screen := paneScreen(socket, pane)
 	if screen == "" {

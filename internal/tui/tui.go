@@ -326,6 +326,9 @@ func (m *model) key(k string) tea.Cmd {
 		return nil
 	}
 	if k == "h" && m.hosts != nil {
+		if m.view == viewHosts && m.p == nil {
+			return m.show(viewOrg) // no team view outside a team (§34.15)
+		}
 		return m.show(toggle(m.view, viewHosts))
 	}
 	if k == "t" {

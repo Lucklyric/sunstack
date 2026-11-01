@@ -980,3 +980,36 @@ func findOp(m *Message, pending, archive, taken string) *Message {
 	}
 	return nil
 }
+
+// paneToolStart is when the pane's foreground CLI process started.
+func paneToolStart(socket, pane, tool string) (time.Time, bool) {
+	if _, err := exec.LookPath("tmux"); err != nil {
+		return time.Time{}, false
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), cmdWait)
+	defer cancel()
+	tc := exec.CommandContext(ctx, "tmux", TmuxArgs(socket, "display-message", "-p", "-t", pane, "#{pane_tty}")...)
+	tc.WaitDelay = time.Second
+	out, err := tc.Output()
+	tty := strings.TrimPrefix(strings.TrimSpace(string(out)), "/dev/")
+	if err != nil || tty == "" {
+		return time.Time{}, false
+	}
+	pc := exec.CommandContext(ctx, "ps", "-o", "stat=,lstart=,comm=", "-t", tty)
+	pc.Env = append(os.Environ(), "TZ=UTC", "LC_ALL=C") // one format to parse, as ProcStart does
+	pc.WaitDelay = time.Second
+	ps, err := pc.Output()
+	if err != nil {
+		return time.Time{}, false
+	}
+	for _, l := range strings.Split(string(ps), "\n") {
+		f := strings.Fields(l)
+		// stat, then lstart as five fields (Sat Oct 24 14:58:22 2026), then comm.
+		if len(f) >= 7 && strings.Contains(f[0], "+") && filepath.Base(f[len(f)-1]) == tool {
+			if t, err := time.ParseInLocation("Mon Jan 2 15:04:05 2006", strings.Join(f[1:6], " "), time.UTC); err == nil {
+				return t, true
+			}
+		}
+	}
+	return time.Time{}, false
+}

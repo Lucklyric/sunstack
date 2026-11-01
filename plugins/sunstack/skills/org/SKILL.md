@@ -66,7 +66,8 @@ board skill, `--root` for another team.
 
 **Open tasks.** `sunstack tasks` lists tasks sent and not yet answered, with replies;
 `--all` shows closed ones too, `--from <id>` one sender's. Check progress read-only (tasks,
-`org --by agent`, `peek`, the recipient's board). Never send "are you done?".
+`org --by agent`, `peek` on this host, the recipient's board; on another host `peek` is the
+user's, so use `tasks` and `org`). Never send "are you done?".
 
 ## 2. Report
 

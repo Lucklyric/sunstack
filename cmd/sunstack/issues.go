@@ -86,7 +86,7 @@ func issues(a *args, out io.Writer) error {
 		sort.Strings(cmds)
 		fmt.Fprintf(out, "\n%s  %d %s, last %s (%s)\n", c, g.n, times, g.last.At, strings.Join(cmds, ", "))
 		if g.last.Msg != "" {
-			fmt.Fprintf(out, "  %s\n", g.last.Msg)
+			fmt.Fprintf(out, "  %s\n", core.VisibleControls(g.last.Msg)) // agents' text: never raw controls (§34.13)
 		}
 	}
 	return nil
