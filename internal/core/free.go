@@ -212,7 +212,7 @@ func SpawnFree(o FreeOptions) (*FreeResult, error) {
 		running = paneRunsTool(h.socket, h.pane, o.Tool)
 	}
 	_, notTeam := FindProject(cwd)
-	prompt := AnswerTrust(h.socket, h.pane, o.Tool, notTeam == nil)
+	prompt := AnswerTrust(h.socket, h.pane, o.Tool, notTeam == nil, running)
 	return &FreeResult{Label: label, Tool: o.Tool, Pane: h.pane, Home: h.at, Cwd: cwd, Running: running, Window: window, Prompt: prompt}, nil
 }
 

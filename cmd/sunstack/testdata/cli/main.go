@@ -196,6 +196,16 @@ func interactive(tool string, args []string) {
 	}
 	defer term.Restore(int(os.Stdin.Fd()), old)
 	mode := os.Getenv("SUNSTACK_TEST_MODE")
+	// Adversarial screens for §37: a changed answer label, a conversation
+	// that quotes the screen above the input box, and a menu that turns into
+	// the input box after the first key.
+	twist := mode
+	switch mode {
+	case "unsafelabel", "unsafechange":
+		mode = "codexhooks"
+	case "unsafeinput":
+		mode = ""
+	}
 	draft := []rune{}
 	if mode == "draft" {
 		draft = []rune("my unsent draft")
@@ -206,6 +216,12 @@ func interactive(tool string, args []string) {
 		"codexhooks":  {"Review hooks", "Trust all and continue", "Continue without trusting (hooks won't run)"},
 		"claudetrust": {"No, exit", "Yes, I trust this folder"},
 	}[mode]
+	if twist == "unsafelabel" {
+		trust[1] = "Do NOT select Trust all and continue"
+	}
+	if twist == "unsafeinput" {
+		draft = []rune("Trust all and continue")
+	}
 	sel := 0
 	draw := func() {
 		fmt.Print("\x1b[2J\x1b[H")
@@ -240,6 +256,9 @@ func interactive(tool string, args []string) {
 		if tool == "claude" {
 			fmt.Printf("Test Claude\r\n──────────────────────────────\r\n❯ %s\r\n──────────────────────────────\r\n  -- INSERT --", string(draft))
 		} else {
+			if twist == "unsafeinput" {
+				fmt.Print("Hooks need review\r\n  2. Trust all and continue\r\n")
+			}
 			fmt.Printf("Test Codex\r\n› %s\r\n  ? for shortcuts", string(draft))
 		}
 	}
@@ -259,6 +278,11 @@ func interactive(tool string, args []string) {
 				if b, _, _ := rd.ReadRune(); b == '[' {
 					if d, _, _ := rd.ReadRune(); d == 'B' && sel < len(trust)-1 {
 						sel++
+						if twist == "unsafechange" {
+							trust, mode, draft = nil, "", []rune("Trust all and continue")
+							draw()
+							continue
+						}
 					} else if d == 'A' && sel > 0 {
 						sel--
 					}

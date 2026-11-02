@@ -220,7 +220,7 @@ func (p *Project) Spawn(o SpawnOptions) (*SpawnResult, error) {
 		time.Sleep(250 * time.Millisecond)
 		running = paneRunsTool(o.Socket, pane, o.Tool)
 	}
-	prompt := AnswerTrust(o.Socket, pane, o.Tool, true)
+	prompt := AnswerTrust(o.Socket, pane, o.Tool, true, running)
 	// The claim names the CLI it started, so a later CLI in this pane is
 	// not taken for it (§34.10).
 	if pid, _, ok := paneToolProc(o.Socket, pane, o.Tool); running && ok {

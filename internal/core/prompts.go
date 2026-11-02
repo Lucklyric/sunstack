@@ -47,32 +47,111 @@ func SavePrompts(p Prompts) error {
 	return nil
 }
 
-// trustScreen is one screen the watch knows, by its exact text.
+// trustScreen is one screen the watch knows: its title line, its options in
+// order, which of them is the answer, and the selection marker.
 type trustScreen struct {
-	tool, mark, title, answer, marker, setting, flag string
+	tool, mark, title, marker, setting, flag string
+	options                                  []string
+	answer                                   int
 }
 
 var trustScreens = []trustScreen{
-	{tool: "codex", title: "Hooks need review", answer: "Trust all and continue", marker: "›", setting: "codex", flag: "--codex-hooks", mark: "Codex's hook review"},
-	{tool: "claude", title: "Is this a project you created or one you trust?", answer: "Yes, I trust this folder", marker: "❯", setting: "claude", flag: "--claude-folders", mark: "Claude Code's folder trust check"},
+	{tool: "codex", title: "Hooks need review", marker: "›", setting: "codex", flag: "--codex-hooks", mark: "Codex's hook review",
+		options: []string{"Review hooks", "Trust all and continue", "Continue without trusting (hooks won't run)"}, answer: 1},
+	{tool: "claude", title: "Quick safety check: Is this a project you created or one you trust?", marker: "❯", setting: "claude", flag: "--claude-folders", mark: "Claude Code's folder trust check",
+		options: []string{"No, exit", "Yes, I trust this folder"}, answer: 1},
 }
 
 // trustWatch is how long the watch looks for a trust screen after launch.
 var trustWatch = 15 * time.Second
 
+// parseMenu reads a trust screen exactly: never with the CLI's input box
+// showing, the title as its own line, then every option in order as a full
+// line (numbered for Codex), and exactly one line on the whole screen
+// carrying the selection marker, on an option. It returns the selected
+// option.
+func parseMenu(screen string, ts trustScreen) (int, bool) {
+	if ReadyForInput(ts.tool, screen) {
+		return 0, false
+	}
+	lines := strings.Split(screen, "\n")
+	start := -1
+	for i, l := range lines {
+		t := strings.TrimSpace(l)
+		if t == ts.title || (ts.tool == "claude" && strings.HasPrefix(t, ts.title)) {
+			start = i
+			break
+		}
+	}
+	if start < 0 {
+		return 0, false
+	}
+	marked := 0
+	for _, l := range lines {
+		if strings.HasPrefix(strings.TrimSpace(l), ts.marker) {
+			marked++
+		}
+	}
+	if marked != 1 {
+		return 0, false
+	}
+	next, sel := 0, -1
+	for _, l := range lines[start+1:] {
+		t := strings.TrimSpace(l)
+		on := strings.HasPrefix(t, ts.marker)
+		t = strings.TrimSpace(strings.TrimPrefix(t, ts.marker))
+		if ts.tool == "codex" {
+			num, label, ok := strings.Cut(t, ". ")
+			if !ok || len(num) != 1 || num[0] < '1' || num[0] > '9' {
+				continue
+			}
+			if next >= len(ts.options) || num != string(rune('1'+next)) || strings.TrimSpace(label) != ts.options[next] {
+				return 0, false // an option that is not the known one
+			}
+		} else {
+			if next >= len(ts.options) || t != ts.options[next] {
+				if on {
+					return 0, false
+				}
+				continue
+			}
+		}
+		if on {
+			sel = next
+		}
+		next++
+	}
+	if next != len(ts.options) || sel < 0 {
+		return 0, false
+	}
+	return sel, true
+}
+
 // AnswerTrust watches a newly started pane for a trust screen and answers it
 // when the user turned that choice on, only inside a team for Claude's
-// folder check. It moves the selection to the answer, checks that exactly
-// that line is selected, then presses Enter. It returns a line for the
-// user, or "" when no screen showed.
-func AnswerTrust(socket, pane, tool string, inTeam bool) string {
+// folder check. It does nothing when the CLI is not running, and stops when
+// the CLI exits, tmux cannot be read, or the CLI shows its input box. It
+// returns a line for the user, or "" when no screen showed.
+func AnswerTrust(socket, pane, tool string, inTeam, running bool) string {
+	if !running {
+		return ""
+	}
 	choice := LoadPrompts()
 	deadline := time.Now().Add(trustWatch)
 	for time.Now().Before(deadline) {
 		screen := paneScreen(socket, pane)
+		if screen == "" || !paneRunsTool(socket, pane, tool) {
+			return "" // gone, or tmux cannot say: nothing to answer
+		}
+		if ReadyForInput(tool, screen) {
+			return ""
+		}
 		for _, ts := range trustScreens {
-			if ts.tool != tool || !strings.Contains(screen, ts.title) || !strings.Contains(screen, ts.answer) {
+			if ts.tool != tool || !strings.Contains(screen, ts.title) {
 				continue
+			}
+			if _, ok := parseMenu(screen, ts); !ok {
+				return "waiting at what looks like " + ts.mark + " in pane " + pane + ", but the screen is not the known one; answer it there"
 			}
 			on := choice.CodexHooks == "on"
 			if ts.setting == "claude" {
@@ -85,24 +164,30 @@ func AnswerTrust(socket, pane, tool string, inTeam bool) string {
 				}
 				return "waiting at " + ts.mark + " in pane " + pane + ": " + why
 			}
-			if selectLine(socket, pane, ts) {
-				return "answered " + ts.mark + ": " + ts.answer + " (sunstack prompts)"
+			if selectAnswer(socket, pane, ts) {
+				return "answered " + ts.mark + ": " + ts.options[ts.answer] + " (sunstack prompts)"
 			}
-			return "waiting at " + ts.mark + " in pane " + pane + ": the screen did not match; answer it there"
-		}
-		if ReadyForInput(tool, screen) {
-			return ""
+			return "waiting at " + ts.mark + " in pane " + pane + ": the screen changed while answering; answer it there"
 		}
 		time.Sleep(300 * time.Millisecond)
 	}
 	return ""
 }
 
-// selectLine moves down to the answer line and presses Enter only once that
-// line, and no other, carries the selection marker.
-func selectLine(socket, pane string, ts trustScreen) bool {
-	for i := 0; i < 5; i++ {
-		if sel := selectedLine(paneScreen(socket, pane), ts.marker); strings.Contains(sel, ts.answer) {
+// selectAnswer moves down one line at a time, reading the whole menu again
+// after each key, and presses Enter only when a fresh read shows the exact
+// menu with the answer, and only it, selected.
+func selectAnswer(socket, pane string, ts trustScreen) bool {
+	for i := 0; i <= len(ts.options); i++ {
+		sel, ok := parseMenu(paneScreen(socket, pane), ts)
+		if !ok || sel > ts.answer {
+			return false
+		}
+		if sel == ts.answer {
+			time.Sleep(150 * time.Millisecond)
+			if again, ok := parseMenu(paneScreen(socket, pane), ts); !ok || again != ts.answer {
+				return false
+			}
 			return exec.Command("tmux", TmuxArgs(socket, "send-keys", "-t", pane, "Enter")...).Run() == nil
 		}
 		if exec.Command("tmux", TmuxArgs(socket, "send-keys", "-t", pane, "Down")...).Run() != nil {
@@ -111,19 +196,4 @@ func selectLine(socket, pane string, ts trustScreen) bool {
 		time.Sleep(200 * time.Millisecond)
 	}
 	return false
-}
-
-// selectedLine is the one screen line starting with the marker, or "" when
-// none or several do.
-func selectedLine(screen, marker string) string {
-	found := ""
-	for _, l := range strings.Split(screen, "\n") {
-		if strings.HasPrefix(strings.TrimSpace(l), marker) {
-			if found != "" {
-				return ""
-			}
-			found = l
-		}
-	}
-	return found
 }
