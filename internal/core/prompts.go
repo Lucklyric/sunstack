@@ -98,7 +98,7 @@ func parseMenu(screen string, ts trustScreen) (int, bool) {
 	// The options are one block: from the first to the last, every
 	// non-blank line is the next known option in full, and the first
 	// non-blank line after them is the CLI's own footer.
-	next, sel := 0, -1
+	next, sel, footer := 0, -1, false
 	for _, l := range lines[start+1:] {
 		t := strings.TrimSpace(l)
 		if next == len(ts.options) {
@@ -108,6 +108,7 @@ func parseMenu(screen string, ts trustScreen) (int, bool) {
 			if f := strings.ToLower(t); !strings.HasPrefix(f, "enter confirm") && !strings.HasPrefix(f, "enter to confirm") {
 				return 0, false
 			}
+			footer = true
 			break
 		}
 		on := strings.HasPrefix(t, ts.marker)
@@ -126,7 +127,7 @@ func parseMenu(screen string, ts trustScreen) (int, bool) {
 			return 0, false // a line inside the block, or a selection, that is not a known option
 		}
 	}
-	if next != len(ts.options) || sel < 0 {
+	if next != len(ts.options) || sel < 0 || !footer {
 		return 0, false
 	}
 	return sel, true

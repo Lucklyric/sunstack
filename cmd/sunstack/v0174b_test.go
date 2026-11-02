@@ -12,7 +12,7 @@ import (
 )
 
 func TestTrustWatchUnsafeScreens(t *testing.T) {
-	for _, mode := range []string{"unsafelabel", "unsafeinput", "unsafechange", "unsafewrap"} {
+	for _, mode := range []string{"unsafelabel", "unsafeinput", "unsafechange", "unsafewrap", "unsafenofooter"} {
 		t.Run(mode, func(t *testing.T) {
 			p := fixture(t)
 			s := privateTmux(t, p, isolatedEnv(t))
