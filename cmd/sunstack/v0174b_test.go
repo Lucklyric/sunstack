@@ -12,14 +12,14 @@ import (
 )
 
 func TestTrustWatchUnsafeScreens(t *testing.T) {
-	for _, mode := range []string{"unsafelabel", "unsafeinput", "unsafechange", "unsafewrap", "unsafenofooter", "unsafefooter", "unsafetitle"} {
+	for _, mode := range []string{"unsafelabel", "unsafeinput", "unsafechange", "unsafewrap", "unsafenofooter", "unsafefooter", "unsafetitle", "unsafeafter", "unsafeafterclaude"} {
 		t.Run(mode, func(t *testing.T) {
 			p := fixture(t)
 			s := privateTmux(t, p, isolatedEnv(t))
 			expect(t, sh(t, p, s.env, "prompts", "--codex-hooks", "on"), 0, "prompts")
 			s.tmux(t, "set-environment", "-g", "SUNSTACK_TEST_MODE", mode)
 			tool := "codex"
-			if mode == "unsafetitle" {
+			if mode == "unsafetitle" || mode == "unsafeafterclaude" {
 				tool = "claude"
 				expect(t, sh(t, p, s.env, "prompts", "--claude-folders", "on"), 0, "prompts")
 			}

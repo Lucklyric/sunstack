@@ -128,6 +128,12 @@ func parseMenu(screen string, ts trustScreen) (int, bool) {
 	next, sel, footer := 0, -1, false
 	for _, l := range lines[opt:] {
 		t := strings.TrimSpace(l)
+		if footer {
+			if t != "" {
+				return 0, false // nothing may follow the footer
+			}
+			continue
+		}
 		if next == len(ts.options) {
 			if t == "" {
 				continue
@@ -136,7 +142,7 @@ func parseMenu(screen string, ts trustScreen) (int, bool) {
 				return 0, false
 			}
 			footer = true
-			break
+			continue
 		}
 		on := strings.HasPrefix(t, ts.marker)
 		t = strings.TrimSpace(strings.TrimPrefix(t, ts.marker))

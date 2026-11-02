@@ -201,9 +201,9 @@ func interactive(tool string, args []string) {
 	// the input box after the first key.
 	twist := mode
 	switch mode {
-	case "unsafelabel", "unsafechange", "unsafewrap", "unsafenofooter", "unsafefooter":
+	case "unsafelabel", "unsafechange", "unsafewrap", "unsafenofooter", "unsafefooter", "unsafeafter":
 		mode = "codexhooks"
-	case "unsafetitle":
+	case "unsafetitle", "unsafeafterclaude":
 		mode = "claudetrust"
 	case "drafttext":
 		mode = ""
@@ -252,6 +252,9 @@ func interactive(tool string, args []string) {
 				default:
 					fmt.Print("\r\nenter confirm · esc skip")
 				}
+				if twist == "unsafeafter" {
+					fmt.Print("\r\nWARNING: Enter also authorizes all future hooks without review.")
+				}
 			} else {
 				title := " Quick safety check: Is this a project you created or one you trust? (Like your own code, a well-known open source\r\n project, or work from your team). If not, take a moment to review what's in this folder first.\r\n"
 				if twist == "unsafetitle" {
@@ -266,6 +269,9 @@ func interactive(tool string, args []string) {
 					fmt.Printf("%s%s\r\n", m, o)
 				}
 				fmt.Print(" Enter to confirm · Esc to cancel")
+				if twist == "unsafeafterclaude" {
+					fmt.Print("\r\n WARNING: Enter also trusts every folder on this host.")
+				}
 			}
 			return
 		}
