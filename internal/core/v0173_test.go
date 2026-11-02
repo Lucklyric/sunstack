@@ -88,3 +88,36 @@ func TestHealthProtocolCases(t *testing.T) {
 		t.Errorf("edited case: %q", m)
 	}
 }
+
+// §35 review: a symlinked PROTOCOL.md is the team's own choice: never safe.
+func TestProtocolSymlinkAsks(t *testing.T) {
+	old := []byte("# an older built-in version\n")
+	defer func(h []string) { protocolHistory = h }(protocolHistory)
+	protocolHistory = append(append([]string{}, protocolHistory...), hash173(old))
+	p := secTeam(t)
+	shared := filepath.Join(p.Root, "shared-protocol.md")
+	must172(t, os.WriteFile(shared, old, 0o644))
+	link := filepath.Join(p.Dir, "PROTOCOL.md")
+	os.Remove(link)
+	if err := os.Symlink(shared, link); err != nil {
+		t.Skip("symlinks unavailable:", err)
+	}
+	for _, s := range p.MigratePlan() {
+		if strings.Contains(s.What, "PROTOCOL.md") && s.Safe {
+			t.Error("a symlinked PROTOCOL.md was planned as safe")
+		}
+	}
+	_, err := p.Migrate(false)
+	must172(t, err)
+	if fi, err := os.Lstat(link); err != nil || fi.Mode()&os.ModeSymlink == 0 {
+		t.Error("safe migration replaced the team's PROTOCOL.md symlink")
+	}
+}
+
+// §35 review: old hashes are never dropped (a shallow clone would).
+func TestProtocolHistoryKeepsOldest(t *testing.T) {
+	h := assets.ProtocolHistory()
+	if len(h) < 17 || h[0] != "efe58d4602e67e3df04ef71f3820cc7387aff554333f3fcfb78ae6be34e6ae03" {
+		t.Fatalf("protocol-history.txt lost old hashes: %d entries, first %q", len(h), h[0])
+	}
+}

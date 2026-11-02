@@ -32,7 +32,7 @@ func (p *Project) Health() []Check {
 	// this version; the health skill offers them together.
 	if b, err := os.ReadFile(filepath.Join(p.Dir, "PROTOCOL.md")); err != nil {
 		cs = append(cs, failed("project", "sunstack/PROTOCOL.md is missing", "sunstack init"))
-	} else if !bytes.Equal(b, assets.Protocol()) && protocolKnown(b) {
+	} else if protocolRefreshable(filepath.Join(p.Dir, "PROTOCOL.md")) {
 		cs = append(cs, warn("migrate", "sunstack/PROTOCOL.md is an unedited older version; it refreshes at the next update or as", "sunstack migrate --apply safe"))
 	} else if !bytes.Equal(b, assets.Protocol()) {
 		cs = append(cs, warn("migrate", "sunstack/PROTOCOL.md differs from this sunstack version's and was edited", "sunstack init --refresh, then review the git diff"))

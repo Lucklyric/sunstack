@@ -39,7 +39,7 @@ func (p *Project) MigratePlan() []MigrateStep {
 		out = append(out, MigrateStep{"add sunstack/_local/ to .gitignore", true})
 	}
 	if b, err := os.ReadFile(filepath.Join(p.Dir, "PROTOCOL.md")); err == nil && !bytes.Equal(b, assets.Protocol()) {
-		if protocolKnown(b) {
+		if protocolRefreshable(filepath.Join(p.Dir, "PROTOCOL.md")) {
 			out = append(out, MigrateStep{"refresh sunstack/PROTOCOL.md (an unedited older version)", true})
 		} else {
 			out = append(out, MigrateStep{"refresh sunstack/PROTOCOL.md to this version (what every agent follows)", false})
@@ -93,7 +93,7 @@ func (p *Project) Migrate(all bool) ([]string, error) {
 		}
 		// An unedited older PROTOCOL.md holds nothing a person wrote (§35).
 		pp := filepath.Join(p.Dir, "PROTOCOL.md")
-		if cur, err := os.ReadFile(pp); err == nil && !bytes.Equal(cur, assets.Protocol()) && protocolKnown(cur) {
+		if protocolRefreshable(pp) {
 			if err := writeAtomic(pp, assets.Protocol()); err != nil {
 				return done, fail(ExitFail, "fs", "%v", err)
 			}
@@ -144,4 +144,16 @@ func protocolKnown(b []byte) bool {
 		}
 	}
 	return false
+}
+
+// protocolRefreshable says whether path is a regular file holding an
+// unedited older built-in PROTOCOL.md. A symlink is the team's own choice
+// and always waits for the user.
+func protocolRefreshable(path string) bool {
+	fi, err := os.Lstat(path)
+	if err != nil || !fi.Mode().IsRegular() {
+		return false
+	}
+	b, err := os.ReadFile(path)
+	return err == nil && !bytes.Equal(b, assets.Protocol()) && protocolKnown(b)
 }
