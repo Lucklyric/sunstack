@@ -27,6 +27,7 @@ type Live struct {
 	PaneTitle   string `json:"pane_title,omitempty"`  // the tmux pane title before as, restored on release
 	Spawned     bool   `json:"spawned,omitempty"`     // the pane was opened by sunstack spawn
 	TmuxServer  string `json:"tmux_server,omitempty"` // tmux server PID when claimed; pane IDs restart with a new server
+	CLIPID      int    `json:"cli_pid,omitempty"`     // the pane's foreground CLI process when claimed (§34.10)
 	Doing       string `json:"doing,omitempty"`       // one line: what this session is doing now
 	DoingAt     string `json:"doing_at,omitempty"`    // when Doing was set
 
@@ -372,6 +373,9 @@ func (p *Project) As(o AsOptions) (*AsResult, error) {
 		}
 	}
 	if l.TmuxPane != "" && l.TmuxSocket != "" {
+		if pid, _, ok := paneToolProc(l.TmuxSocket, l.TmuxPane, l.Tool); ok {
+			l.CLIPID = pid
+		}
 		// Remember the pane's title so release can put it back.
 		if replace != nil && replace.PaneTitle != "" && replace.TmuxPane == l.TmuxPane {
 			l.PaneTitle = replace.PaneTitle
@@ -733,12 +737,17 @@ func (p *Project) SetDoing(id, token, line string) error {
 // or a session the scan cannot name: then a second pane with the same
 // session ID is another process, not a move (§34.1).
 func (p *Project) paneRunsSession(c *Live) bool {
-	all, _ := ScanSessions()
+	all, err := ScanSessions()
+	if err != nil {
+		return true // the scan could not tell: never treat that as gone
+	}
 	serverOf := func(socket string) string { pid, _ := serverPID(socket); return pid }
 	for _, s := range all {
 		if s.Pane == c.TmuxPane && sameTmuxServer(c, serverOf(s.socket), serverOf) {
 			return s.SessionID == "" || s.SessionID == c.Session
 		}
 	}
-	return false
+	// Not in the scan: gone only if the pane no longer runs the CLI.
+	runs, known := paneTool(c.TmuxSocket, c.TmuxPane, c.Tool)
+	return runs || !known
 }

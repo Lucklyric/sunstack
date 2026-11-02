@@ -80,6 +80,7 @@ func Connect(logw io.Writer) error {
 	}
 	// Requests a restart cut short get their answer (§20.3).
 	RecoverRequests()
+	cleanAsked()
 	backoff := time.Second
 	for {
 		start := time.Now()
@@ -106,6 +107,15 @@ func Connect(logw io.Writer) error {
 // session runs one watch stream until it drops: frames come down the
 // stream, and this host's snapshots, pings, mail and acks go up as requests.
 func session(cl *client, logw io.Writer) error {
+	// After org leave, or a join to another org, nothing more goes in or
+	// out on this membership (§34.7).
+	member := func() bool {
+		c, err := LoadConfig()
+		return err == nil && c != nil && c.OrgID == cl.c.OrgID && c.Token == cl.c.Token
+	}
+	if !member() {
+		return errLeft
+	}
 	resp, err := cl.request("GET", "/v1/watch", nil, 0)
 	if err != nil {
 		var rv *revoked
@@ -115,11 +125,8 @@ func session(cl *client, logw io.Writer) error {
 		return err
 	}
 	defer resp.Body.Close()
-	// After org leave, or a join to another org, nothing more goes in or
-	// out on this membership (§34.7).
-	member := func() bool {
-		c, err := LoadConfig()
-		return err == nil && c != nil && c.OrgID == cl.c.OrgID && c.Token == cl.c.Token
+	if !member() { // the user left while the hub kept the request waiting
+		return errLeft
 	}
 	post := func(path string, v any) (*frame, error) {
 		b, _ := json.Marshal(v)
@@ -224,6 +231,9 @@ func session(cl *client, logw io.Writer) error {
 		}
 		return nil
 	}
+	if !member() {
+		return errLeft
+	}
 	if err := pushSnap(); err != nil {
 		return err
 	}
@@ -237,6 +247,7 @@ func session(cl *client, logw io.Writer) error {
 				return errLeft
 			}
 			connIssues.Flush(time.Now())
+			cleanAsked() // requests nobody waits for any more, and their replies (§34.12)
 			err = pushSnap()
 		case <-mailTick.C:
 			if !member() {

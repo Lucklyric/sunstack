@@ -29,6 +29,7 @@ func PeekFor(addr string, n int) (label, text string, err error) {
 	}
 	var socket, pane, tool string
 	var since time.Time // the claim's last contact: a CLI started after it is not that session
+	cliPID := 0         // the claim's CLI process, when it recorded one
 	if IsSessionID(addr) {
 		sessions, _ := ScanSessions()
 		var found []*HostSession
@@ -62,6 +63,7 @@ func PeekFor(addr string, n int) (label, text string, err error) {
 				return "", "", fail(ExitFail, "no_pane", "%s is not in a tmux pane sunstack knows", c.Label(id))
 			}
 			socket, pane, tool, label = c.TmuxSocket, c.TmuxPane, c.Tool, c.Label(id)
+			cliPID = c.CLIPID
 			for _, at := range []string{c.Claimed, c.LastContact} {
 				if t, err := time.Parse(time.RFC3339, at); err == nil && t.After(since) {
 					since = t
@@ -99,8 +101,12 @@ func PeekFor(addr string, n int) (label, text string, err error) {
 	}
 	// The same CLI in the same pane may be a new session that never took
 	// this claim (§34.10).
-	if start, ok := paneToolStart(socket, pane, tool); ok && !since.IsZero() && start.After(since) { // both whole seconds; the claimed CLI started before its claim
-		return "", "", fail(ExitFail, "not_running", "the pane of %s now runs another %s session, started after its claim", label, tool)
+	if pid, start, ok := paneToolProc(socket, pane, tool); ok {
+		// The claim's process, when it recorded one; else one started
+		// after the claim (whole seconds) is not it.
+		if cliPID != 0 && pid != cliPID || cliPID == 0 && !since.IsZero() && start.After(since) {
+			return "", "", fail(ExitFail, "not_running", "the pane of %s now runs another %s session, not the one that claimed it", label, tool)
+		}
 	}
 	screen := paneScreen(socket, pane)
 	if screen == "" {

@@ -257,8 +257,12 @@ func pinRoster(r *Roster) error {
 	named := map[string]string{} // lower-case name -> ID, before this roster, former names too
 	for id, p := range pins {
 		named[strings.ToLower(p.Name)] = id
+	}
+	for id, p := range pins { // a current name always wins over a former one
 		for _, n := range p.Former {
-			named[strings.ToLower(n)] = id
+			if _, ok := named[strings.ToLower(n)]; !ok {
+				named[strings.ToLower(n)] = id
+			}
 		}
 	}
 	changed := false
@@ -304,8 +308,19 @@ func Trust(name string) (string, error) {
 	}
 	defer unlock()
 	pins := loadPins()
+	// The roster now gives this name to a host pinned with the key it shows,
+	// but the name is still another's: trusting moves it (§34.8).
+	if r := cachedHosts(); r != nil {
+		if h := r.byName(name); h != nil {
+			if p := pins[h.ID]; p != nil && p.Changed == nil && p.Keys == h.Keys && !strings.EqualFold(p.Name, name) {
+				giveName(pins, h.ID, h.Name)
+				return p.Keys.Fingerprint(), writeJSON(pinsPath(), pins, 0o600)
+			}
+		}
+	}
 	var hit, same *Pin
-	for _, p := range pins {
+	hitID := ""
+	for id, p := range pins {
 		if !strings.EqualFold(p.Name, name) {
 			continue
 		}
@@ -316,28 +331,15 @@ func Trust(name string) (string, error) {
 		if hit != nil {
 			return "", failErr("ambiguous", "two hosts called %s have new keys; ask the hub's user to revoke the wrong one", name)
 		}
-		hit = p
+		hit, hitID = p, id
 	}
 	switch {
 	case hit != nil:
 		hit.Keys, hit.Changed = *hit.Changed, nil
+		giveName(pins, hitID, hit.Name) // the name is this key's alone now
 		return hit.Keys.Fingerprint(), writeJSON(pinsPath(), pins, 0o600)
 	case same != nil:
 		return "", failErr("unchanged", "%s's key has not changed (%s)", same.Name, same.Keys.Fingerprint())
-	}
-	// A name the roster gave another host than the one first trusted with
-	// it: trusting it moves the name, after the user compared fingerprints.
-	if r := cachedHosts(); r != nil {
-		if h := r.byName(name); h != nil {
-			if p := pins[h.ID]; p != nil && p.Keys == h.Keys {
-				for _, o := range pins {
-					o.Former = dropName(o.Former, name)
-				}
-				p.Former = addName(p.Former, p.Name)
-				p.Name = h.Name
-				return p.Keys.Fingerprint(), writeJSON(pinsPath(), pins, 0o600)
-			}
-		}
 	}
 	return "", failErr("not_found", "no pinned host %s (sunstack org keys lists them)", name)
 }
@@ -387,4 +389,20 @@ func dropName(list []string, n string) []string {
 		}
 	}
 	return out
+}
+
+// giveName makes name the pin id's alone: no other pin keeps it, as its
+// current name or a former one. One the pin had before stays its former.
+func giveName(pins map[string]*Pin, id, name string) {
+	for oid, o := range pins {
+		o.Former = dropName(o.Former, name)
+		if oid != id && strings.EqualFold(o.Name, name) {
+			o.Name = oid // a revoked or replaced host keeps no name
+		}
+	}
+	p := pins[id]
+	if !strings.EqualFold(p.Name, name) {
+		p.Former = addName(p.Former, p.Name)
+	}
+	p.Name = name
 }
