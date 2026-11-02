@@ -2466,37 +2466,51 @@ func agentSession() bool {
 }
 
 // sessionNameLine names this session for the prompt hook (§36): its claim in
-// the team, else the label sunstack gave a free session, from the claim
-// files and the pane's own option only, with no session scan. Outside a
-// team it names only a labeled free session.
+// the team, from the claim files alone, else the label sunstack gave a free
+// session. Only that label needs tmux, under a hard one-second bound, so a
+// stalled tmux never holds up a prompt. Outside a team it names only a
+// labeled free session.
 func sessionNameLine(p *core.Project, sid string) string {
 	pane := os.Getenv("TMUX_PANE")
+	team := ""
+	if p != nil {
+		team = filepath.Base(p.Root)
+		if tf, ok := p.Team(); ok && tf.Name != "" {
+			team = tf.Name
+		}
+		var names []string
+		for _, id := range p.Agents() {
+			claims, _ := p.Claims(id)
+			for _, c := range claims {
+				if (sid != "" && c.Session == sid) || (c.Session == "" && pane != "" && c.TmuxPane == pane && c.TmuxSocket == tmuxSocket()) {
+					names = append(names, c.Label(id))
+				}
+			}
+		}
+		if len(names) > 0 {
+			more := ""
+			if len(names) > 1 {
+				more = fmt.Sprintf(" and %d more", len(names)-1)
+			}
+			return "[sunstack] this session: " + names[0] + more + " in " + team + ". "
+		}
+	}
 	label := ""
 	if pane != "" {
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second) // never stall a prompt
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 		defer cancel()
-		if out, err := exec.CommandContext(ctx, "tmux", core.TmuxArgs(tmuxSocket(), "show-options", "-p", "-v", "-t", pane, "@sunstack_label")...).Output(); err == nil {
+		cmd := exec.CommandContext(ctx, "tmux", core.TmuxArgs(tmuxSocket(), "show-options", "-p", "-v", "-t", pane, "@sunstack_label")...)
+		cmd.WaitDelay = 200 * time.Millisecond // never wait on a stalled tmux's pipes
+		if out, err := cmd.Output(); err == nil {
 			label = strings.TrimSpace(string(out))
 		}
 	}
-	if p == nil {
-		if label == "" {
-			return ""
-		}
+	switch {
+	case p == nil && label == "":
+		return ""
+	case p == nil:
 		return "[sunstack] this session: " + label + " (no agent). "
-	}
-	team := filepath.Base(p.Root)
-	if tf, ok := p.Team(); ok && tf.Name != "" {
-		team = tf.Name
-	}
-	if held := p.HeldBy(sid, pane, tmuxSocket()); len(held) > 0 {
-		more := ""
-		if len(held) > 1 {
-			more = fmt.Sprintf(" and %d more", len(held)-1)
-		}
-		return "[sunstack] this session: " + held[0].L.Label(held[0].ID) + more + " in " + team + ". "
-	}
-	if label != "" {
+	case label != "":
 		return "[sunstack] this session: " + label + " (no agent) in " + team + ". "
 	}
 	return "[sunstack] this session holds no agent in " + team + ". "
