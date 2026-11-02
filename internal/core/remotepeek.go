@@ -105,14 +105,16 @@ func PeekFor(addr string, n int) (label, text string, err error) {
 	// The same CLI in the same pane may be a new session that never took
 	// this claim (§34.10).
 	if !since.IsZero() { // an agent's claim: its own CLI, or nothing
-		pid, start, ok := paneToolProc(socket, pane, tool)
-		// The claim's process, when it recorded one. An older claim has none:
-		// a CLI that started in or after the claim's second is not it, since
-		// a CLI runs for seconds before it can claim.
+		// Only the claim's own CLI process. A claim from before v0.17.2 has
+		// none recorded; start times cannot stand in for it, since Linux
+		// reports them a second off (§34.10).
+		pid, _, ok := paneToolProc(socket, pane, tool)
 		switch {
+		case cliPID == 0:
+			return "", "", fail(ExitFail, "not_running", "%s has no recorded CLI process (claimed before v0.17.2); it can be peeked after it runs as --token again", label)
 		case !ok:
 			return "", "", fail(ExitFail, "not_running", "could not confirm the pane of %s still runs the session that claimed it", label)
-		case cliPID != 0 && pid != cliPID, cliPID == 0 && !start.Before(since):
+		case pid != cliPID:
 			return "", "", fail(ExitFail, "not_running", "the pane of %s now runs another %s session, not the one that claimed it", label, tool)
 		}
 	}
