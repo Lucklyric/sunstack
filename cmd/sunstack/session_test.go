@@ -498,6 +498,10 @@ func TestReopenPrivatePane(t *testing.T) {
 			if c.Token != tok || c.Session != sid || c.TmuxPane != pane || c.TmuxSocket != home.socket || c.TmuxServer != home.pid {
 				t.Errorf("claim did not move to reopened pane: %+v", c)
 			}
+			// §34.10: the moved claim names the resumed CLI process.
+			if c.CLIPID != event.PID {
+				t.Errorf("claim cli_pid %d, want the resumed process %d", c.CLIPID, event.PID)
+			}
 			if got := home.tmux(t, "display-message", "-p", "-t", pane, "#{pane_title}\t#{window_name}"); got != "reviewer\treviewer" {
 				t.Errorf("pane title and window %q", got)
 			}

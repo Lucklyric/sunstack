@@ -41,6 +41,7 @@ type FreeOptions struct {
 type FreeResult struct {
 	Label, Tool, Pane, Home, Cwd string // Home: the home it opened in, if any
 	Running, Window              bool   // Window: a new window, not beside the caller
+	Prompt                       string // a trust screen answered, or waiting (§37)
 }
 
 var labelRe = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,19}$`)
@@ -210,7 +211,9 @@ func SpawnFree(o FreeOptions) (*FreeResult, error) {
 		time.Sleep(250 * time.Millisecond)
 		running = paneRunsTool(h.socket, h.pane, o.Tool)
 	}
-	return &FreeResult{Label: label, Tool: o.Tool, Pane: h.pane, Home: h.at, Cwd: cwd, Running: running, Window: window}, nil
+	_, notTeam := FindProject(cwd)
+	prompt := AnswerTrust(h.socket, h.pane, o.Tool, notTeam == nil)
+	return &FreeResult{Label: label, Tool: o.Tool, Pane: h.pane, Home: h.at, Cwd: cwd, Running: running, Window: window, Prompt: prompt}, nil
 }
 
 // freeFolder resolves where a free session opens: beside a session, a

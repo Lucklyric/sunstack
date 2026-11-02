@@ -157,6 +157,10 @@ Org (every team and Claude Code or Codex session on this host):
   sunstack spawn --free --team <host>:<team> [--dir SUBDIR] | --beside <host>:<session-id> [--tool T] [--name L] [--yes]
                                                   start a session on another host that allows it (org allow), in its team's
                                                   tmux session; it asks first (or --yes), since it starts a paid session
+  sunstack prompts [--codex-hooks on|off|ask] [--claude-folders on|off|ask]
+                                                  whether a session spawn or reopen starts may pass Codex's hook review
+                                                  ("Trust all") and Claude Code's folder trust check in a team folder;
+                                                  ask (the default) leaves them for you and says which pane; you set it
   sunstack spawn --free [--tool claude|codex] [--name LABEL] [--note "..."] [--dir DIR | --beside SESSION] [--place P] [--over-cap]
                                                   start a plain session that holds no agent, placed as spawn is, working in the team
                                                   root, in DIR, or in the folder of another session; sunstack kill LABEL closes it
@@ -839,6 +843,39 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 		fmt.Fprint(stdout, sentText(a.has("all"), a.flags["type"]))
 		return nil
 
+	case "prompts":
+		// Trust screens a started session may stop at (§37): the user's
+		// one-time choice, shown with no options and set only by the user.
+		a, err := parse(rest, "codex-hooks claude-folders", "")
+		if err == nil {
+			err = a.atMost(0, "prompts")
+		}
+		if err != nil {
+			return err
+		}
+		pr := core.LoadPrompts()
+		set := false
+		for flag, field := range map[string]*string{"codex-hooks": &pr.CodexHooks, "claude-folders": &pr.ClaudeFolders} {
+			v := a.flags[flag]
+			if v == "" {
+				continue
+			}
+			if v != "on" && v != "off" && v != "ask" {
+				return &core.Error{Code: core.ExitUsage, Reason: "usage", Msg: "--" + flag + " takes on, off or ask"}
+			}
+			*field, set = v, true
+		}
+		if set {
+			if err := core.UserOnly("sunstack prompts"); err != nil {
+				return err
+			}
+			if err := core.SavePrompts(pr); err != nil {
+				return err
+			}
+		}
+		fmt.Fprintf(stdout, "codex hooks: %s (Codex's hook review; on picks \"Trust all and continue\", which trusts every current hook of every plugin)\nclaude folders: %s (Claude Code's folder trust check in a team folder; on answers \"Yes, I trust this folder\")\n", pr.CodexHooks, pr.ClaudeFolders)
+		return nil
+
 	case "halt":
 		// Pause the whole team (§17.3); only the user runs it.
 		a, err := parse(rest, "root", "off")
@@ -1230,6 +1267,7 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 				where = "a new tmux window"
 			}
 			fmt.Fprintf(stdout, "sunstack: started free session %s (%s) in %s, in %s, pane %s (sunstack attach %s)\n", r.Label, r.Tool, r.Cwd, where, r.Pane, r.Label)
+			printPrompt(stdout, r.Prompt)
 			if !r.Running {
 				fmt.Fprintf(stdout, "warning: %s is not running in pane %s yet; it may be at a login or trust prompt, or have exited; sunstack kill %s closes it\n", r.Tool, r.Pane, r.Label)
 			}
@@ -1268,6 +1306,7 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 			where = "the team's tmux session " + r.Home + " (sunstack attach " + r.Name + ")"
 		}
 		fmt.Fprintf(stdout, "sunstack: started %s (%s) in %s, pane %s\n", r.Name, r.Tool, where, r.Pane)
+		printPrompt(stdout, r.Prompt)
 		if !r.Running {
 			fmt.Fprintf(stdout, "warning: %s is not running in pane %s yet; it may be at a login or trust prompt, or have exited. Look at the pane (tmux select-pane -t %s); if the session is gone, run sunstack kill %s\n", r.Tool, r.Pane, r.Pane, r.Name)
 		}
@@ -1609,6 +1648,7 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 			return err
 		}
 		fmt.Fprintf(stdout, "sunstack: reopened %s session %s in tmux pane %s (%s)\n", r.Tool, a.pos[0], r.Pane, r.Cwd)
+		printPrompt(stdout, r.Prompt)
 		return nil
 
 	case "attach":
@@ -2514,4 +2554,11 @@ func sessionNameLine(p *core.Project, sid string) string {
 		return "[sunstack] this session: " + label + " (no agent) in " + team + ". "
 	}
 	return "[sunstack] this session holds no agent in " + team + ". "
+}
+
+// printPrompt shows what the trust watch did, if anything (§37).
+func printPrompt(w io.Writer, line string) {
+	if line != "" {
+		fmt.Fprintln(w, "sunstack: "+line)
+	}
 }

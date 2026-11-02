@@ -347,6 +347,11 @@ prefix_rule(
     decision = "prompt",
     justification = "Sunstack org trust accepts another host's changed key; only the user may do that, after comparing fingerprints.",
 )
+prefix_rule(
+    pattern = ["sunstack", "prompts"],
+    decision = "prompt",
+    justification = "Sunstack prompts lets started sessions pass Codex's hook review or Claude Code's folder trust check; only the user may choose that.",
+)
 `
 
 // CodexRulesPath is where the Codex exec-policy rule lives.

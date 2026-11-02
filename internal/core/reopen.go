@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // Reopen (v0.8.2) moves a Claude Code or Codex session that ran outside tmux
@@ -24,7 +25,7 @@ type ReopenOptions struct {
 }
 
 // ReopenResult says where the session was reopened.
-type ReopenResult struct{ Tool, Cwd, Pane, Command string }
+type ReopenResult struct{ Tool, Cwd, Pane, Command, Prompt string }
 
 // sessionOrigin finds a session's tool and folder from its transcript.
 func sessionOrigin(sid string) (tool, cwd string, ok bool) {
@@ -155,12 +156,39 @@ func finishReopen(o ReopenOptions, res *ReopenResult, tool, cmd, pane string) (*
 				if c.Session != o.SessionID {
 					continue
 				}
-				c.TmuxPane, c.TmuxSocket, c.TmuxServer = pane, o.Socket, o.Server
+				c.TmuxPane, c.TmuxSocket, c.TmuxServer, c.CLIPID = pane, o.Socket, o.Server, 0
 				_ = p.writeLive(id, c)
 				exec.Command("tmux", TmuxArgs(o.Socket, "select-pane", "-t", pane, "-T", c.Label(id))...).Run()
 				p.LogEvent("reopen", c.Label(id), "pane="+pane)
 			}
 			unlock()
+		}
+	}
+	_, notTeam := FindProject(res.Cwd)
+	res.Prompt = AnswerTrust(o.Socket, pane, tool, notTeam == nil)
+	// The moved claim names its new CLI process once it runs (§34.10).
+	pid, ok := 0, false
+	for i := 0; i < 20 && !ok; i++ {
+		if pid, _, ok = paneToolProc(o.Socket, pane, tool); !ok {
+			time.Sleep(250 * time.Millisecond)
+		}
+	}
+	if ok {
+		for _, p := range IndexedProjects() {
+			for _, id := range p.Agents() {
+				unlock, err := p.lock(id)
+				if err != nil {
+					continue
+				}
+				claims, _ := p.Claims(id)
+				for _, c := range claims {
+					if c.Session == o.SessionID && c.TmuxPane == pane && c.CLIPID == 0 {
+						c.CLIPID = pid
+						_ = p.writeLive(id, c)
+					}
+				}
+				unlock()
+			}
 		}
 	}
 	return res, nil

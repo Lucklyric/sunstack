@@ -39,6 +39,7 @@ type SpawnResult struct {
 	Place                       string // team, here or window
 	Home                        string // the team's home and window, for place team: ss-alpha-a1b2:pm.lead
 	Running, Window             bool
+	Prompt                      string // a trust screen answered, or waiting (§37)
 }
 
 // Spawn opens a pane beside the caller's (or, with Window or outside a known
@@ -219,6 +220,7 @@ func (p *Project) Spawn(o SpawnOptions) (*SpawnResult, error) {
 		time.Sleep(250 * time.Millisecond)
 		running = paneRunsTool(o.Socket, pane, o.Tool)
 	}
+	prompt := AnswerTrust(o.Socket, pane, o.Tool, true)
 	// The claim names the CLI it started, so a later CLI in this pane is
 	// not taken for it (§34.10).
 	if pid, _, ok := paneToolProc(o.Socket, pane, o.Tool); running && ok {
@@ -233,7 +235,7 @@ func (p *Project) Spawn(o SpawnOptions) (*SpawnResult, error) {
 			unlock()
 		}
 	}
-	return &SpawnResult{ID: id, Name: name, Pane: pane, Token: l.Token, Tool: o.Tool, Place: place, Home: homeAt, Running: running, Window: window}, nil
+	return &SpawnResult{ID: id, Name: name, Pane: pane, Token: l.Token, Tool: o.Tool, Place: place, Home: homeAt, Running: running, Window: window, Prompt: prompt}, nil
 }
 
 // noteOK says whether a note can be typed into the pane's shell inside

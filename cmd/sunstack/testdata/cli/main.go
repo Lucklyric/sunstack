@@ -200,8 +200,39 @@ func interactive(tool string, args []string) {
 	if mode == "draft" {
 		draft = []rune("my unsent draft")
 	}
+	// The two trust screens of §37, as the real CLIs draw them: arrows move
+	// the selection, Enter picks it and is recorded as choice:<label>.
+	trust := map[string][]string{
+		"codexhooks":  {"Review hooks", "Trust all and continue", "Continue without trusting (hooks won't run)"},
+		"claudetrust": {"No, exit", "Yes, I trust this folder"},
+	}[mode]
+	sel := 0
 	draw := func() {
 		fmt.Print("\x1b[2J\x1b[H")
+		if trust != nil {
+			if mode == "codexhooks" {
+				fmt.Print("Hooks need review\r\n2 hooks are new or changed.\r\nHooks can run outside the sandbox after you trust them.\r\n\r\n")
+				for i, o := range trust {
+					m := "  "
+					if i == sel {
+						m = "› "
+					}
+					fmt.Printf("%s%d. %s\r\n", m, i+1, o)
+				}
+				fmt.Print("\r\nenter confirm · esc skip")
+			} else {
+				fmt.Print(" Accessing workspace:\r\n Quick safety check: Is this a project you created or one you trust?\r\n")
+				for i, o := range trust {
+					m := "   "
+					if i == sel {
+						m = " ❯ "
+					}
+					fmt.Printf("%s%s\r\n", m, o)
+				}
+				fmt.Print(" Enter to confirm · Esc to cancel")
+			}
+			return
+		}
 		if mode == "menu" {
 			fmt.Print("Trust this folder?\r\n› 1. Yes\r\n  2. No\r\nEnter to confirm · Esc to cancel\r\n")
 			return
@@ -221,6 +252,26 @@ func interactive(tool string, args []string) {
 		}
 		if _, err := fmt.Fprint(keys, string(ch)); err != nil {
 			panic(err)
+		}
+		if trust != nil {
+			switch ch {
+			case '\x1b':
+				if b, _, _ := rd.ReadRune(); b == '[' {
+					if d, _, _ := rd.ReadRune(); d == 'B' && sel < len(trust)-1 {
+						sel++
+					} else if d == 'A' && sel > 0 {
+						sel--
+					}
+				}
+			case '\r', '\n':
+				json.NewEncoder(log).Encode(struct{ Line string }{"choice:" + trust[sel]})
+				if strings.HasPrefix(trust[sel], "No") {
+					return
+				}
+				trust, mode = nil, ""
+			}
+			draw()
+			continue
 		}
 		switch ch {
 		case '\r', '\n':

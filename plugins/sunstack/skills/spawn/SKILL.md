@@ -62,7 +62,16 @@ resume it. `sunstack team` shows the same per agent.
    place from an agent session. Add `--brief "<brief file>"` for a task brief. It opens a pane beside this one (or the place asked for) in the project root,
    prints where, claims the agent for the new session, and starts the CLI
    with a first prompt that takes on the identity. The new session may stop at its first-run
-   prompts (folder trust, sign-in); tell the user which pane to look at.
+   prompts (sign-in, Codex's hook review, Claude Code's folder trust check); tell the user which
+   pane to look at.
+   - A `sunstack: answered ...` line: a trust screen was answered as the user chose
+     (`sunstack prompts`). A `sunstack: waiting at ...` line names the pane and the screen.
+     When it suggests `sunstack prompts`, ask the user once, plainly: for Codex, "Trust all"
+     trusts every current hook of every plugin, not only Sunstack's; for Claude, it answers
+     "Yes, I trust this folder" only in a team folder. Choices: on (answer it from now on), off
+     (never), or ask me again. On on or off, run `sunstack prompts --codex-hooks <on|off>` or
+     `--claude-folders <on|off>`; it asks for approval. Then the user answers the waiting
+     screen in that pane this time.
    - A `warning:` line means the CLI was not seen running a few seconds after launch: it may
      be at a login or trust prompt, or have exited. Tell the user which pane to look at.
    - **4 `task_taken`**: another session of that agent already has this task label; pick
