@@ -270,9 +270,21 @@ func ManagedServe(in io.Reader, out io.Writer) error {
 	if err := w.put(frame{Op: "hello", Hello: &Hello{OrgID: c.OrgID, OrgName: c.OrgName, Version: Version, HostID: me.ID, Name: me.Name, Machine: core.MachineName(), Keys: &pub}}); err != nil {
 		return err
 	}
+	// A leave during a pull ends it: nothing more is written or sent (§34.7).
+	member := func() bool {
+		now, err := LoadConfig()
+		return err == nil && now != nil && now.IsManaged() && now.OrgID == c.OrgID
+	}
+	left := func() error {
+		w.put(frame{Op: "refused", Reason: "this host left its org"})
+		return errLeft
+	}
 	br := bufio.NewReaderSize(in, 64<<10)
 	var mail []*Mail
 	err = readTurn(br, "end", func(f *frame) error {
+		if !member() {
+			return errLeft
+		}
 		switch f.Op {
 		case "roster":
 			if f.Roster == nil || f.Roster.OrgID != c.OrgID {
@@ -291,6 +303,9 @@ func ManagedServe(in io.Reader, out io.Writer) error {
 		}
 		return nil
 	})
+	if errors.Is(err, errLeft) || err == nil && !member() {
+		return left()
+	}
 	if err != nil {
 		return err
 	}
@@ -302,6 +317,9 @@ func ManagedServe(in io.Reader, out io.Writer) error {
 				return err
 			}
 		}
+	}
+	if !member() {
+		return left()
 	}
 	size, n := 0, 0
 	for _, p := range jsonFiles(outboxDir()) {
@@ -318,6 +336,9 @@ func ManagedServe(in io.Reader, out io.Writer) error {
 		if err := w.put(frame{Op: "mail", Mail: &s.Mail}); err != nil {
 			return err
 		}
+	}
+	if !member() {
+		return left()
 	}
 	if b, err := Snapshot(); err == nil {
 		if err := w.put(frame{Op: "snap", Snap: &Snap{Host: me.ID, Snapshot: b}}); err != nil {

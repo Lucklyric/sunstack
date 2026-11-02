@@ -57,8 +57,9 @@ resume it. `sunstack team` shows the same per agent.
    sunstack spawn "<id>" --tool <claude|codex> --task "<task>" --note "<first instruction>"
    ```
 
-   Add `--place window` or `--place team` for another place, and `--brief "<brief file>"` for a
-   task brief. It opens a pane beside this one (or the place asked for) in the project root,
+   Add `--place window` or `--place team` for another place the user chose in the plan, and then
+   add `--yes`, which says the user asked for that place: without it the CLI refuses another
+   place from an agent session. Add `--brief "<brief file>"` for a task brief. It opens a pane beside this one (or the place asked for) in the project root,
    prints where, claims the agent for the new session, and starts the CLI
    with a first prompt that takes on the identity. The new session may stop at its first-run
    prompts (folder trust, sign-in); tell the user which pane to look at.

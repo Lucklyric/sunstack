@@ -105,9 +105,11 @@ Sessions and messages:
   sunstack check|take|ack --session [<msg>]       the same for a session that works as no agent (its host inbox)
   sunstack whoami [--root DIR]
   sunstack spawn <id|title> [--tool claude|codex] [--task LABEL] [--note "..."] [--brief FILE] [--place team|here|window] [--over-cap]
-                                                  start a session as that agent beside this pane, or in a new window when it is
-                                                  too small (window: always a new window; team: the team's tmux session
-                                                  ss-<team>-<id>, also used outside tmux);
+                                                  start a session as that agent beside this pane (the default), or in a new
+                                                  window when it is too small; window and team only when the user asks for that
+                                                  place (window: always a new window; team: the team's tmux session
+                                                  ss-<team>-<id>, out of sight, also used outside tmux; from an agent session
+                                                  they need --yes, which says the user asked for it);
                                                   --brief puts a task in its inbox; refused at max_sessions (sunstack/TEAM, default 6)
                                                   and while the team is halted; the tool defaults to tool: in AGENT.md
   sunstack dismiss <id|id_task>                   ask a session to finish (a shutdown message)
@@ -1194,6 +1196,11 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 				return err
 			}
 			return spawnOnHost(host, sa, a.has("yes"), stdin, stdout)
+		}
+		// Beside this pane is the default. From an agent session, another
+		// place needs --yes: it says the user asked for that place (§34.16).
+		if place := a.flags["place"]; (place == "team" || place == "window" || a.has("window")) && !a.has("yes") && agentSession() {
+			return &core.Error{Code: core.ExitUsage, Reason: "usage", Msg: "spawn opens beside this pane by default; use --place team or window only when the user asked for that place, then add --yes (spawn skill)"}
 		}
 		if a.has("free") {
 			if len(a.pos) > 0 || a.has("task") || a.has("brief") {
@@ -2443,4 +2450,14 @@ func hostWaitingLines(sid string) []string {
 		out = append(out, fmt.Sprintf("%d message(s) taken for this session are not finished%s", taken, core.TakenAge(oldest)))
 	}
 	return out
+}
+
+// agentSession says whether this runs from a Claude Code or Codex session.
+func agentSession() bool {
+	for _, k := range []string{"CLAUDECODE", "CLAUDE_CODE_SESSION_ID", "CODEX_THREAD_ID"} {
+		if os.Getenv(k) != "" {
+			return true
+		}
+	}
+	return false
 }

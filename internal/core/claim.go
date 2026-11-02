@@ -737,6 +737,10 @@ func (p *Project) SetDoing(id, token, line string) error {
 // or a session the scan cannot name: then a second pane with the same
 // session ID is another process, not a move (§34.1).
 func (p *Project) paneRunsSession(c *Live) bool {
+	// A pane that no longer runs the CLI is gone, whatever the scan says.
+	if runs, known := paneTool(c.TmuxSocket, c.TmuxPane, c.Tool); known && !runs {
+		return false
+	}
 	all, err := ScanSessions()
 	if err != nil {
 		return true // the scan could not tell: never treat that as gone

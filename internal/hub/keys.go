@@ -260,8 +260,11 @@ func pinRoster(r *Roster) error {
 	}
 	for id, p := range pins { // a current name always wins over a former one
 		for _, n := range p.Former {
-			if _, ok := named[strings.ToLower(n)]; !ok {
-				named[strings.ToLower(n)] = id
+			k := strings.ToLower(n)
+			if prev, ok := named[k]; !ok {
+				named[k] = id
+			} else if prev != id && !strings.EqualFold(pins[prev].Name, n) {
+				named[k] = "" // two hosts' former name: no roster gives it to either
 			}
 		}
 	}
@@ -289,7 +292,9 @@ func pinRoster(r *Roster) error {
 		if p != nil && p.Name != h.Name {
 			// A name another pinned host had stays with that host.
 			if id, ok := named[strings.ToLower(h.Name)]; !ok || id == h.ID {
-				p.Former = addName(p.Former, p.Name)
+				if p.Keys.valid() { // a name never trusted is not kept
+					p.Former = addName(p.Former, p.Name)
+				}
 				p.Name, changed = h.Name, true
 			}
 		}
@@ -335,6 +340,9 @@ func Trust(name string) (string, error) {
 	}
 	switch {
 	case hit != nil:
+		if !hit.Keys.valid() {
+			hit.Former = nil // names it held before any key was trusted were never its own
+		}
 		hit.Keys, hit.Changed = *hit.Changed, nil
 		giveName(pins, hitID, hit.Name) // the name is this key's alone now
 		return hit.Keys.Fingerprint(), writeJSON(pinsPath(), pins, 0o600)
