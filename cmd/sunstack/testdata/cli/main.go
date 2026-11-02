@@ -201,7 +201,7 @@ func interactive(tool string, args []string) {
 	// the input box after the first key.
 	twist := mode
 	switch mode {
-	case "unsafelabel", "unsafechange":
+	case "unsafelabel", "unsafechange", "unsafewrap":
 		mode = "codexhooks"
 	case "unsafeinput":
 		mode = ""
@@ -234,6 +234,9 @@ func interactive(tool string, args []string) {
 						m = "› "
 					}
 					fmt.Printf("%s%d. %s\r\n", m, i+1, o)
+					if twist == "unsafewrap" && i == 1 {
+						fmt.Print("    and disable all future safety checks\r\n")
+					}
 				}
 				fmt.Print("\r\nenter confirm · esc skip")
 			} else {

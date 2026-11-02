@@ -95,31 +95,36 @@ func parseMenu(screen string, ts trustScreen) (int, bool) {
 	if marked != 1 {
 		return 0, false
 	}
+	// The options are one block: from the first to the last, every
+	// non-blank line is the next known option in full, and the first
+	// non-blank line after them is the CLI's own footer.
 	next, sel := 0, -1
 	for _, l := range lines[start+1:] {
 		t := strings.TrimSpace(l)
+		if next == len(ts.options) {
+			if t == "" {
+				continue
+			}
+			if f := strings.ToLower(t); !strings.HasPrefix(f, "enter confirm") && !strings.HasPrefix(f, "enter to confirm") {
+				return 0, false
+			}
+			break
+		}
 		on := strings.HasPrefix(t, ts.marker)
 		t = strings.TrimSpace(strings.TrimPrefix(t, ts.marker))
+		want := ts.options[next]
 		if ts.tool == "codex" {
-			num, label, ok := strings.Cut(t, ". ")
-			if !ok || len(num) != 1 || num[0] < '1' || num[0] > '9' {
-				continue
-			}
-			if next >= len(ts.options) || num != string(rune('1'+next)) || strings.TrimSpace(label) != ts.options[next] {
-				return 0, false // an option that is not the known one
-			}
-		} else {
-			if next >= len(ts.options) || t != ts.options[next] {
-				if on {
-					return 0, false
-				}
-				continue
-			}
+			want = string(rune('1'+next)) + ". " + want
 		}
-		if on {
-			sel = next
+		switch {
+		case t == want:
+			if on {
+				sel = next
+			}
+			next++
+		case next > 0 && t != "", on:
+			return 0, false // a line inside the block, or a selection, that is not a known option
 		}
-		next++
 	}
 	if next != len(ts.options) || sel < 0 {
 		return 0, false
