@@ -432,9 +432,13 @@ func (p *Project) nudge(id, session string, m *Message) (string, string) {
 		}
 		if c.Session != "" {
 			if dup == nil {
-				all, _ := ScanSessions()
+				all, notes := ScanSessions()
 				if dup = DuplicateSessions(all); dup == nil {
 					dup = map[string][]string{}
+				}
+				if scanMissed(notes, c.Tool) {
+					busy = c.Label(id) + ": could not check that its session runs in one pane only"
+					continue // not typed into a session that may be two processes (§34.1)
 				}
 			}
 			if panes := dup[c.Session]; panes != nil {

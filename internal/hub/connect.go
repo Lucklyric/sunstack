@@ -116,6 +116,7 @@ func session(cl *client, logw io.Writer) error {
 	if !member() {
 		return errLeft
 	}
+	cl.member = member // every request after this checks it, uploads included
 	resp, err := cl.request("GET", "/v1/watch", nil, 0)
 	if err != nil {
 		var rv *revoked

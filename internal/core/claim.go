@@ -741,8 +741,8 @@ func (p *Project) paneRunsSession(c *Live) bool {
 	if runs, known := paneTool(c.TmuxSocket, c.TmuxPane, c.Tool); known && !runs {
 		return false
 	}
-	all, err := ScanSessions()
-	if err != nil {
+	all, notes := ScanSessions()
+	if scanMissed(notes, c.Tool) {
 		return true // the scan could not tell: never treat that as gone
 	}
 	serverOf := func(socket string) string { pid, _ := serverPID(socket); return pid }

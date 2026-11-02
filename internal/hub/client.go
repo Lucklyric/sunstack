@@ -23,7 +23,10 @@ func httpClient(timeout time.Duration) *http.Client { return &http.Client{Timeou
 
 // client calls the hub over HTTP with this host's token. On the hub, it
 // calls its own listener, so the hub's own traffic takes the same checks.
-type client struct{ c *Config }
+type client struct {
+	c      *Config
+	member func() bool // set by the connector: false once this host left the org (§34.7)
+}
 
 func (cl *client) url() (string, error) {
 	if !cl.c.IsHub() {
@@ -37,6 +40,10 @@ func (cl *client) url() (string, error) {
 }
 
 func (cl *client) request(method, path string, body []byte, timeout time.Duration) (*http.Response, error) {
+	// A connector's client sends nothing once this host left its org (§34.7).
+	if cl.member != nil && !cl.member() {
+		return nil, errLeft
+	}
 	base, err := cl.url()
 	if err != nil {
 		return nil, err

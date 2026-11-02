@@ -2,7 +2,6 @@ package core
 
 import (
 	"errors"
-	"os/exec"
 	"strings"
 	"sync"
 	"time"
@@ -31,7 +30,6 @@ func PeekFor(addr string, n int) (label, text string, err error) {
 	var socket, pane, tool string
 	var since time.Time // the claim's last contact: a CLI started after it is not that session
 	cliPID := 0         // the claim's CLI process, when it recorded one
-	spawned := false    // sunstack opened the pane and still marks it: its CLI starts after the claim
 	if IsSessionID(addr) {
 		sessions, _ := ScanSessions()
 		var found []*HostSession
@@ -66,10 +64,6 @@ func PeekFor(addr string, n int) (label, text string, err error) {
 			}
 			socket, pane, tool, label = c.TmuxSocket, c.TmuxPane, c.Tool, c.Label(id)
 			cliPID = c.CLIPID
-			if c.Spawned {
-				mark, _ := exec.Command("tmux", TmuxArgs(c.TmuxSocket, "show-options", "-p", "-v", "-t", c.TmuxPane, "@sunstack")...).Output()
-				spawned = strings.TrimSpace(string(mark)) == p.Root+"|"+id
-			}
 			for _, at := range []string{c.Claimed, c.LastContact} {
 				if t, err := time.Parse(time.RFC3339, at); err == nil && t.After(since) {
 					since = t
@@ -115,7 +109,7 @@ func PeekFor(addr string, n int) (label, text string, err error) {
 		switch {
 		case !ok:
 			return "", "", fail(ExitFail, "not_running", "could not confirm the pane of %s still runs the session that claimed it", label)
-		case cliPID != 0 && pid != cliPID, cliPID == 0 && !spawned && !start.Before(since):
+		case cliPID != 0 && pid != cliPID, cliPID == 0 && !start.Before(since):
 			return "", "", fail(ExitFail, "not_running", "the pane of %s now runs another %s session, not the one that claimed it", label, tool)
 		}
 	}

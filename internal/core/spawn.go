@@ -219,6 +219,20 @@ func (p *Project) Spawn(o SpawnOptions) (*SpawnResult, error) {
 		time.Sleep(250 * time.Millisecond)
 		running = paneRunsTool(o.Socket, pane, o.Tool)
 	}
+	// The claim names the CLI it started, so a later CLI in this pane is
+	// not taken for it (§34.10).
+	if pid, _, ok := paneToolProc(o.Socket, pane, o.Tool); running && ok {
+		if unlock, err := p.lock(id); err == nil {
+			if cs, _ := p.Claims(id); findToken(cs, l.Token) != nil {
+				c := findToken(cs, l.Token)
+				if c.CLIPID == 0 {
+					c.CLIPID = pid
+					p.writeLive(id, c)
+				}
+			}
+			unlock()
+		}
+	}
 	return &SpawnResult{ID: id, Name: name, Pane: pane, Token: l.Token, Tool: o.Tool, Place: place, Home: homeAt, Running: running, Window: window}, nil
 }
 

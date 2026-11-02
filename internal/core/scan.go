@@ -616,3 +616,15 @@ func withoutTMUX(env []string) []string {
 
 // Socket is the tmux server the session's pane was found on.
 func (s *HostSession) Socket() string { return s.socket }
+
+// scanMissed says whether a scan could not list a tool's sessions, from its
+// notes: then an absent session proves nothing (§34.1).
+func scanMissed(notes []string, tool string) bool {
+	for _, n := range notes {
+		if (tool != "codex" && strings.HasPrefix(n, "Claude Code sessions not listed")) ||
+			(tool != "claude" && strings.HasPrefix(n, "Codex sessions not listed")) {
+			return true
+		}
+	}
+	return false
+}
