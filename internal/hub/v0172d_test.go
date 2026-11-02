@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -179,6 +180,9 @@ func TestReview172bConnectorExpiredCleanup(t *testing.T) {
 	}
 }
 func TestReview172bRemoteUpdateSetsHostOnly(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the update stand-in is a shell command")
+	}
 	review172bHome(t)
 	t.Setenv("SUNSTACK_SERVICE", "1")
 	t.Setenv("SUNSTACK_UPDATE_CMD", `test "$SUNSTACK_HOST_ONLY" = 1`)
