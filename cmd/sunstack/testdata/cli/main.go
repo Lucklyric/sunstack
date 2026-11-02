@@ -201,8 +201,12 @@ func interactive(tool string, args []string) {
 	// the input box after the first key.
 	twist := mode
 	switch mode {
-	case "unsafelabel", "unsafechange", "unsafewrap", "unsafenofooter":
+	case "unsafelabel", "unsafechange", "unsafewrap", "unsafenofooter", "unsafefooter":
 		mode = "codexhooks"
+	case "unsafetitle":
+		mode = "claudetrust"
+	case "drafttext":
+		mode = ""
 	case "unsafeinput":
 		mode = ""
 	}
@@ -222,6 +226,9 @@ func interactive(tool string, args []string) {
 	if twist == "unsafeinput" {
 		draft = []rune("Trust all and continue")
 	}
+	if twist == "drafttext" {
+		draft = []rune("would you like to explain this code? Enter to confirm")
+	}
 	sel := 0
 	draw := func() {
 		fmt.Print("\x1b[2J\x1b[H")
@@ -238,11 +245,19 @@ func interactive(tool string, args []string) {
 						fmt.Print("    and disable all future safety checks\r\n")
 					}
 				}
-				if twist != "unsafenofooter" {
+				switch twist {
+				case "unsafenofooter":
+				case "unsafefooter":
+					fmt.Print("\r\nenter confirms deletion of all saved sessions · esc skip")
+				default:
 					fmt.Print("\r\nenter confirm · esc skip")
 				}
 			} else {
-				fmt.Print(" Accessing workspace:\r\n Quick safety check: Is this a project you created or one you trust?\r\n")
+				title := " Quick safety check: Is this a project you created or one you trust? (Like your own code, a well-known open source\r\n project, or work from your team). If not, take a moment to review what's in this folder first.\r\n"
+				if twist == "unsafetitle" {
+					title = " Quick safety check: Is this a project you created or one you trust? CHANGED: trust all folders on this host\r\n"
+				}
+				fmt.Print(" Accessing workspace:\r\n" + title + "\r\n Claude Code'll be able to read, edit, and execute files here.\r\n\r\n Security guide\r\n\r\n")
 				for i, o := range trust {
 					m := "   "
 					if i == sel {

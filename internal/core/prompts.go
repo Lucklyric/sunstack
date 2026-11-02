@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -50,16 +51,21 @@ func SavePrompts(p Prompts) error {
 // trustScreen is one screen the watch knows: its title line, its options in
 // order, which of them is the answer, and the selection marker.
 type trustScreen struct {
-	tool, mark, title, marker, setting, flag string
-	options                                  []string
-	answer                                   int
+	tool, mark, title, marker, setting, flag, footer string
+	body                                             *regexp.Regexp // the text from the title to the options, lines joined by one space
+	options                                          []string
+	answer                                           int
 }
 
 var trustScreens = []trustScreen{
 	{tool: "codex", title: "Hooks need review", marker: "›", setting: "codex", flag: "--codex-hooks", mark: "Codex's hook review",
-		options: []string{"Review hooks", "Trust all and continue", "Continue without trusting (hooks won't run)"}, answer: 1},
+		body:    regexp.MustCompile(`^Hooks need review [1-9][0-9]? hooks? (is|are) new or changed\. Hooks can run outside the sandbox after you trust them\.$`),
+		options: []string{"Review hooks", "Trust all and continue", "Continue without trusting (hooks won't run)"}, answer: 1,
+		footer: "enter confirm · esc skip"},
 	{tool: "claude", title: "Quick safety check: Is this a project you created or one you trust?", marker: "❯", setting: "claude", flag: "--claude-folders", mark: "Claude Code's folder trust check",
-		options: []string{"No, exit", "Yes, I trust this folder"}, answer: 1},
+		body:    regexp.MustCompile(`^` + regexp.QuoteMeta("Quick safety check: Is this a project you created or one you trust? (Like your own code, a well-known open source project, or work from your team). If not, take a moment to review what's in this folder first. Claude Code'll be able to read, edit, and execute files here. Security guide") + `$`),
+		options: []string{"No, exit", "Yes, I trust this folder"}, answer: 1,
+		footer: "Enter to confirm · Esc to cancel"},
 }
 
 // trustWatch is how long the watch looks for a trust screen after launch.
@@ -95,17 +101,38 @@ func parseMenu(screen string, ts trustScreen) (int, bool) {
 	if marked != 1 {
 		return 0, false
 	}
-	// The options are one block: from the first to the last, every
-	// non-blank line is the next known option in full, and the first
-	// non-blank line after them is the CLI's own footer.
+	// The text from the title to the first option is the known text, however
+	// the screen wraps it; then the options are one block: every non-blank
+	// line is the next known option in full; then the CLI's own footer.
+	first := func(t string) bool {
+		t = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(t), ts.marker))
+		if ts.tool == "codex" {
+			return t == "1. "+ts.options[0]
+		}
+		return t == ts.options[0]
+	}
+	opt := -1
+	var body []string
+	for i := start; i < len(lines); i++ {
+		if first(lines[i]) {
+			opt = i
+			break
+		}
+		if t := strings.TrimSpace(lines[i]); t != "" {
+			body = append(body, strings.Join(strings.Fields(t), " "))
+		}
+	}
+	if opt < 0 || !ts.body.MatchString(strings.Join(body, " ")) {
+		return 0, false
+	}
 	next, sel, footer := 0, -1, false
-	for _, l := range lines[start+1:] {
+	for _, l := range lines[opt:] {
 		t := strings.TrimSpace(l)
 		if next == len(ts.options) {
 			if t == "" {
 				continue
 			}
-			if f := strings.ToLower(t); !strings.HasPrefix(f, "enter confirm") && !strings.HasPrefix(f, "enter to confirm") {
+			if strings.Join(strings.Fields(t), " ") != ts.footer {
 				return 0, false
 			}
 			footer = true
@@ -117,15 +144,13 @@ func parseMenu(screen string, ts trustScreen) (int, bool) {
 		if ts.tool == "codex" {
 			want = string(rune('1'+next)) + ". " + want
 		}
-		switch {
-		case t == want:
-			if on {
-				sel = next
-			}
-			next++
-		case next > 0 && t != "", on:
-			return 0, false // a line inside the block, or a selection, that is not a known option
+		if t != want {
+			return 0, false // the block is broken, or an option changed
 		}
+		if on {
+			sel = next
+		}
+		next++
 	}
 	if next != len(ts.options) || sel < 0 || !footer {
 		return 0, false
@@ -143,7 +168,9 @@ func AnswerTrust(socket, pane, tool string, inTeam, running bool) string {
 		return ""
 	}
 	choice := LoadPrompts()
-	deadline := time.Now().Add(trustWatch)
+	begin := time.Now()
+	deadline := begin.Add(trustWatch)
+	looks := "" // a trust title seen on a screen that did not match yet
 	for time.Now().Before(deadline) {
 		screen := paneScreen(socket, pane)
 		if screen == "" || !paneRunsTool(socket, pane, tool) {
@@ -157,7 +184,9 @@ func AnswerTrust(socket, pane, tool string, inTeam, running bool) string {
 				continue
 			}
 			if _, ok := parseMenu(screen, ts); !ok {
-				return "waiting at what looks like " + ts.mark + " in pane " + pane + ", but the screen is not the known one; answer it there"
+				// It may still be drawing: read again until the watch ends.
+				looks = "waiting at what looks like " + ts.mark + " in pane " + pane + ", but the screen is not the known one; answer it there"
+				continue
 			}
 			on := choice.CodexHooks == "on"
 			if ts.setting == "claude" {
@@ -175,10 +204,16 @@ func AnswerTrust(socket, pane, tool string, inTeam, running bool) string {
 			}
 			return "waiting at " + ts.mark + " in pane " + pane + ": the screen changed while answering; answer it there"
 		}
+		if looks == "" && time.Since(begin) > trustAppear {
+			return "" // no trust screen showed at startup
+		}
 		time.Sleep(300 * time.Millisecond)
 	}
-	return ""
+	return looks
 }
+
+// trustAppear is how long the watch waits for a trust screen to show at all.
+var trustAppear = 6 * time.Second
 
 // selectAnswer moves down one line at a time, reading the whole menu again
 // after each key, and presses Enter only when a fresh read shows the exact

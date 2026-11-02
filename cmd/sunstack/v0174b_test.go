@@ -12,13 +12,18 @@ import (
 )
 
 func TestTrustWatchUnsafeScreens(t *testing.T) {
-	for _, mode := range []string{"unsafelabel", "unsafeinput", "unsafechange", "unsafewrap", "unsafenofooter"} {
+	for _, mode := range []string{"unsafelabel", "unsafeinput", "unsafechange", "unsafewrap", "unsafenofooter", "unsafefooter", "unsafetitle"} {
 		t.Run(mode, func(t *testing.T) {
 			p := fixture(t)
 			s := privateTmux(t, p, isolatedEnv(t))
 			expect(t, sh(t, p, s.env, "prompts", "--codex-hooks", "on"), 0, "prompts")
 			s.tmux(t, "set-environment", "-g", "SUNSTACK_TEST_MODE", mode)
-			r := sh(t, p, s.env, "spawn", "reviewer", "--tool", "codex", "--place", "here")
+			tool := "codex"
+			if mode == "unsafetitle" {
+				tool = "claude"
+				expect(t, sh(t, p, s.env, "prompts", "--claude-folders", "on"), 0, "prompts")
+			}
+			r := sh(t, p, s.env, "spawn", "reviewer", "--tool", tool, "--place", "here")
 			expect(t, r, 0, "spawn")
 			files, _ := filepath.Glob(filepath.Join(envValue(s.env, "SUNSTACK_TEST_EVENTS"), "input-*.jsonl"))
 			for _, f := range files {
@@ -42,5 +47,17 @@ func TestTrustWatchExitedCLI(t *testing.T) {
 	expect(t, sh(t, p, s.env, "spawn", "reviewer", "--tool", "codex", "--place", "here"), 0, "spawn")
 	if d := time.Since(start); d > 9*time.Second {
 		t.Errorf("spawn of a CLI that exited took %s", d)
+	}
+}
+
+// §37 review: a draft with dialog-like words does not stall spawn.
+func TestTrustWatchDraftText(t *testing.T) {
+	p := fixture(t)
+	s := privateTmux(t, p, isolatedEnv(t))
+	s.tmux(t, "set-environment", "-g", "SUNSTACK_TEST_MODE", "drafttext")
+	start := time.Now()
+	expect(t, sh(t, p, s.env, "spawn", "reviewer", "--tool", "codex", "--place", "here"), 0, "spawn")
+	if d := time.Since(start); d > 10*time.Second {
+		t.Errorf("spawn took %s with no trust screen", d)
 	}
 }
