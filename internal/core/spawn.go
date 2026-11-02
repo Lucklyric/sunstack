@@ -401,6 +401,13 @@ func (p *Project) Kill(t string) (msg string, err error) {
 	if now := findToken(claims, c.Token); now == nil || now.TmuxPane != c.TmuxPane || now.TmuxSocket != c.TmuxSocket || now.TmuxServer != c.TmuxServer {
 		return "", fail(ExitFail, "changed", "%s changed while kill waited (resumed, moved or released); run kill again to close it where it is now", name)
 	}
+	// A CLI running there must be the claimed session; a pane whose CLI has
+	// exited may still be closed (§34.1).
+	if paneRunsTool(c.TmuxSocket, c.TmuxPane, c.Tool) {
+		if why := claimPaneHeld(c, &scanCache{}); why != "" {
+			return "", fail(ExitFail, "not_running", "%s: %s; it is left alone (sunstack release %s --stale drops the claim)", name, why, name)
+		}
+	}
 	if err := exec.Command("tmux", TmuxArgs(c.TmuxSocket, "kill-pane", "-t", c.TmuxPane)...).Run(); err != nil {
 		return "", fail(ExitFail, "tmux", "could not close pane %s: %v", c.TmuxPane, err)
 	}

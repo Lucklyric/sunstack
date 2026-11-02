@@ -422,7 +422,7 @@ func (p *Project) nudge(id, session string, m *Message) (string, string) {
 		}
 	}
 	busy := ""
-	var dup map[string][]string // scanned once, only when a claim names its session
+	sc := &scanCache{}
 	for _, c := range claims {
 		if session != "" && c.Label(id) != session {
 			continue
@@ -430,21 +430,9 @@ func (p *Project) nudge(id, session string, m *Message) (string, string) {
 		if c.TmuxPane == "" || c.TmuxSocket == "" || !sameServer(c) || !paneRunsTool(c.TmuxSocket, c.TmuxPane, c.Tool) {
 			continue
 		}
-		if c.Session != "" {
-			if dup == nil {
-				all, notes := ScanSessions()
-				if dup = DuplicateSessions(all); dup == nil {
-					dup = map[string][]string{}
-				}
-				if scanMissed(notes, c.Tool) {
-					busy = c.Label(id) + ": could not check that its session runs in one pane only"
-					continue // not typed into a session that may be two processes (§34.1)
-				}
-			}
-			if panes := dup[c.Session]; panes != nil {
-				busy = c.Label(id) + ": " + dupNote(c.Session, panes) // §34.1
-				continue
-			}
+		if why := claimPaneHeld(c, sc); why != "" {
+			busy = c.Label(id) + ": " + why // not typed into a pane that may not be this session (§34.1)
+			continue
 		}
 		prompt := NudgePrompt(c.Tool, m)
 		if prompt == "" {
@@ -1060,3 +1048,47 @@ func readNames(dir, suffix string) ([]string, error) {
 	}
 	return out, nil
 }
+
+// scanCache holds one session scan for several checks.
+type scanCache struct {
+	done  bool
+	all   []*HostSession
+	notes []string
+	dup   map[string][]string
+}
+
+func (sc *scanCache) get() *scanCache {
+	if !sc.done {
+		sc.all, sc.notes = ScanSessions()
+		sc.dup, sc.done = DuplicateSessions(sc.all), true
+	}
+	return sc
+}
+
+// claimPaneHeld says why a claim's pane cannot be taken to be that session,
+// or "" when it can: the scan must list the tool, the session must run in
+// one pane only, and the pane's CLI must be the claimed process, or for a
+// claim from before v0.17.2 run the claimed session (§34.1, §34.10).
+func claimPaneHeld(c *Live, sc *scanCache) string {
+	s := sc.get()
+	if scanMissed(s.notes, c.Tool) {
+		return "could not list " + c.Tool + " sessions to confirm its pane"
+	}
+	if c.Session != "" && s.dup[c.Session] != nil {
+		return dupNote(c.Session, s.dup[c.Session])
+	}
+	if c.CLIPID != 0 {
+		if pid, _, ok := paneToolProc(c.TmuxSocket, c.TmuxPane, c.Tool); ok && pid != c.CLIPID {
+			return "its pane now runs another " + c.Tool + " process, not the one that claimed it"
+		}
+		return ""
+	}
+	for _, x := range s.all {
+		if x.Pane == c.TmuxPane && x.SessionID != "" && c.Session != "" && x.SessionID != c.Session && sameTmuxServer(c, serverOfSocket(x.socket), serverOfSocket) {
+			return "its pane now runs another session (" + x.SessionID + ")"
+		}
+	}
+	return ""
+}
+
+func serverOfSocket(socket string) string { pid, _ := serverPID(socket); return pid }

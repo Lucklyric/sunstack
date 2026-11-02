@@ -64,6 +64,9 @@ func PeekFor(addr string, n int) (label, text string, err error) {
 			}
 			socket, pane, tool, label = c.TmuxSocket, c.TmuxPane, c.Tool, c.Label(id)
 			cliPID = c.CLIPID
+			if why := claimPaneHeld(c, &scanCache{}); why != "" {
+				return "", "", fail(ExitFail, "not_running", "%s: %s", c.Label(id), why)
+			}
 			for _, at := range []string{c.Claimed, c.LastContact} {
 				if t, err := time.Parse(time.RFC3339, at); err == nil && t.After(since) {
 					since = t

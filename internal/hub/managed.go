@@ -344,20 +344,32 @@ func ManagedServe(in io.Reader, out io.Writer) error {
 		return left()
 	}
 	if b, err := Snapshot(); err == nil {
+		if !member() { // the scan took a while: a leave may have come meanwhile
+			return left()
+		}
 		if err := w.put(frame{Op: "snap", Snap: &Snap{Host: me.ID, Snapshot: b}}); err != nil {
 			return err
 		}
+	}
+	if !member() {
+		return left()
 	}
 	if err := w.put(frame{Op: "sent"}); err != nil {
 		return err
 	}
 	err = readTurn(br, "end", func(f *frame) error {
+		if !member() {
+			return errLeft
+		}
 		switch f.Op {
 		case "stored", "refused", "retry":
 			settle(f.ID, f.Op, f.Reason)
 		}
 		return nil
 	})
+	if errors.Is(err, errLeft) || err == nil && !member() {
+		return left()
+	}
 	if err != nil {
 		return err
 	}
