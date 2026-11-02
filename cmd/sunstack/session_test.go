@@ -766,7 +766,8 @@ func TestPromptHooksBothInboxes(t *testing.T) {
 	asEnv := append(append([]string{}, env...), "CLAUDECODE=1", "CLAUDE_CODE_SESSION_ID="+sid)
 	claim := sh(t, p, asEnv, "as", "reviewer")
 	expect(t, claim, 0, "claim")
-	if out := runHook(t, env, "UserPromptSubmit", "", sid, p); out != "" {
+	// An empty inbox: only the session's name (§36), no message line.
+	if out := hookContextText(t, runHook(t, env, "UserPromptSubmit", "", sid, p), "UserPromptSubmit"); !strings.HasPrefix(out, "[sunstack] this session: reviewer in ") || strings.Contains(out, "message") {
 		t.Errorf("empty inbox printed %q", out)
 	}
 	expect(t, sh(t, p, env, "send", "reviewer", "agent inbox", "--no-nudge"), 0, "agent message")

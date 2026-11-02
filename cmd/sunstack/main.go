@@ -3,6 +3,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -1687,8 +1688,11 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 		if err != nil {
 			// Outside a team, only the host inbox can hold something.
 			if in.Event != "SessionStart" {
+				name := sessionNameLine(nil, in.SessionID)
 				if lines := hostWaitingLines(in.SessionID); len(lines) > 0 {
-					hookContext(stdout, "[sunstack] "+strings.Join(lines, "; ")+". Use the Sunstack check skill (sunstack check --session) when it fits the current work.")
+					hookContext(stdout, name+"[sunstack] "+strings.Join(lines, "; ")+". Use the Sunstack check skill (sunstack check --session) when it fits the current work.")
+				} else if name != "" {
+					hookContext(stdout, strings.TrimSpace(name))
 				}
 			}
 			return nil
@@ -1713,13 +1717,12 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 		if h := p.HaltLine(); h != "" && len(p.HeldBy(in.SessionID, os.Getenv("TMUX_PANE"), tmuxSocket())) > 0 {
 			halt = "[sunstack] " + h + " "
 		}
+		name := sessionNameLine(p, in.SessionID) // which session this is (§36)
 		if len(lines) == 0 {
-			if halt != "" {
-				hookContext(stdout, strings.TrimSpace(halt))
-			}
+			hookContext(stdout, strings.TrimSpace(name+halt))
 			return nil
 		}
-		hookContext(stdout, halt+"[sunstack] "+strings.Join(lines, "; ")+". Use the Sunstack check skill to handle them when it fits the current work.")
+		hookContext(stdout, name+halt+"[sunstack] "+strings.Join(lines, "; ")+". Use the Sunstack check skill to handle them when it fits the current work.")
 		return nil
 
 	case "tui":
@@ -2460,4 +2463,41 @@ func agentSession() bool {
 		}
 	}
 	return false
+}
+
+// sessionNameLine names this session for the prompt hook (§36): its claim in
+// the team, else the label sunstack gave a free session, from the claim
+// files and the pane's own option only, with no session scan. Outside a
+// team it names only a labeled free session.
+func sessionNameLine(p *core.Project, sid string) string {
+	pane := os.Getenv("TMUX_PANE")
+	label := ""
+	if pane != "" {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second) // never stall a prompt
+		defer cancel()
+		if out, err := exec.CommandContext(ctx, "tmux", core.TmuxArgs(tmuxSocket(), "show-options", "-p", "-v", "-t", pane, "@sunstack_label")...).Output(); err == nil {
+			label = strings.TrimSpace(string(out))
+		}
+	}
+	if p == nil {
+		if label == "" {
+			return ""
+		}
+		return "[sunstack] this session: " + label + " (no agent). "
+	}
+	team := filepath.Base(p.Root)
+	if tf, ok := p.Team(); ok && tf.Name != "" {
+		team = tf.Name
+	}
+	if held := p.HeldBy(sid, pane, tmuxSocket()); len(held) > 0 {
+		more := ""
+		if len(held) > 1 {
+			more = fmt.Sprintf(" and %d more", len(held)-1)
+		}
+		return "[sunstack] this session: " + held[0].L.Label(held[0].ID) + more + " in " + team + ". "
+	}
+	if label != "" {
+		return "[sunstack] this session: " + label + " (no agent) in " + team + ". "
+	}
+	return "[sunstack] this session holds no agent in " + team + ". "
 }
