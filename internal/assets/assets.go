@@ -6,6 +6,7 @@ import (
 	"embed"
 	"io/fs"
 	"sort"
+	"strings"
 )
 
 //go:embed library project
@@ -16,6 +17,18 @@ const LibraryVersion = "2"
 
 // Protocol is the project's sunstack/PROTOCOL.md.
 func Protocol() []byte { return must("project/PROTOCOL.md") }
+
+// ProtocolHistory is the SHA-256 of every built-in PROTOCOL.md, oldest
+// first, from protocol-history.txt (§35).
+func ProtocolHistory() []string {
+	var out []string
+	for _, l := range strings.Split(string(must("project/protocol-history.txt")), "\n") {
+		if l = strings.TrimSpace(l); l != "" && !strings.HasPrefix(l, "#") {
+			out = append(out, l)
+		}
+	}
+	return out
+}
 
 // Readme is the project's sunstack/README.md.
 func Readme() []byte { return must("project/README.md") }

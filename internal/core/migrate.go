@@ -2,6 +2,8 @@ package core
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"os"
 	"path/filepath"
 
@@ -37,7 +39,11 @@ func (p *Project) MigratePlan() []MigrateStep {
 		out = append(out, MigrateStep{"add sunstack/_local/ to .gitignore", true})
 	}
 	if b, err := os.ReadFile(filepath.Join(p.Dir, "PROTOCOL.md")); err == nil && !bytes.Equal(b, assets.Protocol()) {
-		out = append(out, MigrateStep{"refresh sunstack/PROTOCOL.md to this version (what every agent follows)", false})
+		if protocolKnown(b) {
+			out = append(out, MigrateStep{"refresh sunstack/PROTOCOL.md (an unedited older version)", true})
+		} else {
+			out = append(out, MigrateStep{"refresh sunstack/PROTOCOL.md to this version (what every agent follows)", false})
+		}
 	}
 	if b, err := os.ReadFile(filepath.Join(p.Dir, "README.md")); err != nil || !bytes.Equal(b, assets.Readme()) {
 		out = append(out, MigrateStep{"refresh sunstack/README.md to this version", false})
@@ -85,6 +91,14 @@ func (p *Project) Migrate(all bool) ([]string, error) {
 		if err != nil {
 			return done, fail(ExitFail, "fs", "cannot read %s, left as it is: %v", gi, err)
 		}
+		// An unedited older PROTOCOL.md holds nothing a person wrote (§35).
+		pp := filepath.Join(p.Dir, "PROTOCOL.md")
+		if cur, err := os.ReadFile(pp); err == nil && !bytes.Equal(cur, assets.Protocol()) && protocolKnown(cur) {
+			if err := writeAtomic(pp, assets.Protocol()); err != nil {
+				return done, fail(ExitFail, "fs", "%v", err)
+			}
+			done = append(done, "refreshed sunstack/PROTOCOL.md (an unedited older version)")
+		}
 		if !hasLine(b, "sunstack/_local/") {
 			if len(b) > 0 && b[len(b)-1] != '\n' {
 				b = append(b, '\n')
@@ -114,4 +128,20 @@ func (p *Project) PendingAsks() []string {
 		}
 	}
 	return out
+}
+
+// protocolHistory is every built-in PROTOCOL.md's SHA-256 (§35).
+var protocolHistory = assets.ProtocolHistory()
+
+// protocolKnown says whether b is, line endings aside, a built-in
+// PROTOCOL.md of some version: one no person has edited.
+func protocolKnown(b []byte) bool {
+	sum := sha256.Sum256(bytes.ReplaceAll(b, []byte("\r\n"), []byte("\n")))
+	h := hex.EncodeToString(sum[:])
+	for _, k := range protocolHistory {
+		if k == h {
+			return true
+		}
+	}
+	return false
 }
