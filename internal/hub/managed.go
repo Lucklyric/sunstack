@@ -311,6 +311,9 @@ func ManagedServe(in io.Reader, out io.Writer) error {
 	}
 	pruneDir(importedDir(), keepFor)
 	for _, m := range mail {
+		if !member() { // no mail lands here after a leave, and no ack goes back
+			return left()
+		}
 		status, reason, final := Deliver(m)
 		if final {
 			if err := w.put(frame{Op: "ack", ID: m.ID, Status: status, Reason: reason}); err != nil {
