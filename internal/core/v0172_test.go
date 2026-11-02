@@ -194,6 +194,9 @@ func TestTidyArchiveConflict(t *testing.T) {
 
 // §34.5: release reports a taken message it could not put back.
 func TestReleaseStranded(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("folder permission bits do not apply on Windows")
+	}
 	p := secTeam(t)
 	r, err := p.As(AsOptions{Arg: "builder.ann", Tool: "claude"})
 	must172(t, err)

@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -32,6 +33,9 @@ func TestReview172TidyPreflightBothSources(t *testing.T) {
 }
 
 func TestReview172ReleaseUnreadableTakenDirectory(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("folder permission bits do not apply on Windows")
+	}
 	p := secTeam(t)
 	r, err := p.As(AsOptions{Arg: "builder.ann", Tool: "claude"})
 	must172(t, err)

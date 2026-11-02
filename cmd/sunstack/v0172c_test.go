@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -125,6 +126,9 @@ func TestReview172MovedSessionRecovery(t *testing.T) {
 }
 
 func TestReview172ReleaseStrandedCLIAndRecovery(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("folder permission bits do not apply on Windows")
+	}
 	p := fixture(t)
 	env := isolatedEnv(t)
 	r := sh(t, p, env, "as", "reviewer")
