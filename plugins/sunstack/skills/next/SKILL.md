@@ -42,10 +42,24 @@ It prints the top five for the scope above, ranked, each with a `do:` line:
 - `[yours]`: this session's own next board entry when it holds an agent; outside a team, a
   message waiting in this session's inbox (`sunstack check --session`)
 
+After the list, a `This session:` line appears when this session has a Sunstack name (its
+agent's `<id>_<task>`, or a free session's label) and its title differs. Its `do:` is for the
+user: `/rename <name>` in Claude Code, or rename it in Codex's agents list. You cannot rename
+the session yourself.
+
 ## 2. Report
 
 Give the list in plain words, one line each, in its order. Group several asks from the same
 agent into one line. Say what the user gains by doing the first one.
+
+Then, in one more line each:
+
+- the `This session:` line, if any, as the step the user takes;
+- name the Sunstack skill that fits what this conversation is doing, if one does, with its
+  arguments: for example the as skill for a free session doing an agent's work, the save skill
+  for an agent session with progress not saved yet, the send skill for work another agent
+  owns. Say nothing when none fits. It does not change the list's order or the item offered
+  next.
 
 ## 3. Offer the first item
 

@@ -2140,7 +2140,14 @@ func nextCommand(a *args, hostWide bool, stdout io.Writer) error {
 		items = append(items, core.Issue{Kind: "user", Owner: "user", Text: fmt.Sprintf("%d message(s) from managed hosts are held on the hub", len(held)), Do: "sunstack hub held"})
 	}
 	core.Rank(items, caller)
+	rename, renameOK := core.Issue{}, false
+	if !hostWide {
+		rename, renameOK = renameIssue(p)
+	}
 	if a.has("json") {
+		if renameOK {
+			items = append(items, rename)
+		}
 		if items == nil {
 			items = []core.Issue{}
 		}
@@ -2156,6 +2163,9 @@ func nextCommand(a *args, hostWide bool, stdout io.Writer) error {
 		fmt.Fprint(stdout, "Nothing waits on this session.\n")
 	} else {
 		fmt.Fprint(stdout, core.NextText(items, max, all))
+	}
+	if renameOK {
+		fmt.Fprintf(stdout, "This session: %s\n   do: %s\n", rename.Text, rename.Do)
 	}
 	if elsewhere > 0 {
 		fmt.Fprintf(stdout, "%d more item(s) in the teams on this host and the org's other hosts: sunstack org --attention\n", elsewhere)
@@ -2511,23 +2521,13 @@ func agentSession() bool {
 // stalled tmux never holds up a prompt. Outside a team it names only a
 // labeled free session.
 func sessionNameLine(p *core.Project, sid string) string {
-	pane := os.Getenv("TMUX_PANE")
 	team := ""
 	if p != nil {
 		team = filepath.Base(p.Root)
 		if tf, ok := p.Team(); ok && tf.Name != "" {
 			team = tf.Name
 		}
-		var names []string
-		for _, id := range p.Agents() {
-			claims, _ := p.Claims(id)
-			for _, c := range claims {
-				if (sid != "" && c.Session == sid) || (c.Session == "" && pane != "" && c.TmuxPane == pane && c.TmuxSocket == tmuxSocket()) {
-					names = append(names, c.Label(id))
-				}
-			}
-		}
-		if len(names) > 0 {
+		if names := claimNames(p, sid); len(names) > 0 {
 			more := ""
 			if len(names) > 1 {
 				more = fmt.Sprintf(" and %d more", len(names)-1)
@@ -2535,16 +2535,7 @@ func sessionNameLine(p *core.Project, sid string) string {
 			return "[sunstack] this session: " + names[0] + more + " in " + team + ". "
 		}
 	}
-	label := ""
-	if pane != "" {
-		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-		defer cancel()
-		cmd := exec.CommandContext(ctx, "tmux", core.TmuxArgs(tmuxSocket(), "show-options", "-p", "-v", "-t", pane, "@sunstack_label")...)
-		cmd.WaitDelay = 200 * time.Millisecond // never wait on a stalled tmux's pipes
-		if out, err := cmd.Output(); err == nil {
-			label = strings.TrimSpace(string(out))
-		}
-	}
+	label := paneLabel()
 	switch {
 	case p == nil && label == "":
 		return ""
@@ -2554,6 +2545,70 @@ func sessionNameLine(p *core.Project, sid string) string {
 		return "[sunstack] this session: " + label + " (no agent) in " + team + ". "
 	}
 	return "[sunstack] this session holds no agent in " + team + ". "
+}
+
+// claimNames are the <id>_<task> names of this session's claims in the
+// team, by session ID, else by pane for a claim with no session ID.
+func claimNames(p *core.Project, sid string) []string {
+	pane := os.Getenv("TMUX_PANE")
+	var names []string
+	for _, id := range p.Agents() {
+		claims, _ := p.Claims(id)
+		for _, c := range claims {
+			if (sid != "" && c.Session == sid) || (c.Session == "" && pane != "" && c.TmuxPane == pane && c.TmuxSocket == tmuxSocket()) {
+				names = append(names, c.Label(id))
+			}
+		}
+	}
+	return names
+}
+
+// paneLabel is the label sunstack gave this pane's free session, read under
+// a hard one-second bound so a stalled tmux never holds anything up.
+func paneLabel() string {
+	pane := os.Getenv("TMUX_PANE")
+	if pane == "" {
+		return ""
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "tmux", core.TmuxArgs(tmuxSocket(), "show-options", "-p", "-v", "-t", pane, "@sunstack_label")...)
+	cmd.WaitDelay = 200 * time.Millisecond // never wait on a stalled tmux's pipes
+	if out, err := cmd.Output(); err == nil {
+		return strings.TrimSpace(string(out))
+	}
+	return ""
+}
+
+// renameIssue suggests renaming this session to its Sunstack name when its
+// title differs (§38). Only the user can rename a session.
+func renameIssue(p *core.Project) (core.Issue, bool) {
+	tool, sid := detectTool()
+	name := ""
+	if p != nil {
+		if names := claimNames(p, sid); len(names) > 0 {
+			name = names[0]
+		}
+	}
+	if name == "" {
+		name = paneLabel()
+	}
+	if name == "" || tool == "" {
+		return core.Issue{}, false
+	}
+	title, known := core.SessionTitle(tool, sid)
+	if !known || title == name {
+		return core.Issue{}, false
+	}
+	text := "this session has no title"
+	if title != "" {
+		text = fmt.Sprintf("this session is titled %q", title)
+	}
+	do := "/rename " + name
+	if tool == "codex" {
+		do = "rename it to " + name + " in Codex's agents list"
+	}
+	return core.Issue{Kind: "yours", Owner: "user", Text: text + "; Sunstack calls it " + name, Do: do}, true
 }
 
 // printPrompt shows what the trust watch did, if anything (§37).
