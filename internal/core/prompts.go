@@ -199,7 +199,14 @@ func AnswerTrust(socket, pane, tool string, inTeam, running bool) string {
 				on = choice.ClaudeFolders == "on" && inTeam
 			}
 			if !on {
-				why := "answer it there, or let sunstack answer it from now on: sunstack prompts " + ts.flag + " on"
+				setting := choice.CodexHooks
+				if ts.setting == "claude" {
+					setting = choice.ClaudeFolders
+				}
+				why := "answer it there"
+				if setting == "ask" {
+					why += ", or let sunstack answer it from now on: sunstack prompts " + ts.flag + " on"
+				}
 				if ts.setting == "claude" && !inTeam {
 					why = "answer it there; sunstack answers it only in a team folder"
 				}

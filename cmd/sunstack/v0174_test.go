@@ -70,7 +70,10 @@ func TestSpawnAnswersTrustScreens(t *testing.T) {
 			if len(got) != 0 {
 				t.Errorf("answered without consent: %v", got)
 			}
-			requireContains(t, r.out, "sunstack prompts "+c.flag+" on")
+			requireContains(t, r.out, "waiting at")
+			if hint := strings.Contains(r.out, "sunstack prompts "+c.flag+" on"); hint != (c.value == "ask") {
+				t.Errorf("hint to turn it on shown=%v for %s: %s", hint, c.value, r.out)
+			}
 		})
 	}
 }
@@ -79,5 +82,8 @@ func TestSpawnSkillPrompts(t *testing.T) {
 	b, err := os.ReadFile("../../plugins/sunstack/skills/spawn/SKILL.md")
 	must(t, err)
 	s := strings.Join(strings.Fields(string(b)), " ")
-	requireContains(t, s, "trusts every current hook of every plugin, not only Sunstack's", "`sunstack prompts --codex-hooks <on|off>`")
+	requireContains(t, s, "trusts every current hook of every plugin, not only Sunstack's", "`sunstack prompts --codex-hooks <on|off>`", "in their own terminal")
+	if strings.Contains(s, "it asks for approval") {
+		t.Error("spawn skill has the agent run user-only sunstack prompts")
+	}
 }

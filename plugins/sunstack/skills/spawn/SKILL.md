@@ -65,13 +65,13 @@ resume it. `sunstack team` shows the same per agent.
    prompts (sign-in, Codex's hook review, Claude Code's folder trust check); tell the user which
    pane to look at.
    - A `sunstack: answered ...` line: a trust screen was answered as the user chose
-     (`sunstack prompts`). A `sunstack: waiting at ...` line names the pane and the screen.
-     When it suggests `sunstack prompts`, ask the user once, plainly: for Codex, "Trust all"
+     (`sunstack prompts`); tell the user in one line. A `sunstack: waiting at ...` line names
+     the pane and the screen; tell the user to answer it there.
+     When it suggests `sunstack prompts`, tell the user once, plainly: for Codex, "Trust all"
      trusts every current hook of every plugin, not only Sunstack's; for Claude, it answers
-     "Yes, I trust this folder" only in a team folder. Choices: on (answer it from now on), off
-     (never), or ask me again. On on or off, run `sunstack prompts --codex-hooks <on|off>` or
-     `--claude-folders <on|off>`; it asks for approval. Then the user answers the waiting
-     screen in that pane this time.
+     "Yes, I trust this folder" only in a team folder. To choose, the user runs
+     `sunstack prompts --codex-hooks <on|off>` or `--claude-folders <on|off>` in their own
+     terminal (on: answer it from now on, off: never); it is refused from this session.
    - A `warning:` line means the CLI was not seen running a few seconds after launch: it may
      be at a login or trust prompt, or have exited. Tell the user which pane to look at.
    - **4 `task_taken`**: another session of that agent already has this task label; pick
