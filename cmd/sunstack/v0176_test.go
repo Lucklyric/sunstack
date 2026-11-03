@@ -80,6 +80,11 @@ func TestNextSuggestsRenameCodex(t *testing.T) {
 		other, _ := json.Marshal(map[string]string{"id": "019a0000-0000-7000-8000-000000000999", "thread_name": "reviewer_web"})
 		must(t, os.WriteFile(index, []byte(strings.Join(append(lines, string(other)), "\n")+"\n"), 0o600))
 	}
+	// An index with no entry for this thread: its title is unknown, no item.
+	write()
+	if r := sh(t, p, xenv, "next", "--all"); strings.Contains(r.out, "rename it") {
+		t.Errorf("no index entry for the thread, yet a rename item: %s", r.out)
+	}
 	write("Read the protocol")
 	r := sh(t, p, xenv, "next", "--all")
 	expect(t, r, 0, "next")

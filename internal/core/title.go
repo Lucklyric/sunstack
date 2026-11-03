@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 )
@@ -36,14 +37,20 @@ func SessionTitle(tool, sid string) (title string, known bool) {
 		return "", false
 	}
 	defer f.Close()
-	// Lines are read whole, with no length cap: a transcript line can be
-	// many megabytes. Only lines holding the record's key unescaped are
+	// A title record is a short line; any line longer than the buffer is
+	// skipped a piece at a time, so memory stays bounded however large a
+	// transcript line is. Only lines holding the record's key unescaped are
 	// parsed (inside a quoted tool result its quotes are escaped), and only
 	// a top-level record counts.
 	r := bufio.NewReaderSize(f, 1<<20)
+	found, long := false, false
 	for {
-		line, err := r.ReadBytes('\n')
-		if bytes.Contains(line, mark) {
+		line, err := r.ReadSlice('\n')
+		if err == bufio.ErrBufferFull {
+			long = true
+			continue
+		}
+		if !long && bytes.Contains(line, mark) {
 			var e struct {
 				Type       string `json:"type"`
 				ID         string `json:"id"`
@@ -55,12 +62,18 @@ func SessionTitle(tool, sid string) (title string, known bool) {
 				if tool == "claude" && e.Type == "custom-title" && (e.Session == "" || e.Session == sid) {
 					title = e.Custom
 				} else if tool == "codex" && e.ID == sid {
-					title = e.ThreadName
+					title, found = e.ThreadName, true
 				}
 			}
 		}
+		long = false
+		if err == io.EOF {
+			// Claude: a transcript with no record was never renamed. Codex
+			// indexes a thread by itself, so no entry means not known yet.
+			return title, tool == "claude" || found
+		}
 		if err != nil {
-			return title, true
+			return "", false
 		}
 	}
 }
