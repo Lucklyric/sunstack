@@ -61,6 +61,7 @@ func selectRow(t *testing.T, m *model, s string) {
 
 func TestTreeShowsHostTeamAgentSession(t *testing.T) {
 	m := treeModel(t)
+	m.showAll = true // the full roster, closed sessions included
 	v := m.View()
 	fits(t, v, m.w, "tree")
 	requireAll(t, v, "4 sessions", "1 team", "1 for you", "▾ alpha", "pm.lead", "pm.lead_cloud", "● busy", "◐ waiting", "▾ vault")
@@ -335,5 +336,38 @@ func TestHostOrderGroupKeys(t *testing.T) {
 	}
 	if len(keys) != 2 {
 		t.Errorf("groups: %v", keys)
+	}
+}
+
+// The org tree shows running sessions only until a shows the rest; the Team
+// tab keeps its whole roster.
+func TestOrgTreeShowsRunningSessionsByDefault(t *testing.T) {
+	m := treeModel(t)
+	o := treeOrg()
+	o.Teams[0].Agents = append(o.Teams[0].Agents, &core.OrgAgent{ID: "builder.gone", Sessions: []*core.HostSession{
+		{Tool: "claude", Status: "not seen", Agent: "builder.gone", Label: "builder.gone_x@h", Pane: "%11", TeamRoot: "/r/alpha"},
+	}})
+	m.org = o
+	labels := func() string {
+		var out []string
+		for _, n := range m.treeNodes() {
+			out = append(out, n.label)
+		}
+		return strings.Join(out, "|")
+	}
+	got := labels()
+	for _, gone := range []string{"marketing.social", "builder.gone"} {
+		if strings.Contains(got, gone) {
+			t.Errorf("by default %s is hidden: %s", gone, got)
+		}
+	}
+	requireAll(t, got, "pm.lead_cloud", "scratch", "todo")
+	requireAll(t, m.View(), "running only", "a all")
+	m.key("a")
+	requireAll(t, labels(), "marketing.social", "builder.gone_x")
+	requireAll(t, m.View(), "a running only")
+	m.key("a")
+	if strings.Contains(labels(), "builder.gone") {
+		t.Error("a again hides closed sessions")
 	}
 }

@@ -150,6 +150,7 @@ func TestHostsDetailsScroll(t *testing.T) {
 
 func TestRemoteSessionsInTheTree(t *testing.T) {
 	m := hostsModel(t, 150)
+	m.showAll = true // the full roster, closed sessions included
 	v := ansi.Strip(m.View())
 	requireAll(t, v, "shop", "builder.alice_api @server")
 	if strings.Contains(v, "newbox") || strings.Contains(v, "Needs you (") {
@@ -196,6 +197,7 @@ func TestRemoteSessionsInTheTree(t *testing.T) {
 // host lacks.
 func TestSharedTeamsMerge(t *testing.T) {
 	m := hostsModel(t, 150)
+	m.showAll = true // the full roster, closed sessions included
 	v := ansi.Strip(m.View())
 	if n := strings.Count(v, "▾ alpha"); n != 1 {
 		t.Errorf("alpha shown %d times:\n%s", n, v)
@@ -472,6 +474,7 @@ func TestHostsSSHKeys(t *testing.T) {
 // reach the Next tab, and a new model opens on project order.
 func TestOrgOrdersAcrossHosts(t *testing.T) {
 	m := hostsModel(t, 150)
+	m.showAll = true // the full roster, closed sessions included
 	if newModel(nil, true).order != orderProject {
 		t.Error("a new model does not open on project order")
 	}

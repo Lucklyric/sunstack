@@ -76,6 +76,7 @@ type model struct {
 	folded      map[string]bool // tree nodes the user folded
 	filter      string
 	filterMode  int    // index into filterModes
+	showAll     bool   // the org tree shows closed sessions too (a)
 	order       int    // the Org tab's order: orderProject, orderTeam or orderHost (b cycles)
 	inputPrompt string // a line being typed: a filter or a message
 	inputText   string
@@ -625,6 +626,9 @@ func (m *model) footer() string {
 		return cWarn.Render(wrap(m.confirm, m.w))
 	}
 	hints := "↑↓ select  ←→ fold  enter open  / filter  f show"
+	if !m.teamScope() {
+		hints += "  a " + map[bool]string{true: "running only", false: "all"}[m.showAll]
+	}
 	switch m.view {
 	case viewPicker:
 		hints = "↑↓ select  enter open  o host view  s find teams  n set up"

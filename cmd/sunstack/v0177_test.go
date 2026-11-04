@@ -3,6 +3,7 @@ package main
 // v0.17.7 (§39): in a team, plain next is this session's own list.
 
 import (
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -49,6 +50,17 @@ func TestNextScopedToSession(t *testing.T) {
 		}
 	}
 
+	// The team list's expansion hints keep its scope.
+	asks := "- 2026-10-05 Q1 CSV or Parquet first? (options: csv | parquet) (default: csv after 2999-01-01)\n"
+	for i := 2; i <= 8; i++ {
+		asks += fmt.Sprintf("- 2026-10-05 Q%d Pick %d? (options: a | b) (default: a after 2999-01-01)\n", i, i)
+	}
+	commitBoard(t, p, env, "builder.alice", ta, "## Now\n- 2026-10-05 KR1 [O1] Export to CSV\n## Asks\n"+asks+"## Done\n")
+	r = sh(t, p, bobEnv, "next", "--team")
+	requireContains(t, r.out, "more: sunstack next --team --all)")
+	r = sh(t, p, bobEnv, "next", "--root", p)
+	requireContains(t, r.out, "sunstack next --root ")
+
 	// A free session in the team: only its own items, the team counted.
 	free := append(append([]string{}, env...), "CLAUDECODE=1", "CLAUDE_CODE_SESSION_ID=00000000-0000-4000-8000-000000000178")
 	r = sh(t, p, free, "next")
@@ -62,5 +74,5 @@ func TestNextSkillLeadsWithSession(t *testing.T) {
 	b, err := os.ReadFile("../../plugins/sunstack/skills/next/SKILL.md")
 	must(t, err)
 	s := strings.Join(strings.Fields(string(b)), " ")
-	requireContains(t, s, "Lead with this conversation", "`--team`: the whole team's list", "Offer this conversation's next step first")
+	requireContains(t, s, "Lead with this conversation", "`--team`: the whole team's list", "Offer this conversation's next step first", "when the team is halted: then lead with the halt")
 }

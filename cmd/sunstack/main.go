@@ -2129,6 +2129,10 @@ func nextCommand(a *args, hostWide bool, stdout io.Writer) error {
 				mine = append(mine, core.SessionNext(session)...)
 			}
 			items = mine
+		} else if a.flags["root"] != "" {
+			all = fmt.Sprintf("sunstack next --root %q --all", a.flags["root"])
+		} else if a.has("team") {
+			all = "sunstack next --team --all"
 		}
 	case hostWide:
 		items, all = orgNext(), "sunstack org --attention --all"

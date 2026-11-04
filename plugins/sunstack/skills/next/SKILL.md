@@ -57,7 +57,8 @@ Lead with this conversation. In one line, name the next step for what this conve
 doing in this project, and the Sunstack skill that fits it, with its arguments: for example
 the as skill for a free session doing an agent's work, the save skill for an agent session
 with progress not saved yet, the send skill for work another agent owns. Skip the line when
-the conversation has no work in progress.
+the conversation has no work in progress, and when the team is halted: then lead with the
+halt and offer no new work until the user lifts it.
 
 Then give the list in plain words, one line each, in its order. Group several asks from the
 same agent into one line. Say what the user gains by doing the first one. Mention the

@@ -75,6 +75,19 @@ func glyph(s *core.HostSession) string {
 	return cDim.Render("○")
 }
 
+// place is a session's tool and where it runs, in fixed widths so the
+// rows line up: tmux (a pane), bg (background) or term (outside tmux).
+func place(s *core.HostSession) string {
+	where := "term"
+	switch {
+	case s.Pane != "":
+		where = "tmux"
+	case s.Reach == "background":
+		where = "bg"
+	}
+	return fmt.Sprintf("%-6s %-4s", s.Tool, where)
+}
+
 func sessionName(s *core.HostSession) string {
 	switch {
 	case s.Label != "":
@@ -87,6 +100,9 @@ func sessionName(s *core.HostSession) string {
 
 // keep says whether a session passes the text filter and the filter mode.
 func (m *model) keep(s *core.HostSession, team, agent string) bool {
+	if m.hideGone() && (s.Status == "not seen" || s.Status == "pane gone") {
+		return false
+	}
 	switch filterModes[m.filterMode] {
 	case "needs you":
 		if !needsYou(s) {
@@ -109,6 +125,14 @@ func (m *model) keep(s *core.HostSession, team, agent string) bool {
 }
 
 func (m *model) filtering() bool { return m.filter != "" || m.filterMode != 0 }
+
+// hideGone says whether the org tree leaves out sessions whose process no
+// longer runs, and agents and teams left with no session (a shows them).
+// The Team tab always shows the whole roster.
+func (m *model) hideGone() bool { return !m.showAll && !m.teamScope() }
+
+// pruning says whether rows with nothing left to show are left out.
+func (m *model) pruning() bool { return m.filtering() || m.hideGone() }
 
 // teamScope says whether the tree shows only this team (the Team tab).
 func (m *model) teamScope() bool {
@@ -309,7 +333,7 @@ func (m *model) hostOrder() []*hub.HostView {
 // hostHeading adds a host's heading and, unless folded, its rows. While
 // filtering, a host with nothing that matches is left out.
 func (m *model) hostHeading(out []treeNode, h *hub.HostView, rows []treeNode) []treeNode {
-	if m.filtering() && len(rows) == 0 {
+	if m.pruning() && len(rows) == 0 {
 		return out
 	}
 	hk := "host:" + h.ID
@@ -404,7 +428,7 @@ func (m *model) teamRows(o *core.Org, prefix string, d int, h *hub.HostView, spl
 					}
 				}
 			}
-			if m.filtering() && len(ss) == 0 {
+			if m.pruning() && len(ss) == 0 {
 				return // an agent without sessions shows unless a filter hides it
 			}
 			n := treeNode{kind: "agent", key: ak, depth: d + 1, label: a.ID, fold: len(ss) > 0, team: t, agent: a, org: o, host: h}
@@ -454,7 +478,7 @@ func (m *model) teamRows(o *core.Org, prefix string, d int, h *hub.HostView, spl
 				rows = append(rows, free...)
 			}
 		}
-		if m.filtering() && len(rows) == 0 {
+		if m.pruning() && len(rows) == 0 {
 			continue
 		}
 		out = append(out, treeNode{kind: "team", key: tk, depth: d, label: t.Name + tag, fold: len(rows) > 0, team: t, org: o, host: h})
@@ -583,7 +607,7 @@ func (m *model) row(n treeNode, w int) string {
 	tail := ""
 	switch n.kind {
 	case "session":
-		tail = glyph(n.sess) + " " + n.sess.Status
+		tail = cDim.Render(place(n.sess)) + " " + glyph(n.sess) + " " + n.sess.Status
 		// Another host's session as of its last snapshot: not live when the
 		// host stopped reporting.
 		if n.host != nil && !n.host.You && n.host.State != "live" {
@@ -699,6 +723,9 @@ func (m *model) treeBox(h int) string {
 	}
 	if m.filterMode != 0 {
 		title += "  show: " + filterModes[m.filterMode]
+	}
+	if m.hideGone() {
+		title += "  running only"
 	}
 	var left []string
 	for _, n := range nodes {
@@ -928,6 +955,11 @@ func (m *model) treeKey(k string) bool {
 		m.inputDone = func(text string) { m.filter, *sel = text, 0 }
 	case "f":
 		m.filterMode, *sel = (m.filterMode+1)%len(filterModes), 0
+	case "a":
+		if m.teamScope() {
+			return false
+		}
+		m.showAll, *sel = !m.showAll, 0
 	case "b":
 		if m.teamScope() {
 			return false

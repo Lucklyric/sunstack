@@ -145,7 +145,7 @@ func NextText(items []Issue, max int, all string) string {
 	}
 	var b strings.Builder
 	if max > 0 {
-		items = collapseDrift(items)
+		items = collapseDrift(items, all)
 	}
 	shown := items
 	if max > 0 && len(items) > max {
@@ -162,7 +162,7 @@ func NextText(items []Issue, max int, all string) string {
 
 // collapseDrift folds the drift tier into one line, so housekeeping the
 // agents do at their next save never pushes real actions off the list.
-func collapseDrift(items []Issue) []Issue {
+func collapseDrift(items []Issue, all string) []Issue {
 	var out []Issue
 	n, at := 0, -1
 	for _, it := range items {
@@ -176,7 +176,7 @@ func collapseDrift(items []Issue) []Issue {
 		}
 	}
 	if n > 1 {
-		out[at] = Issue{"drift", "user", fmt.Sprintf("%d board or setup item(s) have drifted; the agents fix theirs at their next save", n), "sunstack next --all lists them"}
+		out[at] = Issue{"drift", "user", fmt.Sprintf("%d board or setup item(s) have drifted; the agents fix theirs at their next save", n), all + " lists them"}
 	}
 	return out
 }
