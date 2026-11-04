@@ -148,12 +148,36 @@ func (m *model) chrome() int {
 // inner is the content height of a body box.
 func (m *model) inner() int { return max(4, m.h-m.chrome()-2) }
 
+// compactWidth is the width below which the dashboard shows one column.
+const compactWidth = 90
+
+// compactMode says whether lists show alone, full width, with details on d:
+// asked for with --compact (the tmux side panel) or on a narrow screen.
+func (m *model) compactMode() bool { return m.compact || m.w < compactWidth }
+
+// rightW is the text width of a details pane.
+func (m *model) rightW() int {
+	if m.compactMode() {
+		return m.w - 4
+	}
+	return m.w - min(46, m.w/2) - 6
+}
+
+// leftW is the width of a list box.
+func (m *model) leftW() int {
+	if m.compactMode() {
+		return m.w - 2
+	}
+	return min(46, m.w/2)
+}
+
 func (m *model) showTabs() bool {
 	return m.p != nil && m.view != viewPicker
 }
 
 func (m *model) tabBar() string {
 	var parts []string
+	x := 0
 	names := map[view]string{viewTeam: "Team", viewNext: "Next", viewBoard: "Board", viewTasks: "Tasks", viewOrg: "Org", viewHosts: "Hosts"}
 	for _, v := range m.tabs() {
 		label := " " + names[v] + " "
@@ -163,6 +187,12 @@ func (m *model) tabBar() string {
 			label = cDim.Render(label)
 		}
 		parts = append(parts, label)
+		w := lipgloss.Width(label)
+		m.tabX = append(m.tabX, [2]int{x, x + w})
+		x += w + 1
+	}
+	if m.compactMode() {
+		return fit(strings.Join(parts, " "), m.w)
 	}
 	return fit(strings.Join(parts, " ")+cDim.Render("   tab switch  t teams"), m.w)
 }
@@ -175,14 +205,34 @@ func (m *model) panes(title string, left []string, sel int, right []string, scro
 
 // panesH is panes at content height h.
 func (m *model) panesH(title string, left []string, sel int, right []string, scroll int, h int) string {
-	leftW := min(46, m.w/2)
+	leftW := m.leftW()
 	rightW := m.w - leftW - 4
-	start := max(0, sel-h+2)
-	end := min(len(left), start+h-1)
-	if len(left) > h-1 {
+	chips := m.chips
+	m.chips, m.chipY, m.chipList = nil, 0, nil
+	if m.compactMode() {
+		// One column: the list, or with d the selected item's details.
+		if m.detail {
+			return cBox.Width(m.w - 2).Height(h).Render(detailView(right, m.w-4, scroll, h))
+		}
+		leftW = m.w - 2
+	}
+	var chipLines []string
+	if len(chips) > 0 {
+		chipLines = m.chipRows(chips, leftW-2)
+	}
+	head := 1 + len(chipLines) // the title, and the chips under it
+	start := max(0, sel-h+head+1)
+	end := min(len(left), start+h-head)
+	if len(left) > h-head {
 		title += fmt.Sprintf(" (%d–%d/%d)", start+1, end, len(left))
 	}
 	rows := []string{fit(cHeader.Render(title), leftW-2)}
+	if len(chipLines) > 0 {
+		rows = append(rows, chipLines...)
+		m.chipY = m.bodyTop() + 2
+	}
+	m.listStart, m.listN, m.listW, m.listSel = start, max(0, end-start), leftW, sel
+	m.listY0 = m.bodyTop() + 1 + head
 	for i := start; i < end; i++ {
 		l := fit(left[i], leftW-2)
 		if i == sel {
@@ -191,6 +241,9 @@ func (m *model) panesH(title string, left []string, sel int, right []string, scr
 		rows = append(rows, l)
 	}
 	l := cBox.Width(leftW).Height(h).Render(strings.Join(rows, "\n"))
+	if m.compactMode() {
+		return l
+	}
 	r := cBox.Width(rightW).Height(h).Render(detailView(right, rightW-2, scroll, h))
 	return lipgloss.JoinHorizontal(lipgloss.Top, l, r)
 }
@@ -231,7 +284,7 @@ func (m *model) pickerView() string {
 			needs = "  " + cWarn.Render(fmt.Sprintf("%d for you", t.Needs))
 		}
 		tail := fmt.Sprintf("%d live%s", t.Sessions, needs)
-		left = append(left, rowText(t.Name, tail, min(46, m.w/2)-2))
+		left = append(left, rowText(t.Name, tail, m.leftW()-2))
 	}
 	if len(m.teams) == 0 {
 		left = append(left, cDim.Render("no teams yet"))
@@ -248,7 +301,7 @@ func (m *model) pickerView() string {
 			sel++
 		}
 	}
-	rightW := m.w - min(46, m.w/2) - 6
+	rightW := m.rightW()
 	var right []string
 	switch {
 	case m.pickSel < len(m.teams):
@@ -275,9 +328,27 @@ func (m *model) pickerView() string {
 }
 
 func (m *model) nextView() string {
-	items := m.nextItems // read at reload, not on every frame
+	var items []core.Issue
+	for _, it := range m.nextItems { // read at reload, not on every frame
+		if m.nextShow == 0 || it.Kind == nextShows[m.nextShow] {
+			items = append(items, it)
+		}
+	}
+	var shows []menuItem
+	for i, k := range nextShows {
+		label := k
+		if i > 0 {
+			label = tierName(k)
+		}
+		shows = append(shows, choice(label, m.nextShow == i, func() { m.nextShow, m.nextSel = i, 0 }))
+	}
+	m.chips = []chip{{"show: " + nextShowName(m.nextShow), shows}}
 	if len(items) == 0 {
-		return m.panes("Next", []string{"Nothing needs doing"}, -1, []string{"No problems, nothing waiting on you, no open work on the boards."}, 0)
+		msg := "No problems, nothing waiting on you, no open work on the boards."
+		if m.nextShow != 0 {
+			msg = "Nothing of this kind. Show all with the chip above."
+		}
+		return m.panes("Next", []string{"Nothing needs doing"}, -1, []string{msg}, 0)
 	}
 	if m.nextSel >= len(items) {
 		m.nextSel = len(items) - 1
@@ -287,10 +358,24 @@ func (m *model) nextView() string {
 		left = append(left, fmt.Sprintf("%d. [%s] %s", i+1, it.Kind, it.Text))
 	}
 	it := items[m.nextSel]
-	rightW := m.w - min(46, m.w/2) - 6
+	rightW := m.rightW()
 	right := []string{cHeader.Render(fmt.Sprintf("%d. %s", m.nextSel+1, tierName(it.Kind))), "", wrap(it.Text, rightW), "",
 		cHeader.Render("do: ") + wrap(it.Do, rightW-4), "", cDim.Render("owner: " + it.Owner)}
 	return m.panes("Next, most urgent first", left, m.nextSel, right, m.nextScroll)
+}
+
+// nextShows are the Next tab's choices: everything, or one tier.
+var nextShows = []string{"all", "broken", "user", "blocked", "drift", "yours"}
+
+func nextShowName(i int) string {
+	switch k := nextShows[i]; k {
+	case "user":
+		return "waiting on you"
+	case "yours":
+		return "this session"
+	default:
+		return k
+	}
 }
 
 func tierName(k string) string {
@@ -321,9 +406,9 @@ func (m *model) helpView() string {
 		"r  refresh    esc  back    ?  help    q  quit", "",
 		cHeader.Render("Team and Org"),
 		"←→  fold / unfold    enter  open pane or toggle group",
-		"/  filter    f  all, needs you, busy, outside tmux    esc  clear",
-		"b  order by project / team / host",
-		"m  message    s  start a session from the selected row",
+		".  or right click  actions    /  filter    f  needs you, busy…    esc  clear",
+		"b  order: project, team, host, folder    a  running only or all    click title: same",
+		"m  message    N  rename    s  start a session from the selected row",
 		"p  peek at a remote pane (host must allow peek)",
 		"R  reopen in tmux    K  close session (both ask)",
 		"l  log    i  inbox    g  agent's pane    c  copy resume    v  files",

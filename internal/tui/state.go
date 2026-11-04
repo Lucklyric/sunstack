@@ -13,8 +13,42 @@ import (
 // only means the usual start.
 
 type savedState struct {
-	View string `json:"view"` // team, next or org
-	Team string `json:"team"` // the team's root, or "" for the host view
+	View string  `json:"view"` // team, next or org
+	Team string  `json:"team"` // the team's root, or "" for the host view
+	Opts options `json:"options"`
+}
+
+// options are the chips' choices (§40.9), by name so a renamed or removed
+// choice falls back to the default. Text filters are not kept.
+type options struct {
+	Order     string `json:"order,omitempty"`        // project, team, host, folder
+	AllShown  bool   `json:"all_sessions,omitempty"` // the Org tree shows closed sessions too
+	Show      string `json:"show,omitempty"`         // the session filter
+	BoardShow string `json:"board_show,omitempty"`
+	TasksAll  bool   `json:"tasks_all,omitempty"`
+	NextShow  string `json:"next_show,omitempty"`
+}
+
+func indexOf(list []string, v string) int {
+	for i, x := range list {
+		if x == v {
+			return i
+		}
+	}
+	return 0
+}
+
+func (m *model) options() options {
+	return options{Order: orderNames[m.order], AllShown: m.showAll, Show: filterModes[m.filterMode],
+		BoardShow: boardFilters[m.board.filter], TasksAll: m.tasks.all, NextShow: nextShows[m.nextShow]}
+}
+
+func (m *model) applyOptions(o options) {
+	m.order, m.showAll, m.filterMode = indexOf(orderNames, o.Order), o.AllShown, indexOf(filterModes, o.Show)
+	m.board.filter, m.tasks.all, m.nextShow = indexOf(boardFilters, o.BoardShow), o.TasksAll, indexOf(nextShows, o.NextShow)
+	if m.order == orderHost && m.hosts == nil {
+		m.order = orderProject
+	}
 }
 
 var viewNames = map[view]string{viewTeam: "team", viewLog: "team", viewInbox: "team", viewNext: "next", viewOrg: "org", viewHosts: "hosts", viewBoard: "board", viewTasks: "tasks"}
@@ -37,7 +71,7 @@ func (m *model) saveState() {
 	if !ok {
 		return
 	}
-	s := savedState{View: name}
+	s := savedState{View: name, Opts: m.options()}
 	if m.p != nil {
 		s.Team = m.p.Root
 	}
@@ -92,6 +126,9 @@ func startModel(p *core.Project, org bool) *model {
 		}
 	}
 	m.reload()
+	if ok {
+		m.applyOptions(s.Opts)
+	}
 	if m.view == viewHosts && m.hosts == nil {
 		m.view = viewTeam // this host left its org
 	}

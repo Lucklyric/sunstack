@@ -41,6 +41,7 @@ const shortUsage = `sunstack — agent-team layer for Claude Code and Codex
   sunstack spawn <id|title>             start a session as that agent
   sunstack clean [--yes]                close idle sessions and exited panes (lists first)
   sunstack attach <session>             go to a session's tmux pane
+  sunstack tmux panel|popup|install     the dashboard as a side panel that follows you, or a popup
   sunstack peek <session> [--lines N]   the end of a session's pane, read only
   sunstack direct "<text>"              add a directive for the team
   sunstack answer <id> Q<n> "<answer>"  answer an agent's ask
@@ -168,6 +169,12 @@ Org (every team and Claude Code or Codex session on this host):
   sunstack reopen <session-id> [--place P]        resume a closed session in a tmux pane (beside this one, else a new window;
                                                   outside tmux its team's tmux session), so messages wake it at once (exit it where it ran first)
   sunstack attach <session>                       go to a session's tmux pane: an agent session's name or any session's ID or label
+  sunstack tmux panel                             show or hide the dashboard as a full-height side panel that follows you
+                                                  to every window and session (tmux options @sunstack-side left|right,
+                                                  @sunstack-size 35%, @sunstack-scope org|team)
+  sunstack tmux popup                             the dashboard in a floating window; going to a pane closes it
+  sunstack tmux install [--yes]                   bind prefix S (panel) and prefix F (popup): writes
+                                                  ~/.config/sunstack/sunstack.tmux and sources it from your tmux config
   sunstack log [--id ID] [--follow]               the event log
   sunstack inbox <id>                             pending messages, read only
   sunstack pillar <id> | --team                   effective pillars with their source
@@ -176,7 +183,7 @@ Org (every team and Claude Code or Codex session on this host):
   sunstack issues [--since 7d|DATE|triaged] [--code C] [--json] | --triaged [--upto AT]
                                                   this host's issue log grouped by code: count, last time, commands, last message;
                                                   --triaged marks it read up to AT, the newest entry read (the issues skill)
-  sunstack tui [--org]                            dashboard: this team, or outside a team a picker of this host's teams;
+  sunstack tui [--org] [--compact] [--popup]      dashboard: this team, or outside a team a picker of this host's teams;
                                                   --org opens the host view of every team and session (also: bare sunstack)
 
 Hosts (an org: several hosts connected through one hub, over Tailscale):
@@ -334,7 +341,7 @@ func run(argv []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		// or outside any team on the team picker.
 		if setup.IsTerminal(os.Stdout) {
 			p, _ := core.FindProject("")
-			if err := tui.Run(p, false); err != nil {
+			if err := tui.Run(p, false, false, false); err != nil {
 				core.RecordIssue(core.IssueEntry{Source: "cli", Cmd: "tui", Code: "error", Exit: core.ExitFail})
 				fmt.Fprintf(stderr, "sunstack: error: %v\n", err)
 				return core.ExitFail
@@ -1672,6 +1679,9 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 	case "ssh":
 		return runSSH(rest, stdin, stdout)
 
+	case "tmux":
+		return runTmux(rest, stdout)
+
 	case "teams":
 		a, err := parse(rest, "scan", "prune json")
 		if err == nil {
@@ -1766,7 +1776,7 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 		return nil
 
 	case "tui":
-		a, err := parse(rest, "root", "org")
+		a, err := parse(rest, "root", "org compact popup")
 		if err == nil {
 			err = a.atMost(0, "tui")
 		}
@@ -1779,9 +1789,9 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 				return err
 			}
 			// Outside any team: the team picker, or the host view with --org.
-			return tui.Run(nil, a.has("org"))
+			return tui.Run(nil, a.has("org"), a.has("compact"), a.has("popup"))
 		}
-		return tui.Run(p, a.has("org"))
+		return tui.Run(p, a.has("org"), a.has("compact"), a.has("popup"))
 
 	case "issue":
 		a, err := parse(rest, "code", "")

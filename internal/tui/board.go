@@ -156,7 +156,7 @@ func (m *model) boardView() string {
 		return ""
 	}
 	rows := m.boardRows()
-	leftW := min(46, m.w/2) - 2
+	leftW := m.leftW() - 2
 	var left []string
 	for _, r := range rows {
 		switch r.kind {
@@ -179,21 +179,20 @@ func (m *model) boardView() string {
 		}
 	}
 	title := "Board"
-	if f := boardFilters[m.board.filter]; f != "all" {
-		title += ", " + f
+	var shows []menuItem
+	for i, f := range boardFilters {
+		shows = append(shows, choice(f, m.board.filter == i, func() { m.board.filter = i }))
 	}
-	if m.board.text != "" {
-		title += ", matching " + m.board.text
-	}
+	m.chips = []chip{{"show: " + boardFilters[m.board.filter], shows}, m.textChip(m.board.text, func() { m.board.text = "" })}
 	if len(rows) == 0 {
 		msg := "No objectives yet. The user sets them in sunstack/BOARD.md (sunstack amend)."
 		if m.board.filter != 0 || m.board.text != "" {
 			msg = "Nothing matches the filter (f, /)."
 		}
-		return m.panes(title, []string{cDim.Render("nothing to show")}, -1, []string{wrap(msg, m.w-min(46, m.w/2)-6)}, 0)
+		return m.panes(title, []string{cDim.Render("nothing to show")}, -1, []string{wrap(msg, m.rightW())}, 0)
 	}
 	m.board.sel = min(m.board.sel, len(rows)-1)
-	right := m.boardDetails(rows[m.board.sel], m.w-min(46, m.w/2)-6)
+	right := m.boardDetails(rows[m.board.sel], m.rightW())
 
 	// Warnings at the bottom: the same findings sunstack board prints.
 	var warn []string

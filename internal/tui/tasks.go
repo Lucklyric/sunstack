@@ -120,11 +120,16 @@ func (m *model) tasksView() string {
 		return ""
 	}
 	rows := m.taskRows()
-	title := "Open tasks"
+	title := "Tasks"
+	text := "open only"
 	if m.tasks.all {
-		title = "All tasks"
+		text = "closed too"
 	}
-	rightW := m.w - min(46, m.w/2) - 6
+	m.chips = []chip{{text, []menuItem{
+		choice("open only", !m.tasks.all, func() { m.tasks.all = false }),
+		choice("closed too", m.tasks.all, func() { m.tasks.all = true }),
+	}}}
+	rightW := m.rightW()
 	if len(rows) == 0 {
 		msg := "No open tasks. Agents hand work to each other with the send skill (type task)."
 		if !m.tasks.all {
@@ -132,7 +137,7 @@ func (m *model) tasksView() string {
 		}
 		return m.panes(title, []string{cDim.Render("nothing open")}, -1, []string{wrap(msg, rightW)}, 0)
 	}
-	leftW := min(46, m.w/2) - 2
+	leftW := m.leftW() - 2
 	var left []string
 	for _, r := range rows {
 		if r.t == nil {

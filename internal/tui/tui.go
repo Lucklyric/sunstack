@@ -68,25 +68,40 @@ type model struct {
 	help       bool
 	nextScroll int
 	nextSel    int
+	nextShow   int // index into nextShows: the Next tab's chip
 	nextItems  []core.Issue
 	orgSel     int
 	saved      savedState // what tui.json holds, so it is written only on a change
 	teamSel    int        // the selected row of the Team tab's tree
 
-	folded      map[string]bool // tree nodes the user folded
-	filter      string
-	filterMode  int    // index into filterModes
-	showAll     bool   // the org tree shows closed sessions too (a)
-	order       int    // the Org tab's order: orderProject, orderTeam or orderHost (b cycles)
-	inputPrompt string // a line being typed: a filter or a message
-	inputText   string
-	inputDone   func(string)
-	confirmDo   func()
-	sendTo      func(*core.HostSession, string) string
-	kill        func(*core.HostSession) string
-	isFree      func(*core.HostSession) bool // a free session spawn --free started
-	reopen      func(*core.HostSession) string
-	peek        func(*core.HostSession) string
+	folded     map[string]bool // tree nodes the user folded
+	filter     string
+	filterMode int  // index into filterModes
+	showAll    bool // the org tree shows closed sessions too (a)
+	compact    bool // one column whatever the width (--compact)
+	popup      bool // in a tmux popup: going to a pane quits (--popup)
+	jumped     bool // the last key or click went to a pane
+	detail     bool // in one column: the details in place of the list (d)
+	// Where the last frame drew its list and tabs, for mouse clicks.
+	listStart, listN, listW, listSel int
+	titleX                           []titleSpan // where the chips sit on the chip row
+	chips, chipList                  []chip      // chips for the next list drawn, and those drawn
+	listY0, chipY                    int         // screen lines of the list's first row and of the chips
+	footX, headX                     []clickSpan // the footer's keys and the header's counts
+	footY                            int
+	menu                             *menu // the actions menu, while open (§40.7)
+	rename                           func(*core.HostSession, string) error
+	tabX                             [][2]int
+	order                            int    // the Org tab's order: orderProject, orderTeam or orderHost (b cycles)
+	inputPrompt                      string // a line being typed: a filter or a message
+	inputText                        string
+	inputDone                        func(string)
+	confirmDo                        func()
+	sendTo                           func(*core.HostSession, string) string
+	kill                             func(*core.HostSession) string
+	isFree                           func(*core.HostSession) bool // a free session spawn --free started
+	reopen                           func(*core.HostSession) string
+	peek                             func(*core.HostSession) string
 
 	hosts      *hub.OrgView // the org this host belongs to, from the local files; nil outside an org
 	hostSel    int
@@ -123,8 +138,9 @@ var (
 
 // Run starts the dashboard for project p, on the host (org) view when org
 // is set. With no project (outside any team) it shows the host view only.
-func Run(p *core.Project, org bool) error {
+func Run(p *core.Project, org, compact, popup bool) error {
 	m := startModel(p, org)
+	m.compact, m.popup = compact, popup
 	m.cwd, _ = os.Getwd()
 	m.reload()
 	// The newest release: the last check now, a fresh one for next time
@@ -134,14 +150,14 @@ func Run(p *core.Project, org bool) error {
 	if !lipgloss.HasDarkBackground() {
 		glamourStyle = "light"
 	}
-	_, err := tea.NewProgram(m, tea.WithAltScreen()).Run()
+	_, err := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion()).Run()
 	return err
 }
 
 // newModel opens on the team, or with org on the host view. Without a team
 // it opens on the team picker, or with org on the host view.
 func newModel(p *core.Project, org bool) *model {
-	m := &model{p: p, folded: map[string]bool{}, sendTo: realSend, kill: realKill, isFree: realIsFree, reopen: realReopen, peek: realPeek,
+	m := &model{p: p, folded: map[string]bool{}, sendTo: realSend, rename: core.RenameSession, kill: realKill, isFree: realIsFree, reopen: realReopen, peek: realPeek,
 		loadView: hub.LoadView, remoteSend: realRemoteSend, refreshHub: realRefresh,
 		updateHost: realUpdateHost, updateHere: realUpdateHere,
 		sshCheck: realSSHCheck, sshStop: realSSHStop, sshStart: realSSHStart,
@@ -228,6 +244,13 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.remotePanes[msg.key] = remotePane{text: msg.text, at: time.Now()}
 			m.note = "pane read through the hub"
 		}
+	case renameMsg:
+		m.renamed(msg)
+		return m, m.afterJump(nil)
+	case tea.MouseMsg:
+		cmd := m.mouse(msg)
+		m.saveState()
+		return m, m.afterJump(cmd)
 	case tea.KeyMsg:
 		if m.viewer != nil && msg.String() != "ctrl+c" {
 			return m, m.viewerKey(msg)
@@ -238,9 +261,148 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		cmd := m.key(msg.String())
 		m.saveState()
-		return m, cmd
+		return m, m.afterJump(cmd)
 	}
 	return m, nil
+}
+
+// afterJump quits a popup dashboard once it went to a pane, so the popup
+// closes over that pane.
+func (m *model) afterJump(cmd tea.Cmd) tea.Cmd {
+	if m.popup && m.jumped {
+		return tea.Quit
+	}
+	m.jumped = false
+	return cmd
+}
+
+// mouse handles the wheel and left clicks: the wheel moves the selection
+// (or scrolls open details), a click on a tab opens it, a click on a list
+// row selects it, and a click on the selected row opens it like enter.
+func (m *model) mouse(e tea.MouseMsg) tea.Cmd {
+	if m.viewer != nil || m.inputPrompt != "" || m.confirm != "" || e.Action != tea.MouseActionPress {
+		return nil
+	}
+	if m.menu != nil {
+		return m.menuMouse(e)
+	}
+	if e.Button == tea.MouseButtonLeft && (e.Y == m.footY || e.Y == 0) {
+		spans := m.footX
+		if e.Y == 0 {
+			spans = m.headX
+		}
+		for _, s := range spans {
+			if e.X >= s.x0 && e.X < s.x1 {
+				return s.run(m)
+			}
+		}
+		if e.Y == m.footY {
+			return nil
+		}
+	}
+	switch e.Button {
+	case tea.MouseButtonWheelUp:
+		if m.inDetail() {
+			return m.key("pgup")
+		}
+		return m.key("up")
+	case tea.MouseButtonWheelDown:
+		if m.inDetail() {
+			return m.key("pgdown")
+		}
+		return m.key("down")
+	case tea.MouseButtonLeft, tea.MouseButtonRight:
+	default:
+		return nil
+	}
+	if m.help {
+		m.help = false
+		return nil
+	}
+	top := 1 // the title line
+	if m.showTabs() {
+		if e.Y == top && e.Button == tea.MouseButtonLeft {
+			for i, r := range m.tabX {
+				if e.X >= r[0] && e.X < r[1] && i < len(m.tabs()) {
+					return m.show(m.tabs()[i])
+				}
+			}
+			return nil
+		}
+		top++
+	}
+	y0 := m.listY0
+	if m.chipY > 0 && e.Y >= m.chipY && e.Y < y0 {
+		for _, s := range m.titleX {
+			if e.Y == m.chipY+s.y && e.X >= s.x0+2 && e.X < s.x1+2 { // past the border and padding
+				m.openChip(s.chip, s.x0+1, e.Y+1)
+			}
+		}
+		return nil
+	}
+	if m.inDetail() || m.listN == 0 || e.Y < y0 || e.Y >= y0+m.listN || e.X >= m.listW+2 {
+		return nil
+	}
+	target := m.listStart + e.Y - y0
+	if m.view == viewPicker && target >= len(m.teams) {
+		if target == len(m.teams) {
+			return nil // the rule between teams and actions
+		}
+		target--
+	}
+	if target == m.selIndex() {
+		if e.Button == tea.MouseButtonRight {
+			if m.treeView2() {
+				m.openMenu(e.X, e.Y)
+			}
+			return nil
+		}
+		return m.key("enter")
+	}
+	m.setSel(target)
+	if e.Button == tea.MouseButtonRight && m.treeView2() {
+		m.openMenu(e.X, e.Y)
+	}
+	return nil
+}
+
+// selIndex and setSel are the selection of the list in front.
+func (m *model) selIndex() int {
+	switch {
+	case m.view == viewPicker:
+		return m.pickSel
+	case m.view == viewNext:
+		return m.nextSel
+	case m.view == viewBoard:
+		return m.board.sel
+	case m.view == viewTasks:
+		return m.tasks.sel
+	}
+	return *m.treeSel()
+}
+
+func (m *model) setSel(i int) {
+	switch {
+	case m.view == viewPicker:
+		m.pickSel = i
+	case m.view == viewNext:
+		m.nextSel, m.nextScroll = i, 0
+	case m.view == viewBoard:
+		m.board.sel, m.board.scroll = i, 0
+	case m.view == viewTasks:
+		m.tasks.sel, m.tasks.scroll = i, 0
+	default:
+		*m.treeSel(), m.orgScroll = i, 0
+	}
+}
+
+// inDetail says whether one column shows details in place of the list.
+func (m *model) inDetail() bool { return m.detail && m.compactMode() }
+
+// treeView2 says whether the tab in front is a session tree (Team or Org),
+// the one the actions menu serves.
+func (m *model) treeView2() bool {
+	return m.view == viewOrg || (m.view == viewTeam && m.p != nil)
 }
 
 // pasteText is pasted text for a one-line prompt: line breaks and tabs
@@ -262,6 +424,9 @@ func pasteText(rs []rune) string {
 // key handles one key press.
 func (m *model) key(k string) tea.Cmd {
 	m.note = ""
+	if m.menu != nil {
+		return m.menuKey(k)
+	}
 	if m.inputPrompt != "" {
 		// Typing a line: every key goes to it.
 		switch k {
@@ -271,6 +436,9 @@ func (m *model) key(k string) tea.Cmd {
 			if done != nil {
 				done(text)
 			}
+			cmd := m.pending // what the line starts, such as a rename
+			m.pending = nil
+			return cmd
 		case "esc":
 			m.inputPrompt, m.inputText, m.inputDone = "", "", nil
 		case "backspace":
@@ -309,6 +477,16 @@ func (m *model) key(k string) tea.Cmd {
 	}
 	if m.view == viewPicker {
 		return m.pickerKey(k)
+	}
+	if m.compactMode() {
+		switch {
+		case k == "d":
+			m.detail = !m.detail
+			return nil
+		case k == "esc" && m.inDetail():
+			m.detail = false
+			return nil
+		}
 	}
 	if (m.view == viewOrg || (m.view == viewTeam && m.p != nil)) && m.treeKey(k) {
 		cmd := m.pending
@@ -502,6 +680,7 @@ func (m *model) goToPane() string {
 			return "tmux: " + err.Error()
 		}
 	}
+	m.jumped = true
 	return "switched to " + where
 }
 
@@ -531,7 +710,14 @@ func (m *model) copyResume() string {
 
 // View is the screen. Text from files, boards and other hosts is in it, so
 // only its colors pass as escape sequences.
-func (m *model) View() string { return termSafe(m.render()) }
+func (m *model) View() string {
+	screen := m.render()
+	m.footY = lipgloss.Height(screen) - 1
+	if m.menu != nil {
+		screen = m.withMenu(screen)
+	}
+	return termSafe(screen)
+}
 
 // termSafe keeps SGR color sequences, newlines and tabs, and drops every
 // other control character and sequence: OSC 52 would set the clipboard,
@@ -566,6 +752,7 @@ func (m *model) render() string {
 	if m.w == 0 {
 		return "loading…"
 	}
+	m.listN, m.tabX, m.titleX, m.headX = 0, nil, nil, nil // set again by what this frame draws
 	where := ""
 	if m.p != nil {
 		where = m.p.Root
@@ -578,6 +765,7 @@ func (m *model) render() string {
 	if m.view == viewOrg && m.org != nil {
 		counts := m.orgCounts()
 		head = fit(head, max(8, m.w-lipgloss.Width(counts)-2)) + "  " + counts
+		m.headX = headSpans(head)
 	}
 	if m.viewer != nil {
 		return m.viewerView()
@@ -625,8 +813,14 @@ func (m *model) footer() string {
 	case m.confirm != "":
 		return cWarn.Render(wrap(m.confirm, m.w))
 	}
-	hints := "↑↓ select  ←→ fold  enter open  / filter  f show"
-	if !m.teamScope() {
+	hints := "↑↓ select  ←→ fold  enter open  . actions  / filter  f show"
+	if m.compactMode() {
+		hints = "↑↓ select  enter go  . actions  d details  / filter  f show"
+		if m.inDetail() {
+			hints = "d or esc list  pgup/pgdn scroll"
+		}
+	}
+	if !m.teamScope() && !m.inDetail() {
 		hints += "  a " + map[bool]string{true: "running only", false: "all"}[m.showAll]
 	}
 	switch m.view {
@@ -644,11 +838,9 @@ func (m *model) footer() string {
 		hints = "↑↓ select  v message  a " + map[bool]string{true: "open only", false: "closed too"}[m.tasks.all]
 	}
 	keys := "? help  q quit"
-	line := fit(hints, max(0, m.w-lipgloss.Width(keys)-2)) + "  " + keys
+	line := m.footLine(fit(hints, max(0, m.w-lipgloss.Width(keys)-2)) + "  " + keys)
 	if m.note != "" {
-		line = cWarn.Render(fit(m.note, m.w)) + "\n" + cDim.Render(line)
-	} else {
-		line = cDim.Render(line)
+		line = cWarn.Render(fit(m.note, m.w)) + "\n" + line
 	}
 	return line
 }
@@ -656,6 +848,9 @@ func (m *model) footer() string {
 func (m *model) teamView() string {
 	if len(m.agents) == 0 {
 		return cBox.Width(m.w - 2).Render(wrap("No agents yet. Run sunstack hire <title> [name], or ask an agent to recruit one.", m.w-4))
+	}
+	if m.compactMode() {
+		return m.treeBox(m.inner()) // the list alone; health has its own command
 	}
 	// Bottom boxes first, so the two top boxes get exactly the rest.
 	events := m.events

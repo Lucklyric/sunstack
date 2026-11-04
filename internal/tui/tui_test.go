@@ -569,3 +569,59 @@ func TestNextDetailScrolls(t *testing.T) {
 		t.Errorf("pgdown did not scroll the detail:\n%s", m.View())
 	}
 }
+
+// The chips' choices come back the next time (§40.9).
+func TestRemembersOptions(t *testing.T) {
+	t.Setenv("SUNSTACK_HOME", t.TempDir())
+	p := newTeam(t, t.TempDir(), "builder.a")
+	m := startModel(p, true)
+	m.w, m.h = 120, 30
+	m.Update(key("b")) // by team
+	m.Update(key("a")) // all sessions
+	m.Update(key("f")) // needs you
+	m.board.filter, m.tasks.all, m.nextShow = 2, true, 1
+	m.Update(key("r"))
+	m = startModel(p, true)
+	if m.order != orderTeam || !m.showAll || filterModes[m.filterMode] != "needs you" || m.board.filter != 2 || !m.tasks.all || m.nextShow != 1 {
+		t.Errorf("options not kept: order %d all %t show %d board %d tasks %t next %d", m.order, m.showAll, m.filterMode, m.board.filter, m.tasks.all, m.nextShow)
+	}
+	// A saved host order on a host with no org falls back to project.
+	m.order = orderHost
+	m.Update(key("r"))
+	if m = startModel(p, true); m.order != orderProject {
+		t.Errorf("host order without an org: %d", m.order)
+	}
+}
+
+// Footer hints run their key, and the Org header's counts open what they
+// count.
+func TestFooterAndHeaderClicks(t *testing.T) {
+	m := treeModel(t)
+	o := treeOrg()
+	m.org = o
+	v := m.View()
+	requireAll(t, v, "1 busy", "1 waiting")
+	click := func(x, y int) {
+		m.Update(tea.MouseMsg{X: x, Y: y, Button: tea.MouseButtonLeft, Action: tea.MouseActionPress})
+		m.View()
+	}
+	find := func(spans []clickSpan, k string) clickSpan {
+		for _, s := range spans {
+			if s.key == k {
+				return s
+			}
+		}
+		t.Fatalf("no %q in %v", k, spans)
+		return clickSpan{}
+	}
+	s := find(m.headX, "show:busy")
+	click(s.x0, 0)
+	if filterModes[m.filterMode] != "busy" {
+		t.Errorf("busy count: show %s", filterModes[m.filterMode])
+	}
+	s = find(m.footX, "?")
+	click(s.x0+1, m.footY)
+	if !m.help {
+		t.Error("a click on ? help opens the help")
+	}
+}

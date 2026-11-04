@@ -216,8 +216,8 @@ func TestSharedTeamsMerge(t *testing.T) {
 	// with its host; no needs row and no host rows.
 	got := rowsOf()
 	for _, want := range []string{
-		"alpha|pm.lead|pm.lead_cloud @laptop|pm.lead_gpu @server|marketing.social|ops.night|ops.night @server|free sessions (1)|scratch @laptop",
-		"shop  (only on server)|builder.alice|builder.alice_api @server|vault|todo @laptop|tnnls @laptop",
+		"alpha|pm.lead|pm.lead_cloud|pm.lead_gpu @server|marketing.social|ops.night|ops.night @server|free sessions (1)|scratch",
+		"shop  (only on server)|builder.alice|builder.alice_api @server|vault|todo|tnnls",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("by project: rows %q lack %q", got, want)
@@ -246,7 +246,7 @@ func TestSharedTeamsMerge(t *testing.T) {
 
 	// By team (b): the same teams, then one "no team" row with the groups.
 	m.key("b")
-	if got := rowsOf(); !strings.Contains(got, "builder.alice_api @server|no team|vault|todo @laptop|tnnls @laptop") {
+	if got := rowsOf(); !strings.Contains(got, "builder.alice_api @server|no team|vault|todo|tnnls") {
 		t.Errorf("by team: rows %q", got)
 	}
 
@@ -273,6 +273,7 @@ func TestSharedTeamsMerge(t *testing.T) {
 			t.Errorf("by host: rows %q lack %q", got, want)
 		}
 	}
+	m.key("b") // by folder (§40.6)
 	m.key("b")
 	if got := rowsOf(); strings.Count(got, "alpha") != 1 || strings.Contains(got, "no team") {
 		t.Errorf("b does not cycle back to by project: %q", got)
@@ -531,14 +532,14 @@ func TestOrgOrdersAcrossHosts(t *testing.T) {
 		rows = append(rows, n.label)
 	}
 	got := strings.Join(rows, "|")
-	for _, want := range []string{"vault|todo @laptop|tnnls @laptop|notes @server", "pr @laptop|local-pr @laptop", "pr @server|server-pr @server",
+	for _, want := range []string{"vault|todo|tnnls|notes @server", "pr @laptop|local-pr", "pr @server|server-pr @server",
 		"scratch @server|win-a @server", "scratch @hubbox|win-b @hubbox",
 		"shop  (only on hubbox, server, zbox)|builder.alice|builder.alice_hub @hubbox|builder.alice_api @server|ops.night|ops.night_s @server|ops.night_z @zbox|hire.new"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("rows %q lack %q", got, want)
 		}
 	}
-	for _, want := range []string{"legacy-l|builder.l|shop", "legacy-s  (only on server)|builder.s", "shared|path-remote-l @laptop|path-remote-s @server", "x @laptop|dotgit-l @laptop", "x @server|dotgit-s @server", "mixed @laptop|mixed-folder @laptop", "mixed|mixed-remote @server", "legacy-z  (only on zbox)|builder.z", "(unknown folder) @server|lost-s @server", "(unknown folder) @zbox|lost-z @zbox"} {
+	for _, want := range []string{"legacy-l|builder.l|shop", "legacy-s  (only on server)|builder.s", "shared|path-remote-l|path-remote-s @server", "x @laptop|dotgit-l", "x @server|dotgit-s @server", "mixed @laptop|mixed-folder", "mixed|mixed-remote @server", "legacy-z  (only on zbox)|builder.z", "(unknown folder) @server|lost-s @server", "(unknown folder) @zbox|lost-z @zbox"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("rows %q lack %q", got, want)
 		}

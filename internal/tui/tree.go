@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"cmp"
 	"fmt"
 	"os"
 	"os/exec"
@@ -26,6 +27,7 @@ const (
 	orderProject = iota
 	orderTeam
 	orderHost
+	orderFolder // by the folders sessions run in (§40.6)
 )
 
 type treeNode struct {
@@ -88,6 +90,24 @@ func place(s *core.HostSession) string {
 	return fmt.Sprintf("%-6s %-4s", s.Tool, where)
 }
 
+// shortAgo is a time as a short age in a fixed width: now, 5m, 3h, 2d.
+func shortAgo(ts string) string {
+	t, err := time.Parse(time.RFC3339, ts)
+	if err != nil {
+		return "   "
+	}
+	d := time.Since(t)
+	switch {
+	case d < time.Minute:
+		return "now"
+	case d < time.Hour:
+		return fmt.Sprintf("%2dm", int(d.Minutes()))
+	case d < 48*time.Hour:
+		return fmt.Sprintf("%2dh", int(d.Hours()))
+	}
+	return fmt.Sprintf("%2dd", min(99, int(d.Hours()/24)))
+}
+
 func sessionName(s *core.HostSession) string {
 	switch {
 	case s.Label != "":
@@ -139,6 +159,18 @@ func (m *model) teamScope() bool {
 	return m.p != nil && (m.view == viewTeam || m.view == viewLog || m.view == viewInbox)
 }
 
+var orderNames = []string{"project", "team", "host", "folder"}
+
+// nextOrder is the order b moves to: project, team, host (only in an org)
+// and folder.
+func (m *model) nextOrder() int {
+	next := (m.order + 1) % len(orderNames)
+	if next == orderHost && m.hosts == nil {
+		next = orderFolder // one host: no host order
+	}
+	return next
+}
+
 // sel is the selection of the tree in front.
 func (m *model) treeSel() *int {
 	if m.teamScope() {
@@ -155,6 +187,9 @@ func (m *model) treeNodes() []treeNode {
 	o := m.org
 	if o == nil {
 		return nil
+	}
+	if m.order == orderFolder {
+		return m.folderRows()
 	}
 	var out []treeNode
 	splits := m.splits()
@@ -292,8 +327,8 @@ func (m *model) hostName(h *hub.HostView) string {
 // sessLabel is a session row's text: in an org, outside host order, it
 // names the host the session runs on (§28.1).
 func (m *model) sessLabel(s *core.HostSession, h *hub.HostView) string {
-	if m.hosts == nil || m.order == orderHost {
-		return sessionName(s)
+	if m.hosts == nil || m.order == orderHost || h == nil || h.You {
+		return sessionName(s) // this host's sessions carry no tag
 	}
 	return sessionName(s) + " @" + m.hostName(h)
 }
@@ -607,7 +642,11 @@ func (m *model) row(n treeNode, w int) string {
 	tail := ""
 	switch n.kind {
 	case "session":
-		tail = cDim.Render(place(n.sess)) + " " + glyph(n.sess) + " " + n.sess.Status
+		// What it works on fills the room between name and state.
+		if t := cmp.Or(n.sess.Doing, n.sess.Activity.Title); t != "" && t != sessionName(n.sess) {
+			line += "  " + cDim.Render(t)
+		}
+		tail = cDim.Render(place(n.sess)+" "+shortAgo(n.sess.Activity.LastActive)) + " " + glyph(n.sess) + " " + n.sess.Status
 		// Another host's session as of its last snapshot: not live when the
 		// host stopped reporting.
 		if n.host != nil && !n.host.You && n.host.State != "live" {
@@ -630,6 +669,8 @@ func (m *model) row(n treeNode, w int) string {
 		if c := len(m.teamWarnings(n)); c > 0 {
 			tail = cWarn.Render(fmt.Sprintf("%d for you", c))
 		}
+	case "folder":
+		tail = cDim.Render(fmt.Sprint(n.need))
 	case "group", "outside":
 		if n.need > 0 {
 			tail = cWarn.Render(fmt.Sprintf("%d for you", n.need))
@@ -713,20 +754,12 @@ func (m *model) treeBox(h int) string {
 	if *sel >= len(nodes) {
 		*sel = max(0, len(nodes)-1)
 	}
-	leftW := min(46, m.w/2)
-	title := "Sessions by " + []string{"project", "team", "host"}[m.order] // b cycles (§28)
+	leftW := m.leftW()
+	title := "Sessions"
 	if m.teamScope() {
 		title = "Team"
 	}
-	if m.filter != "" {
-		title += "  filter: " + m.filter
-	}
-	if m.filterMode != 0 {
-		title += "  show: " + filterModes[m.filterMode]
-	}
-	if m.hideGone() {
-		title += "  running only"
-	}
+	m.chips = m.treeChips()
 	var left []string
 	for _, n := range nodes {
 		left = append(left, m.row(n, leftW-2))
@@ -736,7 +769,7 @@ func (m *model) treeBox(h int) string {
 	}
 	var right []string
 	if len(nodes) > 0 {
-		right = m.details2(nodes[*sel], m.w-leftW-6)
+		right = m.details2(nodes[*sel], m.rightW())
 	}
 	return m.panesH(title, left, *sel, right, m.orgScroll, h)
 }
@@ -779,6 +812,8 @@ func (m *model) details2(n treeNode, w int) []string {
 	field := func(k, v string) string { return detailField(k, v, 7, w) }
 	var out []string
 	switch n.kind {
+	case "folder":
+		return m.folderDetails(n, w)
 	case "needs":
 		out = append(out, cHeader.Render("Needs you"), "")
 		shown := 0
@@ -854,7 +889,11 @@ func (m *model) details2(n treeNode, w int) []string {
 		}
 	case "session":
 		s := n.sess
-		out = append(out, wrap(cHeader.Render(sessionName(s)), w), glyph(s)+" "+s.Status+"  "+s.Tool, field("where", placeText(s)))
+		host := m.hostName(n.host)
+		if n.host == nil || n.host.You {
+			host += " (this host)"
+		}
+		out = append(out, wrap(cHeader.Render(sessionName(s)), w), glyph(s)+" "+s.Status+"  "+s.Tool, field("host", host), field("where", placeText(s)))
 		if s.TeamName != "" {
 			out = append(out, field("team", s.TeamName))
 		}
@@ -916,6 +955,12 @@ func (m *model) treeKey(k string) bool {
 		n = &nodes[*sel]
 	}
 	switch k {
+	case ".":
+		if top := m.listTop(); top >= 0 {
+			m.openMenu(4, top+*sel-m.listStart+1)
+		}
+	case "N":
+		m.renameKey(n)
 	case "v":
 		m.treeFiles(n)
 	case "up", "k":
@@ -964,11 +1009,7 @@ func (m *model) treeKey(k string) bool {
 		if m.teamScope() {
 			return false
 		}
-		n := 3
-		if m.hosts == nil {
-			n = 2 // one host: no host order
-		}
-		m.order, *sel = (m.order+1)%n, 0
+		m.order, *sel = m.nextOrder(), 0
 	case "esc":
 		if !m.filtering() {
 			return false
@@ -1067,6 +1108,7 @@ func (m *model) goToSession(s *core.HostSession) string {
 			return "tmux: " + err.Error()
 		}
 	}
+	m.jumped = true
 	return "switched to " + s.Where
 }
 
@@ -1165,11 +1207,42 @@ func (m *model) orgCounts() string {
 		teams = "1 team"
 	}
 	out := cDim.Render(fmt.Sprintf("%s  %s  ", teams, plural(sessions, "session", "sessions")))
+	// How many work, wait on the user or are blocked, in their state colors.
+	for _, st := range []struct {
+		name  string
+		style lipgloss.Style
+	}{{"busy", cBusy}, {"waiting", cWait}, {"blocked", cBlocked}} {
+		if c := m.countStatus(st.name); c > 0 {
+			out += st.style.Render(fmt.Sprintf("%d %s", c, st.name)) + "  "
+		}
+	}
 	// This host's items and the other hosts' own, as the Next tab lists them.
 	if n := len(m.org.Attention) + len(m.otherHostsNext()); n > 0 {
 		return out + cWarn.Render(fmt.Sprintf("%d for you", n))
 	}
 	return out + cDim.Render("0 for you")
+}
+
+// countStatus counts this host's sessions in a state.
+func (m *model) countStatus(status string) int {
+	n := 0
+	count := func(ss []*core.HostSession) {
+		for _, s := range ss {
+			if s.Status == status {
+				n++
+			}
+		}
+	}
+	for _, t := range m.org.Teams {
+		count(t.Free)
+		for _, a := range t.Agents {
+			count(a.Sessions)
+		}
+	}
+	for _, g := range m.org.Free {
+		count(g.Sessions)
+	}
+	return n
 }
 
 type remotePane struct {
