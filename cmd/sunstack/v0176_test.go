@@ -99,7 +99,7 @@ func TestNextSkillHint(t *testing.T) {
 	b, err := os.ReadFile("../../plugins/sunstack/skills/next/SKILL.md")
 	must(t, err)
 	s := strings.Join(strings.Fields(string(b)), " ")
-	requireContains(t, s, "name the Sunstack skill that fits what this conversation is doing", "/rename")
+	requireContains(t, s, "the Sunstack skill that fits it", "/rename")
 }
 
 func TestNextSuggestsRenameFreeSession(t *testing.T) {

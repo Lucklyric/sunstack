@@ -1,6 +1,6 @@
 ---
 name: next
-description: Rank the best next actions for this Sunstack team across setup, what waits on the user, blocked work, board drift and this session's work, then hand the top one to its skill. Use for "sunstack next", "/sunstack:next", "what should I do next", "what needs doing on the team", "what needs me". By default it is local, so in a team it covers that team and outside a team only this session. "Across all teams" or "everything that needs me" is `sunstack org --attention`.
+description: Rank the best next actions for this Sunstack team across setup, what waits on the user, blocked work, board drift and this session's work, then hand the top one to its skill. Use for "sunstack next", "/sunstack:next", "what should I do next", "what needs doing on the team", "what needs me". By default it covers this session, its own work in the project it runs in. The whole team is `--team`. "Across all teams" or "everything that needs me" is `sunstack org --attention`.
 ---
 
 # Sunstack: next
@@ -9,9 +9,13 @@ Command: `sunstack next`. Skill: `/sunstack:next` in Claude Code, `$sunstack:nex
 
 ## Rules
 
-- Plain `sunstack next` is local to where this session runs. Choose the scope by what the user
-  asked, not by guess:
-  - Default, in a team (`sunstack/PROTOCOL.md` in this folder or above): that team's list.
+- Plain `sunstack next` is about this session. Choose the scope by what the user asked, not by
+  guess:
+  - Default, in a team (`sunstack/PROTOCOL.md` in this folder or above): this session's own
+    list. A session holding an agent sees that agent's next board entry first, then its other
+    items and the team's broken checks. A free session sees its own inbox and open tasks. One
+    line counts the rest of the team.
+  - `--team`: the whole team's list. A plain terminal with no session gets it too.
   - Default, outside a team: only this session's own items (messages in its inbox, tasks it
     sent that have no reply yet), then one line counting the items elsewhere. No board is
     read, since the session holds no agent.
@@ -49,21 +53,22 @@ the session yourself.
 
 ## 2. Report
 
-Give the list in plain words, one line each, in its order. Group several asks from the same
-agent into one line. Say what the user gains by doing the first one.
+Lead with this conversation. In one line, name the next step for what this conversation is
+doing in this project, and the Sunstack skill that fits it, with its arguments: for example
+the as skill for a free session doing an agent's work, the save skill for an agent session
+with progress not saved yet, the send skill for work another agent owns. Skip the line when
+the conversation has no work in progress.
 
-Then, in one more line each:
+Then give the list in plain words, one line each, in its order. Group several asks from the
+same agent into one line. Say what the user gains by doing the first one. Mention the
+`--team` and "elsewhere" count lines once, without listing those items.
 
-- the `This session:` line, if any, as the step the user takes;
-- name the Sunstack skill that fits what this conversation is doing, if one does, with its
-  arguments: for example the as skill for a free session doing an agent's work, the save skill
-  for an agent session with progress not saved yet, the send skill for work another agent
-  owns. Say nothing when none fits. It does not change the list's order or the item offered
-  next.
+Then the `This session:` line, if any, as the step the user takes.
 
 ## 3. Offer the first item
 
-Ask: do it / pick another / stop. On yes, hand over to the skill that owns it, by its `do:`:
+Offer this conversation's next step first when the report led with one, else the list's first
+item. Ask: do it / pick another / stop. On yes, hand over to the skill that owns it, by its `do:`:
 
 - `sunstack answer ...`, asks, approvals of rule changes: the board skill (asks) or the save
   skill (Proposals, run by the agent that owns them)

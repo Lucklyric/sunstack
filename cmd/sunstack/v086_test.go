@@ -75,9 +75,9 @@ func TestNext(t *testing.T) {
 		t.Errorf("next shows the top five, drift as one line:\n%s", r.out)
 	}
 
-	// A session that holds an agent sees its own items first in each tier,
-	// and its own next step last.
-	r = sh(t, p, bobEnv, "next", "--all")
+	// With --team, a session that holds an agent sees its own items first in
+	// each tier, and its own next step last.
+	r = sh(t, p, bobEnv, "next", "--all", "--team")
 	first := ""
 	for _, m := range nextLineRe.FindAllStringSubmatch(r.out, -1) {
 		if m[1] == "drift" {

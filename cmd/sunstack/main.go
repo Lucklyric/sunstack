@@ -814,7 +814,7 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 
 	case "next":
 		// One ranked list of what to do now (§17.1).
-		a, err := parse(rest, "root", "all json")
+		a, err := parse(rest, "root", "all json team")
 		if err == nil {
 			err = a.atMost(0, "next")
 		}
@@ -2095,7 +2095,7 @@ func installChecks() []core.Check {
 // held on the hub.
 func nextCommand(a *args, hostWide bool, stdout io.Writer) error {
 	var items []core.Issue
-	caller, all, elsewhere := "", "", 0
+	caller, all, elsewhere, inTeam, scoped := "", "", 0, 0, false
 	p, err := core.FindProject(a.flags["root"])
 	if err != nil && a.flags["root"] != "" {
 		return err
@@ -2110,6 +2110,25 @@ func nextCommand(a *args, hostWide bool, stdout io.Writer) error {
 		sessions, _ := core.ScanSessions()
 		if is, ok := core.IdleIssue(p.IdleSessions(sessions, time.Now())); ok {
 			items = append(items, is)
+		}
+		// A session (§39) sees its own work first: its agent's items and the
+		// team's broken checks, or a free session's own inbox and open tasks.
+		// The rest of the team is one count line; --team, --root and a plain
+		// terminal keep the whole team's list.
+		if !a.has("team") && a.flags["root"] == "" && (caller != "" || core.IsSessionID(session)) {
+			scoped, all = true, "sunstack next --all"
+			var mine []core.Issue
+			for _, it := range items {
+				if it.Kind == "broken" || (caller != "" && it.Owner == caller) {
+					mine = append(mine, it)
+				} else {
+					inTeam++
+				}
+			}
+			if caller == "" {
+				mine = append(mine, core.SessionNext(session)...)
+			}
+			items = mine
 		}
 	case hostWide:
 		items, all = orgNext(), "sunstack org --attention --all"
@@ -2140,6 +2159,15 @@ func nextCommand(a *args, hostWide bool, stdout io.Writer) error {
 		items = append(items, core.Issue{Kind: "user", Owner: "user", Text: fmt.Sprintf("%d message(s) from managed hosts are held on the hub", len(held)), Do: "sunstack hub held"})
 	}
 	core.Rank(items, caller)
+	if scoped && caller != "" {
+		// This session's own next entry leads its scoped list.
+		for i, it := range items {
+			if it.Kind == "yours" && it.Owner == caller {
+				items = append(append([]core.Issue{it}, items[:i]...), items[i+1:]...)
+				break
+			}
+		}
+	}
 	rename, renameOK := core.Issue{}, false
 	if !hostWide {
 		rename, renameOK = renameIssue(p)
@@ -2166,6 +2194,9 @@ func nextCommand(a *args, hostWide bool, stdout io.Writer) error {
 	}
 	if renameOK {
 		fmt.Fprintf(stdout, "This session: %s\n   do: %s\n", rename.Text, rename.Do)
+	}
+	if inTeam > 0 {
+		fmt.Fprintf(stdout, "%d more item(s) in this team: sunstack next --team\n", inTeam)
 	}
 	if elsewhere > 0 {
 		fmt.Fprintf(stdout, "%d more item(s) in the teams on this host and the org's other hosts: sunstack org --attention\n", elsewhere)
