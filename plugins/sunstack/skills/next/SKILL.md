@@ -12,8 +12,8 @@ Command: `sunstack next`. Skill: `/sunstack:next` in Claude Code, `$sunstack:nex
 - Plain `sunstack next` is about this session. Choose the scope by what the user asked, not by
   guess:
   - Default, in a team (`sunstack/PROTOCOL.md` in this folder or above): this session's own
-    list. A session holding an agent sees that agent's next board entry first, then its other
-    items and the team's broken checks. A free session sees its own inbox and open tasks. One
+    list. A session holding an agent sees the team's broken checks, then that agent's next board
+    entry, then its other items. A free session sees its own inbox and open tasks. One
     line counts the rest of the team.
   - `--team`: the whole team's list. A plain terminal with no session gets it too.
   - Default, outside a team: only this session's own items (messages in its inbox, tasks it

@@ -24,8 +24,11 @@ func TestNextScopedToSession(t *testing.T) {
 	r := sh(t, p, bobEnv, "next")
 	expect(t, r, 0, "next")
 	lines := nextLineRe.FindAllStringSubmatch(r.out, -1)
+	for len(lines) > 0 && lines[0][1] == "broken" {
+		lines = lines[1:]
+	}
 	if len(lines) == 0 || lines[0][1] != "yours" || !strings.HasPrefix(lines[0][2], "builder.bob: KR1 Data model") {
-		t.Errorf("bob's own step should lead:\n%s", r.out)
+		t.Errorf("bob's own step should lead after the broken checks:\n%s", r.out)
 	}
 	requireContains(t, r.out, "more item(s) in this team: sunstack next --team")
 	r = sh(t, p, bobEnv, "next", "--all")

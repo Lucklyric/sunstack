@@ -2160,10 +2160,16 @@ func nextCommand(a *args, hostWide bool, stdout io.Writer) error {
 	}
 	core.Rank(items, caller)
 	if scoped && caller != "" {
-		// This session's own next entry leads its scoped list.
-		for i, it := range items {
-			if it.Kind == "yours" && it.Owner == caller {
-				items = append(append([]core.Issue{it}, items[:i]...), items[i+1:]...)
+		// This session's own next entry follows only the broken checks (a
+		// halt among them stops new work).
+		at := 0
+		for at < len(items) && items[at].Kind == "broken" {
+			at++
+		}
+		for i := at; i < len(items); i++ {
+			if it := items[i]; it.Kind == "yours" && it.Owner == caller {
+				copy(items[at+1:i+1], items[at:i])
+				items[at] = it
 				break
 			}
 		}
