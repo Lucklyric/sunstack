@@ -79,9 +79,13 @@ type model struct {
 	filterMode int  // index into filterModes
 	showAll    bool // the org tree shows closed sessions too (a)
 	compact    bool // one column whatever the width (--compact)
-	popup      bool // in a tmux popup: going to a pane quits (--popup)
-	jumped     bool // the last key or click went to a pane
-	detail     bool // in one column: the details in place of the list (d)
+	// The tmux pane the user is in, as "socket\tpane", so the side panel can
+	// mark that session's row (§41.2); focus reads it on each tick.
+	focused string
+	focus   func() string
+	popup   bool // in a tmux popup: going to a pane quits (--popup)
+	jumped  bool // the last key or click went to a pane
+	detail  bool // in one column: the details in place of the list (d)
 	// Where the last frame drew its list and tabs, for mouse clicks.
 	listStart, listN, listW, listSel int
 	titleX                           []titleSpan // where the chips sit on the chip row
@@ -141,6 +145,10 @@ var (
 func Run(p *core.Project, org, compact, popup bool) error {
 	m := startModel(p, org)
 	m.compact, m.popup = compact, popup
+	if compact && os.Getenv("TMUX_PANE") != "" {
+		m.focus = tmuxFocus
+		m.focused = tmuxFocus()
+	}
 	m.cwd, _ = os.Getwd()
 	m.reload()
 	// The newest release: the last check now, a fresh one for next time
@@ -223,6 +231,9 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.w, m.h = msg.Width, msg.Height
 		m.resizeViewer()
 	case tick:
+		if m.focus != nil {
+			m.focused = m.focus()
+		}
 		m.reload()
 		if m.scans() && !m.orgBusy && time.Since(m.orgAt) > orgRefresh {
 			m.orgBusy = true
@@ -1002,4 +1013,33 @@ func fitAll(lines []string, w int) []string {
 		out[i] = fit(l, w)
 	}
 	return out
+}
+
+// tmuxFocus is the pane the user is in, beside this panel: its window's
+// active pane, or the last active one while the panel itself has the focus.
+func tmuxFocus() string {
+	out, err := exec.Command("tmux", "list-panes", "-t", os.Getenv("TMUX_PANE"), "-F", "#{pane_active} #{pane_last} #{pane_id}").Output()
+	if err != nil {
+		return ""
+	}
+	self, active, last := os.Getenv("TMUX_PANE"), "", ""
+	for _, l := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		f := strings.Fields(l)
+		if len(f) != 3 {
+			continue
+		}
+		if f[0] == "1" {
+			active = f[2]
+		}
+		if f[1] == "1" {
+			last = f[2]
+		}
+	}
+	if active == self {
+		active = last
+	}
+	if active == "" {
+		return ""
+	}
+	return strings.SplitN(os.Getenv("TMUX"), ",", 2)[0] + "\t" + active
 }

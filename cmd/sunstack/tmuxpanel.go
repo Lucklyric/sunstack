@@ -125,9 +125,9 @@ func unhookPanel() {
 	tmuxOut("set-option", "-gu", optPanel)
 }
 
-// splitArgs place a full-height pane on the panel's side at its size.
-func splitArgs() []string {
-	args := []string{"-f", "-h", "-l", tmuxOpt(optSize, "35%")}
+// splitArgs place a full-height pane on the panel's side at size.
+func splitArgs(size string) []string {
+	args := []string{"-f", "-h", "-l", size}
 	if tmuxOpt(optSide, "left") != "right" {
 		args = append(args, "-b")
 	}
@@ -141,6 +141,10 @@ func panelToggle(pane string, stdout io.Writer) error {
 		return err
 	}
 	if id := livePanel(); id != "" {
+		// A width the user dragged to stays for the next show (§41.1).
+		if w, _ := tmuxOut("display-message", "-p", "-t", id, "#{pane_width}"); w != "" {
+			tmuxOut("set-option", "-g", optSize, w)
+		}
 		unhookPanel()
 		tmuxOut("kill-pane", "-t", id)
 		fmt.Fprintln(stdout, "sunstack: panel hidden")
@@ -150,7 +154,7 @@ func panelToggle(pane string, stdout io.Writer) error {
 		pane = os.Getenv("TMUX_PANE")
 	}
 	dir, _ := tmuxOut("display-message", "-p", "-t", pane, "#{pane_current_path}")
-	args := append([]string{"split-window", "-d", "-t", pane}, splitArgs()...)
+	args := append([]string{"split-window", "-d", "-t", pane}, splitArgs(tmuxOpt(optSize, "35%"))...)
 	if dir != "" {
 		args = append(args, "-c", dir)
 	}
@@ -187,17 +191,18 @@ func panelFollow(window string) error {
 		return nil
 	}
 	f := strings.SplitN(info, "\t", 2)
-	at, _ := tmuxOut("display-message", "-p", "-t", id, "#{window_id}\t#{window_panes}")
-	g := strings.SplitN(at, "\t", 2)
+	at, _ := tmuxOut("display-message", "-p", "-t", id, "#{window_id}\t#{window_panes}\t#{pane_width}")
+	g := strings.SplitN(at, "\t", 3)
 	switch {
-	case len(f) < 2 || len(g) < 2, f[0] == g[0]:
+	case len(f) < 2 || len(g) < 3, f[0] == g[0]:
 		return nil
 	case f[1] == "1": // a zoomed window keeps its one pane
 		return nil
 	case g[1] == "1": // moving the panel would close the window it is in
 		return nil
 	}
-	tmuxOut(append(append([]string{"join-pane", "-d"}, splitArgs()...), "-s", id, "-t", f[0])...)
+	// It moves at its current width, so a width the user dragged to stays.
+	tmuxOut(append(append([]string{"join-pane", "-d"}, splitArgs(g[2])...), "-s", id, "-t", f[0])...)
 	return nil
 }
 
@@ -248,18 +253,26 @@ func tmuxInstall(yes bool, stdout io.Writer) error {
 	}
 	file := filepath.Join(home, ".config", "sunstack", "sunstack.tmux")
 	conf := tmuxConf(home)
-	source := "source-file -q " + core.ShellQuote(file)
+	// tmux expands ~ in the path, so the line is the same on every host
+	// whose config comes from one dotfiles repo (§41.3); an older install's
+	// absolute line is replaced.
+	source := "source-file -q ~/.config/sunstack/sunstack.tmux"
+	absolute := "source-file -q " + core.ShellQuote(file)
 	body := "# Sunstack panel and popup, written by sunstack tmux install (§40).\n" +
 		"# Options: set -g @sunstack-side left|right, @sunstack-size 35%, @sunstack-scope org|team\n" +
 		"bind-key S run-shell -b " + tmuxDQ(selfCmd("tmux", "panel")+" --pane '#{pane_id}'") + "\n" +
 		"bind-key F run-shell -b " + tmuxDQ(selfCmd("tmux", "popup")+" --pane '#{pane_id}' --client '#{client_name}'") + "\n"
 	old, _ := os.ReadFile(conf)
 	sourced := strings.Contains(string(old), source)
+	stale := !sourced && strings.Contains(string(old), absolute)
 	if !yes {
 		fmt.Fprintf(stdout, "sunstack tmux install will:\n  write %s (prefix S: panel, prefix F: popup)\n", file)
-		if sourced {
+		switch {
+		case sourced:
 			fmt.Fprintf(stdout, "  keep %s, which already sources it\n", conf)
-		} else {
+		case stale:
+			fmt.Fprintf(stdout, "  replace in %s: %s\n  with: %s\n", conf, absolute, source)
+		default:
 			fmt.Fprintf(stdout, "  add to %s: %s\n", conf, source)
 		}
 		if l, err := os.Readlink(conf); err == nil {
@@ -275,7 +288,12 @@ func tmuxInstall(yes bool, stdout io.Writer) error {
 		return &core.Error{Code: core.ExitFail, Reason: "fs", Msg: err.Error()}
 	}
 	fmt.Fprintf(stdout, "wrote %s\n", file)
-	if !sourced {
+	if stale {
+		if err := os.WriteFile(conf, []byte(strings.ReplaceAll(string(old), absolute, source)), 0o644); err != nil {
+			return &core.Error{Code: core.ExitFail, Reason: "fs", Msg: err.Error()}
+		}
+		fmt.Fprintf(stdout, "replaced in %s: %s\n", conf, source)
+	} else if !sourced {
 		f, err := os.OpenFile(conf, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 		if err != nil {
 			return &core.Error{Code: core.ExitFail, Reason: "fs", Msg: err.Error()}

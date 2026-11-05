@@ -638,7 +638,11 @@ func (m *model) row(n treeNode, w int) string {
 			mark = "▸ "
 		}
 	}
-	line := indent + mark + n.label
+	label := n.label
+	if n.kind == "session" && m.isFocused(n) {
+		mark, label = cTitle.Render("▶ "), cHeader.Render(label)
+	}
+	line := indent + mark + label
 	tail := ""
 	switch n.kind {
 	case "session":
@@ -1471,4 +1475,14 @@ func listed(items []core.Issue, line string) bool {
 		}
 	}
 	return false
+}
+
+// isFocused says whether a session row is the pane the user is in (§41.2):
+// a pane on this host, in the panel's tmux server.
+func (m *model) isFocused(n treeNode) bool {
+	sock, pane, ok := strings.Cut(m.focused, "\t")
+	if !ok || n.sess == nil || n.sess.Pane != pane || (n.host != nil && !n.host.You) {
+		return false
+	}
+	return n.sess.Socket() == "" || sock == "" || n.sess.Socket() == sock
 }

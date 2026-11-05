@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/Lucklyric/sunstack/internal/core"
 )
 
 const fakeTmux = `#!/bin/sh
@@ -23,7 +25,8 @@ case "$*" in
   "list-panes -a -F #{pane_id}") cat "$STATE/panes" ;;
   *"#{pane_current_path}") echo /work ;;
   "display-message -p #{window_id}	#{window_zoomed_flag}") cat "$STATE/front" ;;
-  "display-message -p -t %99 #{window_id}	#{window_panes}") cat "$STATE/at" ;;
+  "display-message -p -t %99 #{window_id}	#{window_panes}	#{pane_width}") cat "$STATE/at" ;;
+  "display-message -p -t %99 #{pane_width}") echo 52 ;;
   "display-message -p -t @5 #{window_id}	#{window_zoomed_flag}") printf '@5\t0\n' ;;
   split-window*) echo %99 ;;
 esac
@@ -60,18 +63,19 @@ func TestTmuxPanelShowsFollowsAndHides(t *testing.T) {
 	// It follows into the window in front...
 	must(t, os.WriteFile(filepath.Join(state, "panes"), []byte("%1\n%2\n%99\n"), 0o644))
 	must(t, os.WriteFile(filepath.Join(state, "front"), []byte("@2\t0\n"), 0o644))
-	must(t, os.WriteFile(filepath.Join(state, "at"), []byte("@1\t3\n"), 0o644))
+	must(t, os.WriteFile(filepath.Join(state, "at"), []byte("@1\t3\t52\n"), 0o644))
 	expect(t, sh(t, dir, env, "tmux", "follow"), 0, "follow")
-	if log := tmuxLog(t, state); !strings.Contains(log, "join-pane -d -f -h -l 35% -b -s %99 -t @2") {
+	// At its current width, so a width the user dragged to stays (§41.1).
+	if log := tmuxLog(t, state); !strings.Contains(log, "join-pane -d -f -h -l 52 -b -s %99 -t @2") {
 		t.Errorf("follow: no join-pane in\n%s", log)
 	}
 	// The hook names the window that changed.
 	expect(t, sh(t, dir, env, "tmux", "follow", "--window", "@5"), 0, "follow --window")
-	if log := tmuxLog(t, state); !strings.Contains(log, "join-pane -d -f -h -l 35% -b -s %99 -t @5") {
+	if log := tmuxLog(t, state); !strings.Contains(log, "join-pane -d -f -h -l 52 -b -s %99 -t @5") {
 		t.Errorf("follow --window: %s", log)
 	}
 	// ...but not into a zoomed window, nor out of a window it is alone in.
-	for _, c := range []struct{ front, at string }{{"@2\t1\n", "@1\t3\n"}, {"@2\t0\n", "@1\t1\n"}, {"@1\t0\n", "@1\t3\n"}} {
+	for _, c := range []struct{ front, at string }{{"@2\t1\n", "@1\t3\t52\n"}, {"@2\t0\n", "@1\t1\t52\n"}, {"@1\t0\n", "@1\t3\t52\n"}} {
 		must(t, os.WriteFile(filepath.Join(state, "front"), []byte(c.front), 0o644))
 		must(t, os.WriteFile(filepath.Join(state, "at"), []byte(c.at), 0o644))
 		expect(t, sh(t, dir, env, "tmux", "follow"), 0, "follow")
@@ -83,14 +87,14 @@ func TestTmuxPanelShowsFollowsAndHides(t *testing.T) {
 	must(t, os.WriteFile(filepath.Join(state, "side"), []byte("right\n"), 0o644))
 	must(t, os.WriteFile(filepath.Join(state, "front"), []byte("@2\t0\n"), 0o644))
 	expect(t, sh(t, dir, env, "tmux", "follow"), 0, "follow right")
-	if log := tmuxLog(t, state); !strings.Contains(log, "join-pane -d -f -h -l 35% -s %99") {
+	if log := tmuxLog(t, state); !strings.Contains(log, "join-pane -d -f -h -l 52 -s %99") {
 		t.Errorf("follow right: %s", log)
 	}
 	// The same command again hides it and drops the hooks.
 	r = sh(t, dir, env, "tmux", "panel")
 	expect(t, r, 0, "hide")
 	log = tmuxLog(t, state)
-	for _, want := range []string{"set-hook -gu session-window-changed[42]", "set-hook -gu client-session-changed[42]", "kill-pane -t %99"} {
+	for _, want := range []string{"set-option -g @sunstack-size 52", "set-hook -gu session-window-changed[42]", "set-hook -gu client-session-changed[42]", "kill-pane -t %99"} {
 		if !strings.Contains(log, want) {
 			t.Errorf("hide: no %q in\n%s", want, log)
 		}
@@ -132,8 +136,15 @@ func TestTmuxInstall(t *testing.T) {
 		expect(t, sh(t, t.TempDir(), env, "tmux", "install", "--yes"), 0, "install")
 	}
 	b, _ := os.ReadFile(conf)
-	if got := string(b); !strings.HasPrefix(got, "set -g mouse on\n") || strings.Count(got, "source-file -q") != 1 {
+	if got := string(b); !strings.HasPrefix(got, "set -g mouse on\n") || strings.Count(got, "source-file -q ~/.config/sunstack/sunstack.tmux\n") != 1 {
 		t.Errorf("tmux.conf:\n%s", got)
+	}
+	// An older install's absolute line becomes the portable one (§41.3).
+	abs := "source-file -q " + core.ShellQuote(filepath.Join(home, ".config", "sunstack", "sunstack.tmux"))
+	must(t, os.WriteFile(conf, []byte("set -g mouse on\n"+abs+"\nset -g x y\n"), 0o644))
+	expect(t, sh(t, t.TempDir(), env, "tmux", "install", "--yes"), 0, "install over an absolute line")
+	if b, _ := os.ReadFile(conf); string(b) != "set -g mouse on\nsource-file -q ~/.config/sunstack/sunstack.tmux\nset -g x y\n" {
+		t.Errorf("absolute line not replaced:\n%s", b)
 	}
 	f, _ := os.ReadFile(filepath.Join(home, ".config", "sunstack", "sunstack.tmux"))
 	for _, want := range []string{`bind-key S run-shell -b "`, ` tmux panel --pane '#{pane_id}'"`, `bind-key F run-shell -b "`, `--client '#{client_name}'"`} {
