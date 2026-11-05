@@ -183,3 +183,19 @@ func TestTmuxPanelHidesWithoutOption(t *testing.T) {
 		t.Errorf("no hide of the found panel: %s\n%s", r.out, log)
 	}
 }
+
+func TestPanelCommand(t *testing.T) {
+	for cmd, want := range map[string]bool{
+		"/Users/a/.local/bin/sunstack tui --compact --org": true,
+		"'/Users/a b/sunstack-dev' tui --compact":          true,
+		"vim -- /tmp/sunstack-notes tui --compact":         false,
+		"/usr/bin/sunstack tui --compact --org extra":      false,
+		"/usr/bin/sunstack tui --popup --org":              false,
+		"'/Users/a b/sunstack tui --compact":               false,
+		"/opt/notsunstack/vim tui --compact":               false,
+	} {
+		if got := panelCommand(cmd); got != want {
+			t.Errorf("panelCommand(%q) = %v", cmd, got)
+		}
+	}
+}

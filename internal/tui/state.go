@@ -2,9 +2,9 @@ package tui
 
 import (
 	"encoding/json"
-	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/Lucklyric/sunstack/internal/core"
@@ -162,17 +162,25 @@ func loadOrgCache(now time.Time) *core.Org {
 	return &o
 }
 
+// orgCacheMu keeps one dashboard's saves in order.
+var orgCacheMu sync.Mutex
+
 func saveOrgCache(o *core.Org) {
 	b, err := json.Marshal(o)
 	if err != nil {
 		return
 	}
-	tmp := fmt.Sprintf("%s.%d.tmp", orgCachePath(), os.Getpid())
-	if os.WriteFile(tmp, b, 0o600) != nil {
-		os.Remove(tmp)
+	orgCacheMu.Lock()
+	defer orgCacheMu.Unlock()
+	f, err := os.CreateTemp(core.Home(), ".org-cache-*.json") // 0600
+	if err != nil {
 		return
 	}
-	if os.Rename(tmp, orgCachePath()) != nil {
-		os.Remove(tmp)
+	_, err = f.Write(b)
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil || os.Rename(f.Name(), orgCachePath()) != nil {
+		os.Remove(f.Name())
 	}
 }

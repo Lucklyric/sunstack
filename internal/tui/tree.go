@@ -1042,6 +1042,10 @@ func (m *model) treeKey(k string) bool {
 		m.inputPrompt, m.inputText = "message to "+sessionName(s), ""
 		m.inputDone = func(text string) {
 			if strings.TrimSpace(text) != "" {
+				if m.orgCached {
+					m.note = stillCached
+					return
+				}
 				m.note = m.sendTo(s, text)
 			}
 		}
@@ -1080,7 +1084,11 @@ func (m *model) treeKey(k string) bool {
 		}
 		s := n.sess
 		m.confirm = "Reopen " + sessionName(s) + " in a tmux pane? Exit it where it runs first. y to reopen, any other key to cancel"
-		m.confirmDo = func() { m.note = m.reopen(s) }
+		m.confirmDo = func() {
+			if m.note = stillCached; !m.orgCached {
+				m.note = m.reopen(s)
+			}
+		}
 	default:
 		return false
 	}
@@ -1099,11 +1107,18 @@ func (m *model) closeKey(n *treeNode) bool {
 		return true
 	}
 	m.confirm = "Close " + sessionName(s) + "'s pane now? Unsaved work is lost. y to close, any other key to cancel"
-	m.confirmDo = func() { m.note = m.kill(s) }
+	m.confirmDo = func() {
+		if m.note = stillCached; !m.orgCached {
+			m.note = m.kill(s)
+		}
+	}
 	return true
 }
 
 func (m *model) goToSession(s *core.HostSession) string {
+	if m.orgCached {
+		return stillCached
+	}
 	if s.Pane == "" || s.Where == "pane closed" || s.Where == "left pane" {
 		return sessionName(s) + " has no tmux pane to go to"
 	}

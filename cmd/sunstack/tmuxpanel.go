@@ -115,11 +115,30 @@ func livePanel() string {
 		if p != "" && p == id {
 			return id
 		}
-		if found == "" && strings.Contains(cmd, "sunstack") && strings.Contains(cmd, " tui --compact") {
+		if found == "" && panelCommand(cmd) {
 			found = p
 		}
 	}
 	return found
+}
+
+// panelCommand says whether a pane's start command is a panel as
+// panelToggle starts it: a sunstack binary, maybe single-quoted, then
+// exactly tui --compact, maybe --org.
+func panelCommand(cmd string) bool {
+	exe, rest := "", ""
+	if q, ok := strings.CutPrefix(cmd, "'"); ok {
+		var found bool
+		if exe, rest, found = strings.Cut(q, "' "); !found {
+			return false
+		}
+	} else if exe, rest, _ = strings.Cut(cmd, " "); exe == "" {
+		return false
+	}
+	if !strings.HasPrefix(filepath.Base(exe), "sunstack") {
+		return false
+	}
+	return rest == "tui --compact" || rest == "tui --compact --org"
 }
 
 // unhookPanel drops the follow hooks and the panel's option.

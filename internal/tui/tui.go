@@ -83,8 +83,9 @@ type model struct {
 	// mark that session's row (§41.2); focus reads it on each tick.
 	focused string
 	focus   func() string
-	// Run keeps each scan in org-cache.json and starts from it (§42.2).
-	cacheOrg bool
+	// Run keeps each scan in org-cache.json and starts from it (§42.2);
+	// orgCached says the rows are still that cache's, to look at only.
+	cacheOrg, orgCached bool
 	// In a popup tmux hands every key to it, so the prefix and F (or S)
 	// close it the way they opened it (§42.1). prefix is that key as
 	// bubbletea names it; armed says it was just pressed.
@@ -163,6 +164,7 @@ func Run(p *core.Project, org, compact, popup bool) error {
 	m.cacheOrg = true
 	if m.org == nil {
 		m.org = loadOrgCache(time.Now())
+		m.orgCached = m.org != nil
 	}
 	m.reload()
 	// The newest release: the last check now, a fresh one for next time
@@ -256,6 +258,12 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tickCmd()
 	case orgMsg:
 		m.org, m.orgAt, m.orgBusy = msg.o, time.Now(), false
+		if m.orgCached {
+			// A prompt or menu opened on a cached row names a session the
+			// scan may not confirm: drop it.
+			m.orgCached = false
+			m.menu, m.confirm, m.confirmDo, m.inputPrompt, m.inputDone = nil, "", nil, "", nil
+		}
 		if m.cacheOrg && msg.o != nil {
 			go saveOrgCache(msg.o)
 		}
@@ -1070,10 +1078,14 @@ func tmuxFocus() string {
 	return strings.SplitN(os.Getenv("TMUX"), ",", 2)[0] + "\t" + active
 }
 
+// stillCached is the note for an action on a row from the cache: a pane ID
+// there may hold another session now (§42.2).
+const stillCached = "still rescanning sessions; try again in a moment"
+
 // tmuxPrefix is tmux's prefix key as bubbletea names it (C-b is ctrl+b),
-// or "" when it is not a control key.
+// or "" when it is not a control key: the session's own, else the global.
 func tmuxPrefix() string {
-	out, err := exec.Command("tmux", "show-options", "-gv", "prefix").Output()
+	out, err := exec.Command("tmux", "show-options", "-Av", "prefix").Output()
 	if err != nil {
 		return ""
 	}

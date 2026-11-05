@@ -277,6 +277,10 @@ func (m *model) renameKey(n *treeNode) {
 		if strings.TrimSpace(text) == "" {
 			return
 		}
+		if m.orgCached {
+			m.note = stillCached
+			return
+		}
 		// Typing into the pane takes about a second: off the UI's loop.
 		m.note = "renaming " + sessionName(s) + "…"
 		rename := m.rename
