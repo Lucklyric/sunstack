@@ -23,7 +23,7 @@ case "$*" in
   "show-options -gqv "*) ;;
   "set-option -g @sunstack-panel "*) echo "$4" > "$STATE/panel" ;;
   "set-option -gu @sunstack-panel") rm -f "$STATE/panel" ;;
-  "list-panes -a -F #{pane_id}") cat "$STATE/panes" ;;
+  "list-panes -a -F #{pane_id}	#{pane_start_command}") cat "$STATE/panes" ;;
   *"#{pane_current_path}") echo /work ;;
   "display-message -p #{window_id}	#{window_zoomed_flag}") cat "$STATE/front" ;;
   "display-message -p -t %99 #{window_id}	#{window_panes}") cat "$STATE/at" ;;
@@ -169,5 +169,17 @@ func TestTmuxInstall(t *testing.T) {
 		if !strings.Contains(string(f), want) {
 			t.Errorf("sunstack.tmux lacks %q:\n%s", want, f)
 		}
+	}
+}
+
+// prefix S hides a panel whose ID the option lost, found by how it was
+// started (§42.1).
+func TestTmuxPanelHidesWithoutOption(t *testing.T) {
+	env, state := tmuxEnv(t)
+	must(t, os.WriteFile(filepath.Join(state, "panes"), []byte("%1\tzsh\n%7\t/opt/dev/sunstack tui --compact --org\n"), 0o644))
+	r := sh(t, t.TempDir(), env, "tmux", "panel")
+	expect(t, r, 0, "panel")
+	if log := tmuxLog(t, state); !strings.Contains(r.out, "panel hidden") || !strings.Contains(log, "kill-pane -t %7") {
+		t.Errorf("no hide of the found panel: %s\n%s", r.out, log)
 	}
 }

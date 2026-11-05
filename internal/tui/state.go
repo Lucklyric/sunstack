@@ -2,8 +2,10 @@ package tui
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/Lucklyric/sunstack/internal/core"
 )
@@ -133,4 +135,44 @@ func startModel(p *core.Project, org bool) *model {
 		m.view = viewTeam // this host left its org
 	}
 	return m
+}
+
+// The last session scan is kept in ~/.sunstack/org-cache.json, so a new
+// panel or popup draws at once while its first scan runs (§42.2). Like
+// tui.json it is a convenience: a missing, broken or old file means a start
+// that waits for the scan.
+
+const orgCacheAge = time.Hour
+
+func orgCachePath() string { return filepath.Join(core.Home(), "org-cache.json") }
+
+func loadOrgCache(now time.Time) *core.Org {
+	st, err := os.Stat(orgCachePath())
+	if err != nil || now.Sub(st.ModTime()) > orgCacheAge {
+		return nil
+	}
+	b, err := os.ReadFile(orgCachePath())
+	if err != nil {
+		return nil
+	}
+	var o core.Org
+	if json.Unmarshal(b, &o) != nil {
+		return nil
+	}
+	return &o
+}
+
+func saveOrgCache(o *core.Org) {
+	b, err := json.Marshal(o)
+	if err != nil {
+		return
+	}
+	tmp := fmt.Sprintf("%s.%d.tmp", orgCachePath(), os.Getpid())
+	if os.WriteFile(tmp, b, 0o600) != nil {
+		os.Remove(tmp)
+		return
+	}
+	if os.Rename(tmp, orgCachePath()) != nil {
+		os.Remove(tmp)
+	}
 }

@@ -103,19 +103,23 @@ func tuiArgs(mode string) []string {
 	return args
 }
 
-// livePanel is the panel's pane ID while that pane still exists.
+// livePanel is the panel's pane ID while that pane still exists. Without
+// a live one in the option (lost, or set by another sunstack binary), a
+// pane started as a panel counts too, so prefix S always hides it (§42.1).
 func livePanel() string {
 	id := tmuxOpt(optPanel, "")
-	if id == "" {
-		return ""
-	}
-	panes, _ := tmuxOut("list-panes", "-a", "-F", "#{pane_id}")
-	for _, p := range strings.Split(panes, "\n") {
-		if p == id {
+	panes, _ := tmuxOut("list-panes", "-a", "-F", "#{pane_id}\t#{pane_start_command}")
+	found := ""
+	for _, l := range strings.Split(panes, "\n") {
+		p, cmd, _ := strings.Cut(l, "\t")
+		if p != "" && p == id {
 			return id
 		}
+		if found == "" && strings.Contains(cmd, "sunstack") && strings.Contains(cmd, " tui --compact") {
+			found = p
+		}
 	}
-	return ""
+	return found
 }
 
 // unhookPanel drops the follow hooks and the panel's option.

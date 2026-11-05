@@ -83,9 +83,16 @@ type model struct {
 	// mark that session's row (§41.2); focus reads it on each tick.
 	focused string
 	focus   func() string
-	popup   bool // in a tmux popup: going to a pane quits (--popup)
-	jumped  bool // the last key or click went to a pane
-	detail  bool // in one column: the details in place of the list (d)
+	// Run keeps each scan in org-cache.json and starts from it (§42.2).
+	cacheOrg bool
+	// In a popup tmux hands every key to it, so the prefix and F (or S)
+	// close it the way they opened it (§42.1). prefix is that key as
+	// bubbletea names it; armed says it was just pressed.
+	prefix string
+	armed  bool
+	popup  bool // in a tmux popup: going to a pane quits (--popup)
+	jumped bool // the last key or click went to a pane
+	detail bool // in one column: the details in place of the list (d)
 	// Where the last frame drew its list and tabs, for mouse clicks.
 	listStart, listN, listW, listSel int
 	titleX                           []titleSpan // where the chips sit on the chip row
@@ -145,11 +152,18 @@ var (
 func Run(p *core.Project, org, compact, popup bool) error {
 	m := startModel(p, org)
 	m.compact, m.popup = compact, popup
+	if popup {
+		m.prefix = tmuxPrefix()
+	}
 	if compact && os.Getenv("TMUX_PANE") != "" {
 		m.focus = tmuxFocus
 		m.focused = tmuxFocus()
 	}
 	m.cwd, _ = os.Getwd()
+	m.cacheOrg = true
+	if m.org == nil {
+		m.org = loadOrgCache(time.Now())
+	}
 	m.reload()
 	// The newest release: the last check now, a fresh one for next time
 	// (at most daily, §20.6).
@@ -242,6 +256,9 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tickCmd()
 	case orgMsg:
 		m.org, m.orgAt, m.orgBusy = msg.o, time.Now(), false
+		if m.cacheOrg && msg.o != nil {
+			go saveOrgCache(msg.o)
+		}
 		if m.view == viewNext {
 			m.nextItems = m.hostNext() // now with this host's items to compare
 		}
@@ -263,6 +280,15 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.saveState()
 		return m, m.afterJump(cmd)
 	case tea.KeyMsg:
+		if m.prefix != "" {
+			k := msg.String()
+			if m.armed && (k == "F" || k == "S") {
+				return m, tea.Quit
+			}
+			if m.armed = k == m.prefix; m.armed {
+				return m, nil
+			}
+		}
 		if m.viewer != nil && msg.String() != "ctrl+c" {
 			return m, m.viewerKey(msg)
 		}
@@ -1042,4 +1068,21 @@ func tmuxFocus() string {
 		return ""
 	}
 	return strings.SplitN(os.Getenv("TMUX"), ",", 2)[0] + "\t" + active
+}
+
+// tmuxPrefix is tmux's prefix key as bubbletea names it (C-b is ctrl+b),
+// or "" when it is not a control key.
+func tmuxPrefix() string {
+	out, err := exec.Command("tmux", "show-options", "-gv", "prefix").Output()
+	if err != nil {
+		return ""
+	}
+	return prefixKey(strings.TrimSpace(string(out)))
+}
+
+func prefixKey(t string) string {
+	if k, ok := strings.CutPrefix(t, "C-"); ok && len(k) == 1 {
+		return "ctrl+" + strings.ToLower(k)
+	}
+	return ""
 }
