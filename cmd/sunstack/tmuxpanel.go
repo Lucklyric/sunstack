@@ -197,10 +197,6 @@ func panelToggle(pane string, stdout io.Writer) error {
 // panelShow opens the panel beside pane (default: this pane); the caller
 // holds the panel lock and found none open.
 func panelShow(pane string, stdout io.Writer) error {
-	was := core.LoadPanelPrefs().Open
-	if err := core.UpdatePanelPrefs(func(p *core.PanelPrefs) { p.Open = true }); err != nil {
-		return err
-	}
 	if pane == "" {
 		pane = os.Getenv("TMUX_PANE")
 	}
@@ -212,9 +208,13 @@ func panelShow(pane string, stdout io.Writer) error {
 	args = append(args, "-P", "-F", "#{pane_id}", selfCmd(tuiArgs("--compact")...))
 	id, err := tmuxOut(args...)
 	if err != nil || id == "" {
-		// Nothing opened: put back what was kept before.
-		core.UpdatePanelPrefs(func(p *core.PanelPrefs) { p.Open = was })
 		return &core.Error{Code: core.ExitFail, Reason: "tmux", Msg: "tmux could not open the panel"}
+	}
+	// Kept as open only once it is: a save that fails closes it again, so a
+	// show never leaves the saved state wrong either way.
+	if err := core.UpdatePanelPrefs(func(p *core.PanelPrefs) { p.Open = true }); err != nil {
+		tmuxOut("kill-pane", "-t", id)
+		return err
 	}
 	tmuxOut("set-option", "-g", optPanel, id)
 	tmuxOut("set-option", "-p", "-t", id, paneTag, "1")

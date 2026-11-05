@@ -313,3 +313,17 @@ func TestPanelFailedShowStaysClosed(t *testing.T) {
 		t.Errorf("failed show: %d %s", r.code, panelJSON(t, env))
 	}
 }
+
+// A show whose open state cannot be saved closes the new panel again (§43).
+func TestPanelShowNeedsSavedState(t *testing.T) {
+	env, state := tmuxEnv(t)
+	writePanelJSON(t, env, `{"size": "70"}`)
+	held := filepath.Join(envValue(env, "SUNSTACK_HOME"), "locks", "panel-prefs")
+	must(t, os.MkdirAll(held, 0o755))
+	must(t, os.WriteFile(filepath.Join(held, "owner"), []byte("another sunstack\n"), 0o644))
+	r := sh(t, t.TempDir(), env, "tmux", "panel")
+	log := tmuxLog(t, state)
+	if r.code == 0 || !strings.Contains(log, "kill-pane -t %99") || strings.Contains(log, "set-hook -g") || strings.Contains(panelJSON(t, env), `"open"`) {
+		t.Errorf("show with the settings locked: %d %s\n%s\n%s", r.code, r.out, log, panelJSON(t, env))
+	}
+}
