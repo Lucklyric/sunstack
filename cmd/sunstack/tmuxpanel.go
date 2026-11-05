@@ -18,10 +18,11 @@ import (
 
 // The tmux user options the commands read, with their defaults.
 const (
-	optSide  = "@sunstack-side"  // left or right
-	optSize  = "@sunstack-size"  // the panel's width: columns or a percentage
-	optScope = "@sunstack-scope" // org (every team) or team (the folder's team)
-	optPanel = "@sunstack-panel" // set by sunstack: the panel's pane ID
+	optSide  = "@sunstack-side"     // left or right
+	optSize  = "@sunstack-size"     // the panel's width: columns or a percentage
+	optScope = "@sunstack-scope"    // org (every team) or team (the folder's team)
+	optPanel = "@sunstack-panel"    // set by sunstack: the panel's pane ID
+	paneTag  = "@sunstack-is-panel" // set by sunstack on the panel's own pane
 )
 
 // panelHook is the index the follow hooks use in tmux's hook arrays, so the
@@ -104,41 +105,23 @@ func tuiArgs(mode string) []string {
 }
 
 // livePanel is the panel's pane ID while that pane still exists. Without
-// a live one in the option (lost, or set by another sunstack binary), a
-// pane started as a panel counts too, so prefix S always hides it (§42.1).
+// a live one in the option (lost, or pointing at a closed pane), a pane
+// tagged as the panel when it opened counts too, so prefix S always hides
+// it (§42.1).
 func livePanel() string {
 	id := tmuxOpt(optPanel, "")
-	panes, _ := tmuxOut("list-panes", "-a", "-F", "#{pane_id}\t#{pane_start_command}")
+	panes, _ := tmuxOut("list-panes", "-a", "-F", "#{pane_id}\t#{"+paneTag+"}")
 	found := ""
 	for _, l := range strings.Split(panes, "\n") {
-		p, cmd, _ := strings.Cut(l, "\t")
+		p, tag, _ := strings.Cut(l, "\t")
 		if p != "" && p == id {
 			return id
 		}
-		if found == "" && panelCommand(cmd) {
+		if found == "" && p != "" && tag == "1" {
 			found = p
 		}
 	}
 	return found
-}
-
-// panelCommand says whether a pane's start command is a panel as
-// panelToggle starts it: a sunstack binary, maybe single-quoted, then
-// exactly tui --compact, maybe --org.
-func panelCommand(cmd string) bool {
-	exe, rest := "", ""
-	if q, ok := strings.CutPrefix(cmd, "'"); ok {
-		var found bool
-		if exe, rest, found = strings.Cut(q, "' "); !found {
-			return false
-		}
-	} else if exe, rest, _ = strings.Cut(cmd, " "); exe == "" {
-		return false
-	}
-	if !strings.HasPrefix(filepath.Base(exe), "sunstack") {
-		return false
-	}
-	return rest == "tui --compact" || rest == "tui --compact --org"
 }
 
 // unhookPanel drops the follow hooks and the panel's option.
@@ -185,6 +168,7 @@ func panelToggle(pane string, stdout io.Writer) error {
 		return &core.Error{Code: core.ExitFail, Reason: "tmux", Msg: "tmux could not open the panel"}
 	}
 	tmuxOut("set-option", "-g", optPanel, id)
+	tmuxOut("set-option", "-p", "-t", id, paneTag, "1")
 	// The hook names the window that changed: a background run-shell has no
 	// client of its own to ask.
 	follow := "run-shell -b " + tmuxDQ(selfCmd("tmux", "follow")+" --window '#{window_id}'")

@@ -23,7 +23,7 @@ case "$*" in
   "show-options -gqv "*) ;;
   "set-option -g @sunstack-panel "*) echo "$4" > "$STATE/panel" ;;
   "set-option -gu @sunstack-panel") rm -f "$STATE/panel" ;;
-  "list-panes -a -F #{pane_id}	#{pane_start_command}") cat "$STATE/panes" ;;
+  "list-panes -a -F #{pane_id}	#{@sunstack-is-panel}") cat "$STATE/panes" ;;
   *"#{pane_current_path}") echo /work ;;
   "display-message -p #{window_id}	#{window_zoomed_flag}") cat "$STATE/front" ;;
   "display-message -p -t %99 #{window_id}	#{window_panes}") cat "$STATE/at" ;;
@@ -57,7 +57,7 @@ func TestTmuxPanelShowsFollowsAndHides(t *testing.T) {
 	expect(t, r, 0, "panel")
 	log := tmuxLog(t, state)
 	for _, want := range []string{"split-window -d -t %1 -f -h -l 35% -b -c /work -P -F #{pane_id}", "tui --compact --org",
-		"set-option -g @sunstack-panel %99", "set-hook -g session-window-changed[42] run-shell -b", "set-hook -g client-session-changed[42]", "tmux follow --window '#{window_id}'"} {
+		"set-option -g @sunstack-panel %99", "set-option -p -t %99 @sunstack-is-panel 1", "set-hook -g session-window-changed[42] run-shell -b", "set-hook -g client-session-changed[42]", "tmux follow --window '#{window_id}'"} {
 		if !strings.Contains(log, want) {
 			t.Errorf("panel: no %q in\n%s", want, log)
 		}
@@ -172,11 +172,11 @@ func TestTmuxInstall(t *testing.T) {
 	}
 }
 
-// prefix S hides a panel whose ID the option lost, found by how it was
-// started (§42.1).
+// prefix S hides a panel whose ID the option lost, found by its pane tag;
+// a pane that only looks like one is left alone (§42.1).
 func TestTmuxPanelHidesWithoutOption(t *testing.T) {
 	env, state := tmuxEnv(t)
-	must(t, os.WriteFile(filepath.Join(state, "panes"), []byte("%1\tzsh\n%7\t/opt/dev/sunstack tui --compact --org\n"), 0o644))
+	must(t, os.WriteFile(filepath.Join(state, "panes"), []byte("%1\t\n%5\t\n%7\t1\n"), 0o644))
 	r := sh(t, t.TempDir(), env, "tmux", "panel")
 	expect(t, r, 0, "panel")
 	if log := tmuxLog(t, state); !strings.Contains(r.out, "panel hidden") || !strings.Contains(log, "kill-pane -t %7") {
@@ -184,18 +184,3 @@ func TestTmuxPanelHidesWithoutOption(t *testing.T) {
 	}
 }
 
-func TestPanelCommand(t *testing.T) {
-	for cmd, want := range map[string]bool{
-		"/Users/a/.local/bin/sunstack tui --compact --org": true,
-		"'/Users/a b/sunstack-dev' tui --compact":          true,
-		"vim -- /tmp/sunstack-notes tui --compact":         false,
-		"/usr/bin/sunstack tui --compact --org extra":      false,
-		"/usr/bin/sunstack tui --popup --org":              false,
-		"'/Users/a b/sunstack tui --compact":               false,
-		"/opt/notsunstack/vim tui --compact":               false,
-	} {
-		if got := panelCommand(cmd); got != want {
-			t.Errorf("panelCommand(%q) = %v", cmd, got)
-		}
-	}
-}
