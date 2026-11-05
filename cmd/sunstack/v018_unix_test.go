@@ -27,7 +27,7 @@ case "$*" in
   *"#{pane_current_path}") echo /work ;;
   "display-message -p #{window_id}	#{window_zoomed_flag}") cat "$STATE/front" ;;
   "display-message -p -t %99 #{window_id}	#{window_panes}") cat "$STATE/at" ;;
-  "display-message -p -t %99 #{pane_width}	#{window_zoomed_flag}") cat "$STATE/width" 2>/dev/null || printf '52\t0\n' ;;
+  "display-message -p -t %99 #{pane_width}	#{window_zoomed_flag}	#{window_layout}") cat "$STATE/width" 2>/dev/null || printf '52\t0\tx\n' ;;
   "set-option -g @sunstack-size "*) echo "$4" > "$STATE/size" ;;
   "display-message -p -t @5 #{window_id}	#{window_zoomed_flag}") printf '@5\t0\n' ;;
   split-window*) echo %99 ;;
@@ -92,10 +92,11 @@ func TestTmuxPanelShowsFollowsAndHides(t *testing.T) {
 	if log := tmuxLog(t, state); !strings.Contains(log, "join-pane -d -f -h -l 52 -s %99") {
 		t.Errorf("follow right: %s", log)
 	}
-	// A zoomed panel reports the whole window's width: the kept size stands.
-	must(t, os.WriteFile(filepath.Join(state, "width"), []byte("200\t1\n"), 0o644))
+	// A zoomed panel reports the whole window's width: its width comes from
+	// the unzoomed layout, here 61 after a drag.
+	must(t, os.WriteFile(filepath.Join(state, "width"), []byte("200\t1\t9557,200x50,0,0{61x50,0,0,99,138x50,62,0,1}\n"), 0o644))
 	expect(t, sh(t, dir, env, "tmux", "follow", "--window", "@5"), 0, "follow zoomed panel")
-	if log := tmuxLog(t, state); !strings.Contains(log, "join-pane -d -f -h -l 52 -s %99 -t @5") || strings.Contains(log, "@sunstack-size 200") {
+	if log := tmuxLog(t, state); !strings.Contains(log, "join-pane -d -f -h -l 61 -s %99 -t @5") || strings.Contains(log, "@sunstack-size 200") {
 		t.Errorf("zoomed panel width: %s", log)
 	}
 	must(t, os.Remove(filepath.Join(state, "width")))

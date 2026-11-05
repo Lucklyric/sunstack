@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/Lucklyric/sunstack/internal/core"
@@ -203,16 +204,31 @@ func panelFollow(window string) error {
 	return nil
 }
 
+// layoutCell is one pane in a tmux layout string: its width and number.
+var layoutCell = regexp.MustCompile(`(\d+)x\d+,\d+,\d+,(\d+)`)
+
 // panelWidth is the panel's width in columns, kept as @sunstack-size for the
 // next show. In a zoomed window tmux reports the whole window's width, so
-// then the kept size stands.
+// then the width comes from the window's unzoomed layout.
 func panelWidth(id string) string {
-	out, _ := tmuxOut("display-message", "-p", "-t", id, "#{pane_width}\t#{window_zoomed_flag}")
-	if w, zoomed, ok := strings.Cut(out, "\t"); ok && w != "" && zoomed == "0" {
-		tmuxOut("set-option", "-g", optSize, w)
-		return w
+	out, _ := tmuxOut("display-message", "-p", "-t", id, "#{pane_width}\t#{window_zoomed_flag}\t#{window_layout}")
+	f := strings.SplitN(out, "\t", 3)
+	w := ""
+	switch {
+	case len(f) == 3 && f[1] == "0":
+		w = f[0]
+	case len(f) == 3:
+		for _, c := range layoutCell.FindAllStringSubmatch(f[2], -1) {
+			if "%"+c[2] == id {
+				w = c[1]
+			}
+		}
 	}
-	return tmuxOpt(optSize, "35%")
+	if w == "" {
+		return tmuxOpt(optSize, "35%")
+	}
+	tmuxOut("set-option", "-g", optSize, w)
+	return w
 }
 
 // popup opens the dashboard in a floating window over the client; a jump
