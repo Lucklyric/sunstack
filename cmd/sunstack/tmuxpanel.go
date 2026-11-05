@@ -168,6 +168,11 @@ func panelToggle(pane string, stdout io.Writer) error {
 	if err := needTmux(); err != nil {
 		return err
 	}
+	unlock, err := core.LockPanel()
+	if err != nil {
+		return err
+	}
+	defer unlock()
 	if id := livePanel(); id != "" {
 		panelWidth(id) // a width the user dragged to stays for the next show (§41.1)
 		unhookPanel()
@@ -176,6 +181,12 @@ func panelToggle(pane string, stdout io.Writer) error {
 		fmt.Fprintln(stdout, "sunstack: panel hidden")
 		return nil
 	}
+	return panelShow(pane, stdout)
+}
+
+// panelShow opens the panel beside pane (default: this pane); the caller
+// holds the panel lock and found none open.
+func panelShow(pane string, stdout io.Writer) error {
 	if pane == "" {
 		pane = os.Getenv("TMUX_PANE")
 	}
@@ -394,10 +405,15 @@ func panelRestore(pane string, stdout io.Writer) error {
 	if err := needTmux(); err != nil {
 		return err
 	}
+	unlock, err := core.LockPanel()
+	if err != nil {
+		return err
+	}
+	defer unlock()
 	if !core.LoadPanelPrefs().Open || livePanel() != "" {
 		return nil
 	}
-	return panelToggle(pane, stdout)
+	return panelShow(pane, stdout)
 }
 
 // panelChoose keeps the panel's side or scope (§43) and moves an open panel
@@ -420,6 +436,11 @@ func panelChoose(what, v string, stdout io.Writer) error {
 	if what != "side" || os.Getenv("TMUX") == "" {
 		return nil
 	}
+	unlock, err := core.LockPanel()
+	if err != nil {
+		return err
+	}
+	defer unlock()
 	id := livePanel()
 	if id == "" {
 		return nil

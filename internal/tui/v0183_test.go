@@ -96,3 +96,24 @@ func TestPanelKeysAndWidth(t *testing.T) {
 		t.Error("q left the panel marked open")
 	}
 }
+
+// Help shows no divider, and a release missed outside the window does not
+// leave the drag on (§43).
+func TestDividerEdgeCases(t *testing.T) {
+	m := treeModel(t)
+	m.View()
+	lw, y := m.leftW(), m.bodyTop()+3
+	m.help = true
+	m.Update(tea.MouseMsg{X: lw + 1, Y: y, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft})
+	if m.dragging || m.help {
+		t.Errorf("help: dragging %v, help still open %v", m.dragging, m.help)
+	}
+	m.Update(tea.MouseMsg{X: lw + 1, Y: y, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft})
+	before := m.leftW()
+	// No release arrives; the next press is in the list.
+	m.Update(tea.MouseMsg{X: 3, Y: y, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft})
+	m.Update(tea.MouseMsg{X: 70, Y: y, Action: tea.MouseActionMotion, Button: tea.MouseButtonLeft})
+	if m.dragging || m.leftW() != before {
+		t.Errorf("stale drag: dragging %v, list %d (was %d)", m.dragging, m.leftW(), before)
+	}
+}

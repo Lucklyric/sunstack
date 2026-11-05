@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/Lucklyric/sunstack/internal/core"
@@ -252,5 +253,29 @@ func TestPanelPrefs(t *testing.T) {
 	expect(t, sh(t, dir, env, "tmux", "scope", "org"), 0, "scope")
 	if !strings.Contains(panelJSON(t, env), `"scope": "org"`) {
 		t.Errorf("scope not kept: %s", panelJSON(t, env))
+	}
+}
+
+// Several sessions created at once each run restore: one panel opens (§43).
+func TestPanelRestoreOnce(t *testing.T) {
+	p := t.TempDir()
+	s := privateTmux(t, p, isolatedEnv(t))
+	env := append(append([]string{}, s.env...), "SUNSTACK_TEST_DEFAULT_SOCKET="+s.socket)
+	writePanelJSON(t, env, `{"open": true}`)
+	s.tmux(t, "set-option", "-g", "remain-on-exit", "on") // keep a panel whose dashboard exits here
+	var wg sync.WaitGroup
+	for range 6 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if r := sh(t, p, env, "tmux", "restore", "--pane", s.pane); r.code != 0 {
+				t.Errorf("restore: %d %s %s", r.code, r.out, r.stderr)
+			}
+		}()
+	}
+	wg.Wait()
+	out := s.tmux(t, "list-panes", "-a", "-F", "#{@sunstack-is-panel}")
+	if n := strings.Count(out, "1"); n != 1 {
+		t.Errorf("%d panels after concurrent restores:\n%s", n, out)
 	}
 }

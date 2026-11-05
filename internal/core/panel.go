@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"sync"
 )
 
 // PanelPrefs are the tmux side panel's settings as the user last left them
@@ -18,8 +17,6 @@ type PanelPrefs struct {
 	Open  bool   `json:"open,omitempty"`  // shown when tmux last had it
 }
 
-var panelMu sync.Mutex
-
 func panelPath() string { return filepath.Join(Home(), "panel.json") }
 
 // LoadPanelPrefs reads the panel's settings; a missing or broken file is
@@ -32,10 +29,20 @@ func LoadPanelPrefs() PanelPrefs {
 	return p
 }
 
-// UpdatePanelPrefs changes the settings with f and writes them back.
+// LockPanel takes the lock that orders the panel's show, hide and moves
+// across processes (§43): several session-created hooks can run at once.
+func LockPanel() (func(), error) {
+	return LockDir(filepath.Join(Home(), "locks", "panel"), "the tmux panel")
+}
+
+// UpdatePanelPrefs changes the settings with f and writes them back, under a
+// lock across processes, so a change made meanwhile is not lost.
 func UpdatePanelPrefs(f func(*PanelPrefs)) error {
-	panelMu.Lock()
-	defer panelMu.Unlock()
+	unlock, err := LockDir(filepath.Join(Home(), "locks", "panel-prefs"), "the panel's settings")
+	if err != nil {
+		return err
+	}
+	defer unlock()
 	p := LoadPanelPrefs()
 	f(&p)
 	b, err := json.MarshalIndent(p, "", "  ")

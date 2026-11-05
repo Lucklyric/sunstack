@@ -337,13 +337,17 @@ func (m *model) mouse(e tea.MouseMsg) tea.Cmd {
 	// The line between the list and the details drags (§43): a press on it,
 	// motion with the button held, then release.
 	if m.dragging {
-		switch e.Action {
-		case tea.MouseActionMotion:
+		switch {
+		case e.Action == tea.MouseActionMotion && e.Button == tea.MouseButtonLeft:
 			m.setSplit(e.X - 1)
-		case tea.MouseActionRelease:
+			return nil
+		case e.Action == tea.MouseActionRelease:
 			m.dragging = false
+			return nil
 		}
-		return nil
+		// A press, or motion without the button: the release was missed
+		// (outside the window). Drop the drag and take the event as it is.
+		m.dragging = false
 	}
 	if e.Action == tea.MouseActionPress && e.Button == tea.MouseButtonLeft && m.onDivider(e.X, e.Y) {
 		m.dragging = true
@@ -492,7 +496,7 @@ func pasteText(rs []rune) string {
 
 // key handles one key press.
 func (m *model) key(k string) tea.Cmd {
-	m.note = ""
+	m.note, m.dragging = "", false
 	if m.menu != nil {
 		return m.menuKey(k)
 	}
@@ -1138,7 +1142,7 @@ func prefixKey(t string) string {
 // onDivider says whether x, y is on the line between the list and the
 // details: the list box's right edge or the details box's left edge.
 func (m *model) onDivider(x, y int) bool {
-	if m.compactMode() || m.viewer != nil || m.menu != nil || m.inputPrompt != "" || m.confirm != "" {
+	if m.compactMode() || m.help || m.viewer != nil || m.menu != nil || m.inputPrompt != "" || m.confirm != "" {
 		return false
 	}
 	lw := m.leftW()
