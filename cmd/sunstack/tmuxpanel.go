@@ -174,10 +174,20 @@ func panelToggle(pane string, stdout io.Writer) error {
 	}
 	defer unlock()
 	if id := livePanel(); id != "" {
-		panelWidth(id) // a width the user dragged to stays for the next show (§41.1)
+		// Closed first, with the width the user dragged to (§41.1): a save
+		// that fails leaves the panel up, so restore cannot bring back one
+		// the user hid.
+		w, ok := measurePanel(id)
+		if err := core.UpdatePanelPrefs(func(p *core.PanelPrefs) {
+			if ok {
+				p.Size = w
+			}
+			p.Open = false
+		}); err != nil {
+			return err
+		}
 		unhookPanel()
 		tmuxOut("kill-pane", "-t", id)
-		core.UpdatePanelPrefs(func(p *core.PanelPrefs) { p.Open = false })
 		fmt.Fprintln(stdout, "sunstack: panel hidden")
 		return nil
 	}
@@ -187,6 +197,9 @@ func panelToggle(pane string, stdout io.Writer) error {
 // panelShow opens the panel beside pane (default: this pane); the caller
 // holds the panel lock and found none open.
 func panelShow(pane string, stdout io.Writer) error {
+	if err := core.UpdatePanelPrefs(func(p *core.PanelPrefs) { p.Open = true }); err != nil {
+		return err
+	}
 	if pane == "" {
 		pane = os.Getenv("TMUX_PANE")
 	}
@@ -202,7 +215,6 @@ func panelShow(pane string, stdout io.Writer) error {
 	}
 	tmuxOut("set-option", "-g", optPanel, id)
 	tmuxOut("set-option", "-p", "-t", id, paneTag, "1")
-	core.UpdatePanelPrefs(func(p *core.PanelPrefs) { p.Open = true })
 	// The hook names the window that changed: a background run-shell has no
 	// client of its own to ask.
 	follow := "run-shell -b " + tmuxDQ(selfCmd("tmux", "follow")+" --window '#{window_id}'")
@@ -252,6 +264,17 @@ var layoutCell = regexp.MustCompile(`(\d+)x\d+,\d+,\d+,(\d+)`)
 // next show. In a zoomed window tmux reports the whole window's width, so
 // then the width comes from the window's unzoomed layout.
 func panelWidth(id string) string {
+	w, ok := measurePanel(id)
+	if !ok {
+		return panelSize()
+	}
+	core.UpdatePanelPrefs(func(p *core.PanelPrefs) { p.Size = w })
+	return w
+}
+
+// measurePanel is the panel's width in columns, read from the unzoomed
+// layout when its window is zoomed; false when tmux cannot tell.
+func measurePanel(id string) (string, bool) {
 	out, _ := tmuxOut("display-message", "-p", "-t", id, "#{pane_width}\t#{window_zoomed_flag}\t#{window_layout}")
 	f := strings.SplitN(out, "\t", 3)
 	w := ""
@@ -265,11 +288,7 @@ func panelWidth(id string) string {
 			}
 		}
 	}
-	if w == "" {
-		return panelSize()
-	}
-	core.UpdatePanelPrefs(func(p *core.PanelPrefs) { p.Size = w })
-	return w
+	return w, w != ""
 }
 
 // popup opens the dashboard in a floating window over the client; a jump

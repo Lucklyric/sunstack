@@ -533,8 +533,12 @@ func (m *model) key(k string) tea.Cmd {
 	}
 	if k == "q" || k == "ctrl+c" {
 		if m.panel {
-			// Closed on purpose: a tmux restart does not bring it back.
-			core.UpdatePanelPrefs(func(p *core.PanelPrefs) { p.Open = false })
+			// Closed on purpose: a tmux restart does not bring it back. If
+			// that cannot be saved, stay, so restore does not reopen it.
+			if err := core.UpdatePanelPrefs(func(p *core.PanelPrefs) { p.Open = false }); err != nil {
+				m.note = "could not save that the panel is closed (" + err.Error() + "); q again to retry"
+				return nil
+			}
 		}
 		return tea.Quit
 	}

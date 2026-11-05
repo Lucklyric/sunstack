@@ -279,3 +279,26 @@ func TestPanelRestoreOnce(t *testing.T) {
 		t.Errorf("%d panels after concurrent restores:\n%s", n, out)
 	}
 }
+
+// A hide whose closed state cannot be saved leaves the panel up and fails,
+// so restore cannot reopen a panel the user hid (§43).
+func TestPanelHideNeedsSavedState(t *testing.T) {
+	env, state := tmuxEnv(t)
+	dir := t.TempDir()
+	writePanelJSON(t, env, `{"open": true}`)
+	must(t, os.WriteFile(filepath.Join(state, "panel"), []byte("%99\n"), 0o644))
+	must(t, os.WriteFile(filepath.Join(state, "panes"), []byte("%1\t\n%99\t1\n"), 0o644))
+	held := filepath.Join(envValue(env, "SUNSTACK_HOME"), "locks", "panel-prefs")
+	must(t, os.MkdirAll(held, 0o755))
+	must(t, os.WriteFile(filepath.Join(held, "owner"), []byte("another sunstack\n"), 0o644))
+	r := sh(t, dir, env, "tmux", "panel")
+	if r.code == 0 || strings.Contains(r.out, "panel hidden") {
+		t.Errorf("hide with the settings locked: %d %s", r.code, r.out)
+	}
+	if log := tmuxLog(t, state); strings.Contains(log, "kill-pane") {
+		t.Errorf("the panel was closed anyway: %s", log)
+	}
+	if !strings.Contains(panelJSON(t, env), `"open": true`) {
+		t.Errorf("panel.json changed: %s", panelJSON(t, env))
+	}
+}
