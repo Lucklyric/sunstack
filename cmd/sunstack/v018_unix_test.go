@@ -19,14 +19,16 @@ echo "$*" >> "$STATE/log"
 case "$*" in
   "show-options -gqv @sunstack-panel") cat "$STATE/panel" 2>/dev/null ;;
   "show-options -gqv @sunstack-side") cat "$STATE/side" 2>/dev/null ;;
+  "show-options -gqv @sunstack-size") cat "$STATE/size" 2>/dev/null ;;
   "show-options -gqv "*) ;;
   "set-option -g @sunstack-panel "*) echo "$4" > "$STATE/panel" ;;
   "set-option -gu @sunstack-panel") rm -f "$STATE/panel" ;;
   "list-panes -a -F #{pane_id}") cat "$STATE/panes" ;;
   *"#{pane_current_path}") echo /work ;;
   "display-message -p #{window_id}	#{window_zoomed_flag}") cat "$STATE/front" ;;
-  "display-message -p -t %99 #{window_id}	#{window_panes}	#{pane_width}") cat "$STATE/at" ;;
-  "display-message -p -t %99 #{pane_width}") echo 52 ;;
+  "display-message -p -t %99 #{window_id}	#{window_panes}") cat "$STATE/at" ;;
+  "display-message -p -t %99 #{pane_width}	#{window_zoomed_flag}") cat "$STATE/width" 2>/dev/null || printf '52\t0\n' ;;
+  "set-option -g @sunstack-size "*) echo "$4" > "$STATE/size" ;;
   "display-message -p -t @5 #{window_id}	#{window_zoomed_flag}") printf '@5\t0\n' ;;
   split-window*) echo %99 ;;
 esac
@@ -63,7 +65,7 @@ func TestTmuxPanelShowsFollowsAndHides(t *testing.T) {
 	// It follows into the window in front...
 	must(t, os.WriteFile(filepath.Join(state, "panes"), []byte("%1\n%2\n%99\n"), 0o644))
 	must(t, os.WriteFile(filepath.Join(state, "front"), []byte("@2\t0\n"), 0o644))
-	must(t, os.WriteFile(filepath.Join(state, "at"), []byte("@1\t3\t52\n"), 0o644))
+	must(t, os.WriteFile(filepath.Join(state, "at"), []byte("@1\t3\n"), 0o644))
 	expect(t, sh(t, dir, env, "tmux", "follow"), 0, "follow")
 	// At its current width, so a width the user dragged to stays (§41.1).
 	if log := tmuxLog(t, state); !strings.Contains(log, "join-pane -d -f -h -l 52 -b -s %99 -t @2") {
@@ -75,7 +77,7 @@ func TestTmuxPanelShowsFollowsAndHides(t *testing.T) {
 		t.Errorf("follow --window: %s", log)
 	}
 	// ...but not into a zoomed window, nor out of a window it is alone in.
-	for _, c := range []struct{ front, at string }{{"@2\t1\n", "@1\t3\t52\n"}, {"@2\t0\n", "@1\t1\t52\n"}, {"@1\t0\n", "@1\t3\t52\n"}} {
+	for _, c := range []struct{ front, at string }{{"@2\t1\n", "@1\t3\n"}, {"@2\t0\n", "@1\t1\n"}, {"@1\t0\n", "@1\t3\n"}} {
 		must(t, os.WriteFile(filepath.Join(state, "front"), []byte(c.front), 0o644))
 		must(t, os.WriteFile(filepath.Join(state, "at"), []byte(c.at), 0o644))
 		expect(t, sh(t, dir, env, "tmux", "follow"), 0, "follow")
@@ -90,6 +92,13 @@ func TestTmuxPanelShowsFollowsAndHides(t *testing.T) {
 	if log := tmuxLog(t, state); !strings.Contains(log, "join-pane -d -f -h -l 52 -s %99") {
 		t.Errorf("follow right: %s", log)
 	}
+	// A zoomed panel reports the whole window's width: the kept size stands.
+	must(t, os.WriteFile(filepath.Join(state, "width"), []byte("200\t1\n"), 0o644))
+	expect(t, sh(t, dir, env, "tmux", "follow", "--window", "@5"), 0, "follow zoomed panel")
+	if log := tmuxLog(t, state); !strings.Contains(log, "join-pane -d -f -h -l 52 -s %99 -t @5") || strings.Contains(log, "@sunstack-size 200") {
+		t.Errorf("zoomed panel width: %s", log)
+	}
+	must(t, os.Remove(filepath.Join(state, "width")))
 	// The same command again hides it and drops the hooks.
 	r = sh(t, dir, env, "tmux", "panel")
 	expect(t, r, 0, "hide")
@@ -138,6 +147,14 @@ func TestTmuxInstall(t *testing.T) {
 	b, _ := os.ReadFile(conf)
 	if got := string(b); !strings.HasPrefix(got, "set -g mouse on\n") || strings.Count(got, "source-file -q ~/.config/sunstack/sunstack.tmux\n") != 1 {
 		t.Errorf("tmux.conf:\n%s", got)
+	}
+	// A comment or a longer path is not the source line (§41.3).
+	for _, other := range []string{"# source-file -q ~/.config/sunstack/sunstack.tmux", "source-file -q ~/.config/sunstack/sunstack.tmux.backup"} {
+		must(t, os.WriteFile(conf, []byte(other+"\n"), 0o644))
+		expect(t, sh(t, t.TempDir(), env, "tmux", "install", "--yes"), 0, "install beside "+other)
+		if b, _ := os.ReadFile(conf); !strings.HasPrefix(string(b), other+"\n") || !strings.Contains(string(b), "\nsource-file -q ~/.config/sunstack/sunstack.tmux\n") {
+			t.Errorf("beside %q:\n%s", other, b)
+		}
 	}
 	// An older install's absolute line becomes the portable one (§41.3).
 	abs := "source-file -q " + core.ShellQuote(filepath.Join(home, ".config", "sunstack", "sunstack.tmux"))

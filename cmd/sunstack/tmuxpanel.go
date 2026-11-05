@@ -141,10 +141,7 @@ func panelToggle(pane string, stdout io.Writer) error {
 		return err
 	}
 	if id := livePanel(); id != "" {
-		// A width the user dragged to stays for the next show (§41.1).
-		if w, _ := tmuxOut("display-message", "-p", "-t", id, "#{pane_width}"); w != "" {
-			tmuxOut("set-option", "-g", optSize, w)
-		}
+		panelWidth(id) // a width the user dragged to stays for the next show (§41.1)
 		unhookPanel()
 		tmuxOut("kill-pane", "-t", id)
 		fmt.Fprintln(stdout, "sunstack: panel hidden")
@@ -191,10 +188,10 @@ func panelFollow(window string) error {
 		return nil
 	}
 	f := strings.SplitN(info, "\t", 2)
-	at, _ := tmuxOut("display-message", "-p", "-t", id, "#{window_id}\t#{window_panes}\t#{pane_width}")
-	g := strings.SplitN(at, "\t", 3)
+	at, _ := tmuxOut("display-message", "-p", "-t", id, "#{window_id}\t#{window_panes}")
+	g := strings.SplitN(at, "\t", 2)
 	switch {
-	case len(f) < 2 || len(g) < 3, f[0] == g[0]:
+	case len(f) < 2 || len(g) < 2, f[0] == g[0]:
 		return nil
 	case f[1] == "1": // a zoomed window keeps its one pane
 		return nil
@@ -202,8 +199,20 @@ func panelFollow(window string) error {
 		return nil
 	}
 	// It moves at its current width, so a width the user dragged to stays.
-	tmuxOut(append(append([]string{"join-pane", "-d"}, splitArgs(g[2])...), "-s", id, "-t", f[0])...)
+	tmuxOut(append(append([]string{"join-pane", "-d"}, splitArgs(panelWidth(id))...), "-s", id, "-t", f[0])...)
 	return nil
+}
+
+// panelWidth is the panel's width in columns, kept as @sunstack-size for the
+// next show. In a zoomed window tmux reports the whole window's width, so
+// then the kept size stands.
+func panelWidth(id string) string {
+	out, _ := tmuxOut("display-message", "-p", "-t", id, "#{pane_width}\t#{window_zoomed_flag}")
+	if w, zoomed, ok := strings.Cut(out, "\t"); ok && w != "" && zoomed == "0" {
+		tmuxOut("set-option", "-g", optSize, w)
+		return w
+	}
+	return tmuxOpt(optSize, "35%")
 }
 
 // popup opens the dashboard in a floating window over the client; a jump
@@ -263,8 +272,18 @@ func tmuxInstall(yes bool, stdout io.Writer) error {
 		"bind-key S run-shell -b " + tmuxDQ(selfCmd("tmux", "panel")+" --pane '#{pane_id}'") + "\n" +
 		"bind-key F run-shell -b " + tmuxDQ(selfCmd("tmux", "popup")+" --pane '#{pane_id}' --client '#{client_name}'") + "\n"
 	old, _ := os.ReadFile(conf)
-	sourced := strings.Contains(string(old), source)
-	stale := !sourced && strings.Contains(string(old), absolute)
+	// Whole lines only: a comment or a longer path is not the source line.
+	lines := strings.SplitAfter(string(old), "\n")
+	sourced, staleAt := false, -1
+	for i, l := range lines {
+		switch strings.TrimSpace(l) {
+		case source:
+			sourced = true
+		case absolute:
+			staleAt = i
+		}
+	}
+	stale := !sourced && staleAt >= 0
 	if !yes {
 		fmt.Fprintf(stdout, "sunstack tmux install will:\n  write %s (prefix S: panel, prefix F: popup)\n", file)
 		switch {
@@ -289,7 +308,8 @@ func tmuxInstall(yes bool, stdout io.Writer) error {
 	}
 	fmt.Fprintf(stdout, "wrote %s\n", file)
 	if stale {
-		if err := os.WriteFile(conf, []byte(strings.ReplaceAll(string(old), absolute, source)), 0o644); err != nil {
+		lines[staleAt] = strings.Replace(lines[staleAt], absolute, source, 1)
+		if err := os.WriteFile(conf, []byte(strings.Join(lines, "")), 0o644); err != nil {
 			return &core.Error{Code: core.ExitFail, Reason: "fs", Msg: err.Error()}
 		}
 		fmt.Fprintf(stdout, "replaced in %s: %s\n", conf, source)
