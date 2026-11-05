@@ -31,7 +31,7 @@ case "$*" in
   "display-message -p -t %99 #{pane_width}	#{window_zoomed_flag}	#{window_layout}") cat "$STATE/width" 2>/dev/null || printf '52\t0\tx\n' ;;
   "set-option -g @sunstack-size "*) echo "$4" > "$STATE/size" ;;
   "display-message -p -t @5 #{window_id}	#{window_zoomed_flag}") printf '@5\t0\n' ;;
-  split-window*) echo %99 ;;
+  split-window*) [ -f "$STATE/nosplit" ] && exit 1; echo %99 ;;
 esac
 `
 
@@ -300,5 +300,16 @@ func TestPanelHideNeedsSavedState(t *testing.T) {
 	}
 	if !strings.Contains(panelJSON(t, env), `"open": true`) {
 		t.Errorf("panel.json changed: %s", panelJSON(t, env))
+	}
+}
+
+// A show that tmux refuses keeps the closed state (§43).
+func TestPanelFailedShowStaysClosed(t *testing.T) {
+	env, state := tmuxEnv(t)
+	writePanelJSON(t, env, `{"size": "70"}`)
+	must(t, os.WriteFile(filepath.Join(state, "nosplit"), nil, 0o644))
+	r := sh(t, t.TempDir(), env, "tmux", "panel")
+	if r.code == 0 || strings.Contains(panelJSON(t, env), `"open": true`) {
+		t.Errorf("failed show: %d %s", r.code, panelJSON(t, env))
 	}
 }
