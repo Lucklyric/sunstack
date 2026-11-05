@@ -29,6 +29,7 @@ type options struct {
 	BoardShow string `json:"board_show,omitempty"`
 	TasksAll  bool   `json:"tasks_all,omitempty"`
 	NextShow  string `json:"next_show,omitempty"`
+	Split     int    `json:"split,omitempty"` // the list's width, dragged (§43)
 }
 
 func indexOf(list []string, v string) int {
@@ -42,12 +43,13 @@ func indexOf(list []string, v string) int {
 
 func (m *model) options() options {
 	return options{Order: orderNames[m.order], AllShown: m.showAll, Show: filterModes[m.filterMode],
-		BoardShow: boardFilters[m.board.filter], TasksAll: m.tasks.all, NextShow: nextShows[m.nextShow]}
+		BoardShow: boardFilters[m.board.filter], TasksAll: m.tasks.all, NextShow: nextShows[m.nextShow], Split: m.split}
 }
 
 func (m *model) applyOptions(o options) {
 	m.order, m.showAll, m.filterMode = indexOf(orderNames, o.Order), o.AllShown, indexOf(filterModes, o.Show)
 	m.board.filter, m.tasks.all, m.nextShow = indexOf(boardFilters, o.BoardShow), o.TasksAll, indexOf(nextShows, o.NextShow)
+	m.split = o.Split
 	if m.order == orderHost && m.hosts == nil {
 		m.order = orderProject
 	}

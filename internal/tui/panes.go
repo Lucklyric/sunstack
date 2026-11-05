@@ -160,13 +160,16 @@ func (m *model) rightW() int {
 	if m.compactMode() {
 		return m.w - 4
 	}
-	return m.w - min(46, m.w/2) - 6
+	return m.w - m.leftW() - 6
 }
 
 // leftW is the width of a list box.
 func (m *model) leftW() int {
 	if m.compactMode() {
 		return m.w - 2
+	}
+	if m.split > 0 {
+		return max(24, min(m.split, m.w-30)) // dragged (§43)
 	}
 	return min(46, m.w/2)
 }

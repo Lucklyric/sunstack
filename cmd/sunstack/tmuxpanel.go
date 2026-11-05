@@ -44,6 +44,19 @@ func tmuxOpt(name, def string) string {
 	return def
 }
 
+// panelSetting is a panel setting: the user's last choice (§43), else the
+// tmux option from their config, else def.
+func panelSetting(saved, opt, def string) string {
+	if saved != "" {
+		return saved
+	}
+	return tmuxOpt(opt, def)
+}
+
+func panelSide() string  { return panelSetting(core.LoadPanelPrefs().Side, optSide, "left") }
+func panelSize() string  { return panelSetting(core.LoadPanelPrefs().Size, optSize, "35%") }
+func panelScope() string { return panelSetting(core.LoadPanelPrefs().Scope, optScope, "org") }
+
 func runTmux(rest []string, stdout io.Writer) error {
 	sub := ""
 	if len(rest) > 0 {
@@ -53,7 +66,11 @@ func runTmux(rest []string, stdout io.Writer) error {
 	if err != nil {
 		return err
 	}
-	if err := a.atMost(0, "tmux "+sub); err != nil {
+	n := 0
+	if sub == "side" || sub == "scope" {
+		n = 1
+	}
+	if err := a.atMost(n, "tmux "+sub); err != nil {
 		return err
 	}
 	switch sub {
@@ -65,8 +82,12 @@ func runTmux(rest []string, stdout io.Writer) error {
 		return popup(a.flags["pane"], a.flags["client"])
 	case "install":
 		return tmuxInstall(a.has("yes"), stdout)
+	case "restore":
+		return panelRestore(a.flags["pane"], stdout)
+	case "side", "scope":
+		return panelChoose(sub, strings.Join(a.pos, ""), stdout)
 	}
-	return &core.Error{Code: core.ExitUsage, Reason: "usage", Msg: "usage: sunstack tmux panel|popup|install [--yes]"}
+	return &core.Error{Code: core.ExitUsage, Reason: "usage", Msg: "usage: sunstack tmux panel|popup|install [--yes]|restore|side left|right|scope org|team"}
 }
 
 func needTmux() error {
@@ -98,7 +119,7 @@ func tmuxDQ(v string) string {
 // tuiArgs are the dashboard's flags for the scope option.
 func tuiArgs(mode string) []string {
 	args := []string{"tui", mode}
-	if tmuxOpt(optScope, "org") != "team" {
+	if panelScope() != "team" {
 		args = append(args, "--org")
 	}
 	return args
@@ -135,7 +156,7 @@ func unhookPanel() {
 // splitArgs place a full-height pane on the panel's side at size.
 func splitArgs(size string) []string {
 	args := []string{"-f", "-h", "-l", size}
-	if tmuxOpt(optSide, "left") != "right" {
+	if panelSide() != "right" {
 		args = append(args, "-b")
 	}
 	return args
@@ -151,6 +172,7 @@ func panelToggle(pane string, stdout io.Writer) error {
 		panelWidth(id) // a width the user dragged to stays for the next show (§41.1)
 		unhookPanel()
 		tmuxOut("kill-pane", "-t", id)
+		core.UpdatePanelPrefs(func(p *core.PanelPrefs) { p.Open = false })
 		fmt.Fprintln(stdout, "sunstack: panel hidden")
 		return nil
 	}
@@ -158,7 +180,7 @@ func panelToggle(pane string, stdout io.Writer) error {
 		pane = os.Getenv("TMUX_PANE")
 	}
 	dir, _ := tmuxOut("display-message", "-p", "-t", pane, "#{pane_current_path}")
-	args := append([]string{"split-window", "-d", "-t", pane}, splitArgs(tmuxOpt(optSize, "35%"))...)
+	args := append([]string{"split-window", "-d", "-t", pane}, splitArgs(panelSize())...)
 	if dir != "" {
 		args = append(args, "-c", dir)
 	}
@@ -169,6 +191,7 @@ func panelToggle(pane string, stdout io.Writer) error {
 	}
 	tmuxOut("set-option", "-g", optPanel, id)
 	tmuxOut("set-option", "-p", "-t", id, paneTag, "1")
+	core.UpdatePanelPrefs(func(p *core.PanelPrefs) { p.Open = true })
 	// The hook names the window that changed: a background run-shell has no
 	// client of its own to ask.
 	follow := "run-shell -b " + tmuxDQ(selfCmd("tmux", "follow")+" --window '#{window_id}'")
@@ -232,9 +255,9 @@ func panelWidth(id string) string {
 		}
 	}
 	if w == "" {
-		return tmuxOpt(optSize, "35%")
+		return panelSize()
 	}
-	tmuxOut("set-option", "-g", optSize, w)
+	core.UpdatePanelPrefs(func(p *core.PanelPrefs) { p.Size = w })
 	return w
 }
 
@@ -291,7 +314,9 @@ func tmuxInstall(yes bool, stdout io.Writer) error {
 	source := "source-file -q ~/.config/sunstack/sunstack.tmux"
 	absolute := "source-file -q " + core.ShellQuote(file)
 	body := "# Sunstack panel and popup, written by sunstack tmux install (§40).\n" +
-		"# Options: set -g @sunstack-side left|right, @sunstack-size 35%, @sunstack-scope org|team\n" +
+		"# Defaults: set -g @sunstack-side left|right, @sunstack-size 35%, @sunstack-scope org|team.\n" +
+		"# What you choose in the panel (width, side, scope, open) is kept in ~/.sunstack/panel.json and wins.\n" +
+		"set-hook -g session-created" + panelHook + " " + tmuxDQ("run-shell -b "+tmuxDQ(selfCmd("tmux", "restore")+" --pane '#{pane_id}'")) + "\n" +
 		"bind-key S run-shell -b " + tmuxDQ(selfCmd("tmux", "panel")+" --pane '#{pane_id}'") + "\n" +
 		"bind-key F run-shell -b " + tmuxDQ(selfCmd("tmux", "popup")+" --pane '#{pane_id}' --client '#{client_name}'") + "\n"
 	old, _ := os.ReadFile(conf)
@@ -359,5 +384,56 @@ func tmuxInstall(yes bool, stdout io.Writer) error {
 			fmt.Fprintln(stdout, "loaded into this tmux: prefix S panel, prefix F popup")
 		}
 	}
+	return nil
+}
+
+// panelRestore opens the panel beside pane when it was open last time and is
+// not open now (§43); the session-created hook runs it, so a tmux restart
+// brings it back.
+func panelRestore(pane string, stdout io.Writer) error {
+	if err := needTmux(); err != nil {
+		return err
+	}
+	if !core.LoadPanelPrefs().Open || livePanel() != "" {
+		return nil
+	}
+	return panelToggle(pane, stdout)
+}
+
+// panelChoose keeps the panel's side or scope (§43) and moves an open panel
+// to the new side; a new scope shows the next time it opens.
+func panelChoose(what, v string, stdout io.Writer) error {
+	ok := (what == "side" && (v == "left" || v == "right")) || (what == "scope" && (v == "org" || v == "team"))
+	if !ok {
+		return &core.Error{Code: core.ExitUsage, Reason: "usage", Msg: "usage: sunstack tmux side left|right, or sunstack tmux scope org|team"}
+	}
+	if err := core.UpdatePanelPrefs(func(p *core.PanelPrefs) {
+		if what == "side" {
+			p.Side = v
+		} else {
+			p.Scope = v
+		}
+	}); err != nil {
+		return &core.Error{Code: core.ExitFail, Reason: "fs", Msg: err.Error()}
+	}
+	fmt.Fprintf(stdout, "sunstack: panel %s set to %s\n", what, v)
+	if what != "side" || os.Getenv("TMUX") == "" {
+		return nil
+	}
+	id := livePanel()
+	if id == "" {
+		return nil
+	}
+	at, _ := tmuxOut("display-message", "-p", "-t", id, "#{window_id}\t#{window_panes}")
+	win, panes, _ := strings.Cut(at, "\t")
+	if win == "" || panes == "1" {
+		return nil
+	}
+	// join-pane cannot move a pane within its own window: out, then back.
+	w := panelWidth(id)
+	if _, err := tmuxOut("break-pane", "-d", "-s", id); err != nil {
+		return nil
+	}
+	tmuxOut(append(append([]string{"join-pane", "-d"}, splitArgs(w)...), "-s", id, "-t", win)...)
 	return nil
 }

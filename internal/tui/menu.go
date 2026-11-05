@@ -116,6 +116,19 @@ func (m *model) menuItems() []menuItem {
 	if m.compactMode() {
 		out = append(out, menuItem{label: "Details", key: "d"})
 	}
+	if m.panel {
+		// The panel's own settings, kept for next time (§43).
+		side, scope := "right", "team"
+		if m.panelSide() == "right" {
+			side = "left"
+		}
+		if m.panelScopeIsTeam() {
+			scope = "org"
+		}
+		label := map[string]string{"team": "Panel: this team only", "org": "Panel: all teams"}[scope]
+		out = append(out, menuItem{label: "Panel on the " + side, do: func() { m.panelChoice("side", side) }},
+			menuItem{label: label, do: func() { m.panelChoice("scope", scope) }})
+	}
 	if !m.teamScope() {
 		out = append(out, menuItem{label: "Order by " + orderNames[m.nextOrder()], key: "b"})
 		if m.showAll {

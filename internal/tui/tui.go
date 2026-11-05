@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -86,6 +87,12 @@ type model struct {
 	// Run keeps each scan in org-cache.json and starts from it (§42.2);
 	// orgCached says the rows are still that cache's, to look at only.
 	cacheOrg, orgCached bool
+	// The tmux side panel (§43): run runs tmux or this binary (tests replace
+	// it); split is the list's width the user dragged to, 0 for the default.
+	panel    bool
+	run      func(name string, args ...string) (string, error)
+	split    int
+	dragging bool
 	// In a popup tmux hands every key to it, so the prefix and F (or S)
 	// close it the way they opened it (§42.1). prefix is that key as
 	// bubbletea names it; armed says it was just pressed.
@@ -157,6 +164,7 @@ func Run(p *core.Project, org, compact, popup bool) error {
 		m.prefix = tmuxPrefix()
 	}
 	if compact && os.Getenv("TMUX_PANE") != "" {
+		m.panel = true
 		m.focus = tmuxFocus
 		m.focused = tmuxFocus()
 	}
@@ -181,7 +189,7 @@ func Run(p *core.Project, org, compact, popup bool) error {
 // newModel opens on the team, or with org on the host view. Without a team
 // it opens on the team picker, or with org on the host view.
 func newModel(p *core.Project, org bool) *model {
-	m := &model{p: p, folded: map[string]bool{}, sendTo: realSend, rename: core.RenameSession, kill: realKill, isFree: realIsFree, reopen: realReopen, peek: realPeek,
+	m := &model{p: p, folded: map[string]bool{}, run: realRun, sendTo: realSend, rename: core.RenameSession, kill: realKill, isFree: realIsFree, reopen: realReopen, peek: realPeek,
 		loadView: hub.LoadView, remoteSend: realRemoteSend, refreshHub: realRefresh,
 		updateHost: realUpdateHost, updateHere: realUpdateHere,
 		sshCheck: realSSHCheck, sshStop: realSSHStop, sshStart: realSSHStart,
@@ -246,6 +254,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.w, m.h = msg.Width, msg.Height
 		m.resizeViewer()
+		m.keepPanelWidth()
 	case tick:
 		if m.focus != nil {
 			m.focused = m.focus()
@@ -325,6 +334,21 @@ func (m *model) afterJump(cmd tea.Cmd) tea.Cmd {
 // (or scrolls open details), a click on a tab opens it, a click on a list
 // row selects it, and a click on the selected row opens it like enter.
 func (m *model) mouse(e tea.MouseMsg) tea.Cmd {
+	// The line between the list and the details drags (§43): a press on it,
+	// motion with the button held, then release.
+	if m.dragging {
+		switch e.Action {
+		case tea.MouseActionMotion:
+			m.setSplit(e.X - 1)
+		case tea.MouseActionRelease:
+			m.dragging = false
+		}
+		return nil
+	}
+	if e.Action == tea.MouseActionPress && e.Button == tea.MouseButtonLeft && m.onDivider(e.X, e.Y) {
+		m.dragging = true
+		return nil
+	}
 	if m.viewer != nil || m.inputPrompt != "" || m.confirm != "" || e.Action != tea.MouseActionPress {
 		return nil
 	}
@@ -504,7 +528,19 @@ func (m *model) key(k string) tea.Cmd {
 		return nil
 	}
 	if k == "q" || k == "ctrl+c" {
+		if m.panel {
+			// Closed on purpose: a tmux restart does not bring it back.
+			core.UpdatePanelPrefs(func(p *core.PanelPrefs) { p.Open = false })
+		}
 		return tea.Quit
+	}
+	switch {
+	case (k == "<" || k == ">") && m.panel:
+		m.resizePanel(k == ">")
+		return nil
+	case (k == "[" || k == "]") && !m.compactMode():
+		m.setSplit(m.leftW() + map[string]int{"[": -4, "]": 4}[k])
+		return nil
 	}
 	if m.confirm != "" {
 		do := m.confirmDo
@@ -1097,4 +1133,89 @@ func prefixKey(t string) string {
 		return "ctrl+" + strings.ToLower(k)
 	}
 	return ""
+}
+
+// onDivider says whether x, y is on the line between the list and the
+// details: the list box's right edge or the details box's left edge.
+func (m *model) onDivider(x, y int) bool {
+	if m.compactMode() || m.viewer != nil || m.menu != nil || m.inputPrompt != "" || m.confirm != "" {
+		return false
+	}
+	lw := m.leftW()
+	return (x == lw+1 || x == lw+2) && y > m.bodyTop() && (m.footY == 0 || y < m.footY)
+}
+
+// setSplit sets the list's width, leaving each side room to read.
+func (m *model) setSplit(w int) {
+	m.split = max(24, min(w, m.w-30))
+}
+
+func realRun(name string, args ...string) (string, error) {
+	out, err := exec.Command(name, args...).Output()
+	return strings.TrimSpace(string(out)), err
+}
+
+// panelSide is the side the panel sits on: the user's choice, else the
+// tmux option, else left.
+func (m *model) panelSide() string {
+	if s := core.LoadPanelPrefs().Side; s != "" {
+		return s
+	}
+	if s, err := m.run("tmux", "show-options", "-gqv", "@sunstack-side"); err == nil && s == "right" {
+		return s
+	}
+	return "left"
+}
+
+// resizePanel widens or narrows the panel by two columns (a right panel's
+// edge moves the other way); its new width is
+// kept when tmux reports the resize.
+func (m *model) resizePanel(wider bool) {
+	dir := "-R" // a left panel grows to the right
+	if (m.panelSide() == "right") == wider {
+		dir = "-L"
+	}
+	if _, err := m.run("tmux", "resize-pane", "-t", os.Getenv("TMUX_PANE"), dir, "2"); err != nil {
+		m.note = "tmux could not resize the panel"
+	}
+}
+
+// keepPanelWidth keeps the panel's width as the user left it, by drag or by
+// key; a zoomed panel's width is the window's, so it is not kept.
+func (m *model) keepPanelWidth() {
+	if !m.panel || m.w <= 0 {
+		return
+	}
+	if z, err := m.run("tmux", "display-message", "-p", "-t", os.Getenv("TMUX_PANE"), "#{window_zoomed_flag}"); err != nil || z != "0" {
+		return
+	}
+	w := strconv.Itoa(m.w)
+	if core.LoadPanelPrefs().Size != w {
+		core.UpdatePanelPrefs(func(p *core.PanelPrefs) { p.Size = w })
+	}
+}
+
+// panelChoice runs sunstack tmux side|scope from the panel's menu.
+func (m *model) panelChoice(what, v string) {
+	exe, err := os.Executable()
+	if err == nil {
+		_, err = m.run(exe, "tmux", what, v)
+	}
+	if err != nil {
+		m.note = "could not set the panel's " + what
+		return
+	}
+	m.note = "panel " + what + ": " + v
+	if what == "scope" {
+		m.note += " (from the next time it opens)"
+	}
+}
+
+// panelScopeIsTeam says whether the panel shows only the folder's team.
+func (m *model) panelScopeIsTeam() bool {
+	if s := core.LoadPanelPrefs().Scope; s != "" {
+		return s == "team"
+	}
+	s, _ := m.run("tmux", "show-options", "-gqv", "@sunstack-scope")
+	return s == "team"
 }

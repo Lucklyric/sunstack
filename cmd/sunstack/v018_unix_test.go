@@ -46,7 +46,7 @@ func tmuxEnv(t *testing.T) ([]string, string) {
 func tmuxLog(t *testing.T, state string) string {
 	t.Helper()
 	b, _ := os.ReadFile(filepath.Join(state, "log"))
-	must(t, os.Remove(filepath.Join(state, "log")))
+	os.Remove(filepath.Join(state, "log")) // no calls: no log
 	return string(b)
 }
 
@@ -96,7 +96,7 @@ func TestTmuxPanelShowsFollowsAndHides(t *testing.T) {
 	// the unzoomed layout, here 61 after a drag.
 	must(t, os.WriteFile(filepath.Join(state, "width"), []byte("200\t1\t9557,200x50,0,0{61x50,0,0,99,138x50,62,0,1}\n"), 0o644))
 	expect(t, sh(t, dir, env, "tmux", "follow", "--window", "@5"), 0, "follow zoomed panel")
-	if log := tmuxLog(t, state); !strings.Contains(log, "join-pane -d -f -h -l 61 -s %99 -t @5") || strings.Contains(log, "@sunstack-size 200") {
+	if log := tmuxLog(t, state); !strings.Contains(log, "join-pane -d -f -h -l 61 -s %99 -t @5") || strings.Contains(panelJSON(t, env), `"size": "200"`) {
 		t.Errorf("zoomed panel width: %s", log)
 	}
 	must(t, os.Remove(filepath.Join(state, "width")))
@@ -104,10 +104,14 @@ func TestTmuxPanelShowsFollowsAndHides(t *testing.T) {
 	r = sh(t, dir, env, "tmux", "panel")
 	expect(t, r, 0, "hide")
 	log = tmuxLog(t, state)
-	for _, want := range []string{"set-option -g @sunstack-size 52", "set-hook -gu session-window-changed[42]", "set-hook -gu client-session-changed[42]", "kill-pane -t %99"} {
+	for _, want := range []string{"set-hook -gu session-window-changed[42]", "set-hook -gu client-session-changed[42]", "kill-pane -t %99"} {
 		if !strings.Contains(log, want) {
 			t.Errorf("hide: no %q in\n%s", want, log)
 		}
+	}
+	// Hiding kept its width and that it is closed (§43).
+	if j := panelJSON(t, env); !strings.Contains(j, `"size": "52"`) || strings.Contains(j, `"open"`) {
+		t.Errorf("panel.json after hide: %s", j)
 	}
 	// A panel closed with q: follow drops the hooks and moves nothing.
 	must(t, os.WriteFile(filepath.Join(state, "panel"), []byte("%99\n"), 0o644))
@@ -165,7 +169,7 @@ func TestTmuxInstall(t *testing.T) {
 		t.Errorf("absolute line not replaced:\n%s", b)
 	}
 	f, _ := os.ReadFile(filepath.Join(home, ".config", "sunstack", "sunstack.tmux"))
-	for _, want := range []string{`bind-key S run-shell -b "`, ` tmux panel --pane '#{pane_id}'"`, `bind-key F run-shell -b "`, `--client '#{client_name}'"`} {
+	for _, want := range []string{`set-hook -g session-created[42] "run-shell -b `, ` tmux restore --pane '#{pane_id}'`, `bind-key S run-shell -b "`, ` tmux panel --pane '#{pane_id}'"`, `bind-key F run-shell -b "`, `--client '#{client_name}'"`} {
 		if !strings.Contains(string(f), want) {
 			t.Errorf("sunstack.tmux lacks %q:\n%s", want, f)
 		}
@@ -184,3 +188,69 @@ func TestTmuxPanelHidesWithoutOption(t *testing.T) {
 	}
 }
 
+func panelJSON(t *testing.T, env []string) string {
+	t.Helper()
+	b, _ := os.ReadFile(filepath.Join(envValue(env, "SUNSTACK_HOME"), "panel.json"))
+	return string(b)
+}
+
+func writePanelJSON(t *testing.T, env []string, body string) {
+	t.Helper()
+	dir := envValue(env, "SUNSTACK_HOME")
+	must(t, os.MkdirAll(dir, 0o755))
+	must(t, os.WriteFile(filepath.Join(dir, "panel.json"), []byte(body), 0o600))
+}
+
+// The user's last choices win over the tmux options and outlive tmux
+// (§43): width, side, scope, and whether it was open.
+func TestPanelPrefs(t *testing.T) {
+	env, state := tmuxEnv(t)
+	dir := t.TempDir()
+	writePanelJSON(t, env, `{"side": "right", "size": "60", "scope": "team"}`)
+	expect(t, sh(t, dir, env, "tmux", "panel"), 0, "panel")
+	log := tmuxLog(t, state)
+	if !strings.Contains(log, "split-window -d -t %1 -f -h -l 60 -c /work") || strings.Contains(log, "--org") || strings.Contains(log, "-l 60 -b") {
+		t.Errorf("prefs not used: %s", log)
+	}
+	if !strings.Contains(panelJSON(t, env), `"open": true`) {
+		t.Errorf("open not kept: %s", panelJSON(t, env))
+	}
+	// Restore does nothing while a panel is open...
+	must(t, os.WriteFile(filepath.Join(state, "panes"), []byte("%1\t\n%99\t1\n"), 0o644))
+	expect(t, sh(t, dir, env, "tmux", "restore", "--pane", "%1"), 0, "restore with a panel")
+	if log := tmuxLog(t, state); strings.Contains(log, "split-window") {
+		t.Errorf("restore opened a second panel: %s", log)
+	}
+	// ...and opens it after a tmux restart, when it was open.
+	must(t, os.WriteFile(filepath.Join(state, "panes"), []byte("%1\t\n"), 0o644))
+	must(t, os.Remove(filepath.Join(state, "panel")))
+	expect(t, sh(t, dir, env, "tmux", "restore", "--pane", "%1"), 0, "restore")
+	if log := tmuxLog(t, state); !strings.Contains(log, "split-window -d -t %1") {
+		t.Errorf("restore did not open it: %s", log)
+	}
+	// Closed on purpose: restore leaves it closed.
+	writePanelJSON(t, env, `{"open": false}`)
+	must(t, os.WriteFile(filepath.Join(state, "panes"), []byte("%1\t\n"), 0o644))
+	must(t, os.Remove(filepath.Join(state, "panel")))
+	expect(t, sh(t, dir, env, "tmux", "restore", "--pane", "%1"), 0, "restore closed")
+	if log := tmuxLog(t, state); strings.Contains(log, "split-window") {
+		t.Errorf("restore opened a closed panel: %s", log)
+	}
+	// A new side moves the open panel: out of its window, then back in.
+	must(t, os.WriteFile(filepath.Join(state, "panel"), []byte("%99\n"), 0o644))
+	must(t, os.WriteFile(filepath.Join(state, "panes"), []byte("%1\t\n%99\t1\n"), 0o644))
+	must(t, os.WriteFile(filepath.Join(state, "at"), []byte("@1\t3\n"), 0o644))
+	r := sh(t, dir, env, "tmux", "side", "left")
+	expect(t, r, 0, "side left")
+	if log := tmuxLog(t, state); !strings.Contains(log, "break-pane -d -s %99") || !strings.Contains(log, "join-pane -d -f -h -l 52 -b -s %99 -t @1") {
+		t.Errorf("side move: %s", log)
+	}
+	if !strings.Contains(panelJSON(t, env), `"side": "left"`) {
+		t.Errorf("side not kept: %s", panelJSON(t, env))
+	}
+	expect(t, sh(t, dir, env, "tmux", "side", "up"), 2, "bad side")
+	expect(t, sh(t, dir, env, "tmux", "scope", "org"), 0, "scope")
+	if !strings.Contains(panelJSON(t, env), `"scope": "org"`) {
+		t.Errorf("scope not kept: %s", panelJSON(t, env))
+	}
+}
