@@ -160,12 +160,31 @@ func unhookPanel() {
 }
 
 // splitArgs place a full-height pane on the panel's side at size.
-func splitArgs(size string) []string {
+func splitArgs(size string) []string { return sideArgs(size, panelSide()) }
+
+// sideArgs place a full-height pane on side at size.
+func sideArgs(size, side string) []string {
 	args := []string{"-f", "-h", "-l", size}
-	if panelSide() != "right" {
+	if side != "right" {
 		args = append(args, "-b")
 	}
 	return args
+}
+
+// moveToSide moves panel id to the panel's side of its window, at its width,
+// when it is not there.
+func moveToSide(id string) {
+	at, _ := tmuxOut("display-message", "-p", "-t", id, "#{window_id}\t#{window_panes}\t#{pane_at_left}\t#{pane_at_right}")
+	f := strings.Split(at, "\t")
+	if len(f) != 4 || f[1] == "1" || (panelSide() == "right" && f[3] == "1") || (panelSide() != "right" && f[2] == "1") {
+		return
+	}
+	// join-pane cannot move a pane within its own window: out, then back.
+	w := panelWidth(id)
+	if _, err := tmuxOut("break-pane", "-d", "-s", id); err != nil {
+		return
+	}
+	tmuxOut(append(append([]string{"join-pane", "-d"}, splitArgs(w)...), "-s", id, "-t", f[0])...)
 }
 
 // panelToggle shows the panel beside pane (default: this pane), or hides it
@@ -518,8 +537,20 @@ func panelResurrect(when string, stdout io.Writer) error {
 		id := livePanel()
 		cells := savedPanelCells()
 		if id != "" && !cells[paneCell(id)] {
-			if win := savedPanelWindow(cells); win != "" {
-				tmuxOut(append(append([]string{"join-pane", "-d"}, splitArgs(panelWidth(id))...), "-s", id, "-t", win)...)
+			// On the side it was saved on: the first pane is the left edge,
+			// any other the right. join-pane numbers the pane next to its
+			// target, so the target is the window's first or last pane.
+			// after moves it to the side chosen now.
+			if win, idx := savedPanelWindow(cells); win != "" {
+				ids, _ := tmuxOut("list-panes", "-t", win, "-F", "#{pane_id}")
+				panes := strings.Fields(ids)
+				if len(panes) > 0 {
+					side, target := "right", panes[len(panes)-1]
+					if idx == "0" {
+						side, target = "left", panes[0]
+					}
+					tmuxOut(append(append([]string{"join-pane", "-d"}, sideArgs(panelWidth(id), side)...), "-s", id, "-t", target)...)
+				}
 			}
 		}
 		if id != "" && !cells[paneCell(id)] {
@@ -571,6 +602,10 @@ func panelResurrect(when string, stdout io.Writer) error {
 		tmuxOut("kill-pane", "-t", id)
 	}
 	if !show {
+		// Back where it was saved; now on the side chosen since.
+		if id := livePanel(); id != "" {
+			moveToSide(id)
+		}
 		return nil
 	}
 	pane, err := tmuxOut("display-message", "-p", "#{pane_id}")
@@ -602,8 +637,9 @@ func savedPanelCells() map[string]bool {
 	return cells
 }
 
-// savedPanelWindow is the ID of an open window the save has a panel in.
-func savedPanelWindow(cells map[string]bool) string {
+// savedPanelWindow is the ID of an open window the save has a panel in, and
+// the panel's saved pane index there.
+func savedPanelWindow(cells map[string]bool) (string, string) {
 	wins, _ := tmuxOut("list-windows", "-a", "-F", "#{session_name}\t#{window_index}\t#{window_id}")
 	for _, l := range strings.Split(wins, "\n") {
 		f := strings.Split(l, "\t")
@@ -611,12 +647,12 @@ func savedPanelWindow(cells map[string]bool) string {
 			continue
 		}
 		for c := range cells {
-			if strings.HasPrefix(c, f[0]+"\t"+f[1]+"\t") {
-				return f[2]
+			if idx, ok := strings.CutPrefix(c, f[0]+"\t"+f[1]+"\t"); ok {
+				return f[2], idx
 			}
 		}
 	}
-	return ""
+	return "", ""
 }
 
 // paneCell is pane id's session, window and pane index, as savedPanelCells
@@ -683,20 +719,8 @@ func panelChoose(what, v string, stdout io.Writer) error {
 		return err
 	}
 	defer unlock()
-	id := livePanel()
-	if id == "" {
-		return nil
+	if id := livePanel(); id != "" {
+		moveToSide(id)
 	}
-	at, _ := tmuxOut("display-message", "-p", "-t", id, "#{window_id}\t#{window_panes}")
-	win, panes, _ := strings.Cut(at, "\t")
-	if win == "" || panes == "1" {
-		return nil
-	}
-	// join-pane cannot move a pane within its own window: out, then back.
-	w := panelWidth(id)
-	if _, err := tmuxOut("break-pane", "-d", "-s", id); err != nil {
-		return nil
-	}
-	tmuxOut(append(append([]string{"join-pane", "-d"}, splitArgs(w)...), "-s", id, "-t", win)...)
 	return nil
 }

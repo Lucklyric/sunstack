@@ -29,6 +29,7 @@ case "$*" in
   *"#{pane_current_path}") echo /work ;;
   "display-message -p #{window_id}	#{window_zoomed_flag}") cat "$STATE/front" ;;
   "display-message -p -t %99 #{window_id}	#{window_panes}") cat "$STATE/at" ;;
+  "display-message -p -t %99 #{window_id}	#{window_panes}	#{pane_at_left}	#{pane_at_right}") printf '%s\t0\t0\n' "$(cat "$STATE/at")" ;;
   "display-message -p -t %99 #{pane_width}	#{window_zoomed_flag}	#{window_layout}") cat "$STATE/width" 2>/dev/null || printf '52\t0\tx\n' ;;
   "set-option -g @sunstack-size "*) echo "$4" > "$STATE/size" ;;
   "display-message -p -t @5 #{window_id}	#{window_zoomed_flag}") printf '@5\t0\n' ;;
@@ -514,5 +515,28 @@ func TestSameProcess(t *testing.T) {
 		if got := sameProcess(c.saved, c.name); got != c.want {
 			t.Errorf("sameProcess(%q, %q) = %v", c.saved, c.name, got)
 		}
+	}
+}
+
+// A panel saved on the right and moved to the left since goes back to its
+// saved cell for the restore, then to the left (§43.5).
+func TestResurrectPanelSavedOnOtherSide(t *testing.T) {
+	s, env, p := resurrectFixture(t, true)
+	dir := s.tmux(t, "show-options", "-gqv", "@resurrect-dir")
+	save := "pane\twork\t0\t1\t:*\t0\thost\t:" + p + "\t1\tzsh\t:\n" +
+		"pane\twork\t0\t1\t:*\t1\thost\t:" + p + "\t0\tzsh\t:\n" +
+		"pane\twork\t0\t1\t:*\t2\tsunstack-panel\t:" + p + "\t0\tsunstack\t:\n"
+	must(t, os.WriteFile(filepath.Join(dir, "tmux_resurrect_1.txt"), []byte(save), 0o644))
+	s.tmux(t, "new-session", "-d", "-s", "work", "-c", p, "/bin/sh")
+	s.tmux(t, "split-window", "-d", "-h", "-t", "work:0.0", "-c", p, "/bin/sh")
+	writePanelJSON(t, env, `{"size": "40", "side": "left", "open": true}`)
+	expect(t, sh(t, p, env, "tmux", "panel", "--pane", s.pane), 0, "panel shown in the first session")
+	expect(t, sh(t, p, env, "tmux", "resurrect", "before"), 0, "before")
+	if got := workPanes(t, s); !strings.Contains(got, "\n2 1 sunstack-panel") {
+		t.Errorf("work:0 before the restore, panel expected at its saved index 2:\n%s", got)
+	}
+	expect(t, sh(t, p, env, "tmux", "resurrect", "after"), 0, "after")
+	if got := s.tmux(t, "list-panes", "-t", "work:0", "-F", "#{pane_index} #{@sunstack-is-panel}"); !strings.HasPrefix(got, "0 1") {
+		t.Errorf("panel not on the left after the restore:\n%s", got)
 	}
 }
