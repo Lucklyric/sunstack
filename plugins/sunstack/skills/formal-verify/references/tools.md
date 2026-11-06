@@ -16,14 +16,14 @@ Pick by the question. Check each with `command -v` before you use it; when the r
 - **Dafny**: write the code with its specification and get it verified, then compile to Go, C#, Java, Python or JavaScript. Install: `brew install dafny`.
 - **Z3 (SMT)**: decide a formula over integers, bit vectors, arrays (an index computation, a config constraint). Install: `brew install z3`, or `uv add z3-solver` for Python.
 
+## Sampling: extra evidence, not exhaustive
+
+- **Fuzzing and property tests**: Go `go test -fuzz` (built in); Python Hypothesis (`uv add --dev hypothesis`); Rust proptest (`cargo add --dev proptest`). They reach inputs beyond the bound, but a pass covers only the inputs they tried. Report a check that rests on them alone as not exhaustive.
+
 ## Choosing
 
 - Bad order of steps: state explorer, or TLA+ when the model is large or will be shared.
 - Every input to real code: enumeration of a finite domain, or Kani or CBMC where they apply.
-
-## Sampling: extra evidence, not exhaustive
-
-- **Fuzzing and property tests**: Go `go test -fuzz` (built in); Python Hypothesis (`uv add --dev hypothesis`); Rust proptest (`cargo add --dev proptest`). They reach inputs beyond the bound, but a pass covers only the inputs they tried. Report a check that rests on them alone as not exhaustive.
 - Must hold at every size: Lean or Dafny. Cost is high (the proof often outgrows the code), so say so and ask the user before starting.
 - A constraint or arithmetic question: Z3.
 - Writing: the lists and scripts in `writing.md`; no external tool is needed.

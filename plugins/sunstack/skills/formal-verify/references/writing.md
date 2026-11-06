@@ -52,4 +52,4 @@ In check mode, keep the lists and scripts in a scratch folder, not beside the do
 
 ## Report
 
-Give counts per verdict (for example "92 items: 47 claims, 45 true or partial; 45 non-claims: 26 history, 7 process, ..."), so the reader sees how much of "every item" was checkable.
+Give counts per kind and per result (for example "92 items: 80 state a fact (47 claims, 26 history, 7 process), 76 true or partial, 4 with no source; 12 headings or intent"), so the reader sees how much of "every item" was checkable.
