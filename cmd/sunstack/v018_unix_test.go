@@ -29,7 +29,8 @@ case "$*" in
   *"#{pane_current_path}") echo /work ;;
   "display-message -p #{window_id}	#{window_zoomed_flag}") cat "$STATE/front" ;;
   "display-message -p -t %99 #{window_id}	#{window_panes}") cat "$STATE/at" ;;
-  "display-message -p -t %99 #{window_id}	#{window_panes}	#{pane_at_left}	#{pane_at_right}") printf '%s\t0\t0\n' "$(cat "$STATE/at")" ;;
+  "display-message -p -t %99 #{window_id}	#{window_zoomed_flag}") printf '%s\t0\n' "$(cut -f1 "$STATE/at")" ;;
+  "display-message -p -t %99 #{window_panes}	#{pane_at_left}	#{pane_at_right}") printf '%s\t0\t0\n' "$(cut -f2 "$STATE/at")" ;;
   "display-message -p -t %99 #{pane_width}	#{window_zoomed_flag}	#{window_layout}") cat "$STATE/width" 2>/dev/null || printf '52\t0\tx\n' ;;
   "set-option -g @sunstack-size "*) echo "$4" > "$STATE/size" ;;
   "display-message -p -t @5 #{window_id}	#{window_zoomed_flag}") printf '@5\t0\n' ;;
@@ -538,5 +539,42 @@ func TestResurrectPanelSavedOnOtherSide(t *testing.T) {
 	expect(t, sh(t, p, env, "tmux", "resurrect", "after"), 0, "after")
 	if got := s.tmux(t, "list-panes", "-t", "work:0", "-F", "#{pane_index} #{@sunstack-is-panel}"); !strings.HasPrefix(got, "0 1") {
 		t.Errorf("panel not on the left after the restore:\n%s", got)
+	}
+}
+
+// With pane-base-index 1 a left panel has index 1: the side comes from the
+// save's first index, not from 0 (§43.5).
+func TestResurrectPaneBaseIndexOne(t *testing.T) {
+	s, env, p := resurrectFixture(t, true)
+	s.tmux(t, "set-option", "-g", "pane-base-index", "1")
+	dir := s.tmux(t, "show-options", "-gqv", "@resurrect-dir")
+	save := "pane\twork\t0\t1\t:*\t1\tsunstack-panel\t:" + p + "\t0\tsunstack\t:\n" +
+		"pane\twork\t0\t1\t:*\t2\thost\t:" + p + "\t1\tzsh\t:\n" +
+		"pane\twork\t0\t1\t:*\t3\thost\t:" + p + "\t0\tzsh\t:\n"
+	must(t, os.WriteFile(filepath.Join(dir, "tmux_resurrect_1.txt"), []byte(save), 0o644))
+	s.tmux(t, "new-session", "-d", "-s", "work", "-c", p, "/bin/sh")
+	s.tmux(t, "split-window", "-d", "-h", "-t", "work:0", "-c", p, "/bin/sh")
+	writePanelJSON(t, env, `{"size": "40", "side": "left", "open": true}`)
+	expect(t, sh(t, p, env, "tmux", "panel", "--pane", s.pane), 0, "panel shown in the first session")
+	expect(t, sh(t, p, env, "tmux", "resurrect", "before"), 0, "before")
+	if got := workPanes(t, s); !strings.HasPrefix(got, "1 1 sunstack-panel\n") || strings.Count(got, "\n") != 2 {
+		t.Errorf("work:0 before the restore, panel expected at index 1:\n%s", got)
+	}
+}
+
+// A zoomed panel touches both edges; a side change still moves it (§43.5).
+func TestPanelSideMovesZoomedPanel(t *testing.T) {
+	s, env, p := resurrectFixture(t, false)
+	writePanelJSON(t, env, `{"size": "40", "side": "left"}`)
+	expect(t, sh(t, p, env, "tmux", "panel", "--pane", s.pane), 0, "panel shown")
+	panel := s.tmux(t, "show-options", "-gqv", "@sunstack-panel")
+	s.tmux(t, "resize-pane", "-Z", "-t", panel)
+	expect(t, sh(t, p, env, "tmux", "side", "right"), 0, "side right")
+	if z := s.tmux(t, "display-message", "-p", "-t", panel, "#{window_zoomed_flag}"); z != "1" {
+		t.Errorf("zoom not kept: %q", z)
+	}
+	s.tmux(t, "resize-pane", "-Z", "-t", panel)
+	if got := s.tmux(t, "display-message", "-p", "-t", panel, "#{pane_at_left} #{pane_at_right}"); got != "0 1" {
+		t.Errorf("zoomed panel not moved to the right: %q", got)
 	}
 }

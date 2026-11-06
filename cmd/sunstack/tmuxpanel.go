@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/Lucklyric/sunstack/internal/core"
@@ -172,11 +173,22 @@ func sideArgs(size, side string) []string {
 }
 
 // moveToSide moves panel id to the panel's side of its window, at its width,
-// when it is not there.
+// when it is not there. A zoomed window is unzoomed for it, since a zoomed
+// pane touches both edges, then zoomed again on the same pane.
 func moveToSide(id string) {
-	at, _ := tmuxOut("display-message", "-p", "-t", id, "#{window_id}\t#{window_panes}\t#{pane_at_left}\t#{pane_at_right}")
+	at, _ := tmuxOut("display-message", "-p", "-t", id, "#{window_id}\t#{window_zoomed_flag}")
+	win, zoomed, _ := strings.Cut(at, "\t")
+	if win == "" {
+		return
+	}
+	if zoomed == "1" {
+		front, _ := tmuxOut("display-message", "-p", "-t", win, "#{pane_id}")
+		tmuxOut("resize-pane", "-Z", "-t", front)
+		defer tmuxOut("resize-pane", "-Z", "-t", front)
+	}
+	at, _ = tmuxOut("display-message", "-p", "-t", id, "#{window_panes}\t#{pane_at_left}\t#{pane_at_right}")
 	f := strings.Split(at, "\t")
-	if len(f) != 4 || f[1] == "1" || (panelSide() == "right" && f[3] == "1") || (panelSide() != "right" && f[2] == "1") {
+	if len(f) != 3 || f[0] == "1" || (panelSide() == "right" && f[2] == "1") || (panelSide() != "right" && f[1] == "1") {
 		return
 	}
 	// join-pane cannot move a pane within its own window: out, then back.
@@ -184,7 +196,7 @@ func moveToSide(id string) {
 	if _, err := tmuxOut("break-pane", "-d", "-s", id); err != nil {
 		return
 	}
-	tmuxOut(append(append([]string{"join-pane", "-d"}, splitArgs(w)...), "-s", id, "-t", f[0])...)
+	tmuxOut(append(append([]string{"join-pane", "-d"}, splitArgs(w)...), "-s", id, "-t", win)...)
 }
 
 // panelToggle shows the panel beside pane (default: this pane), or hides it
@@ -536,24 +548,23 @@ func panelResurrect(when string, stdout io.Writer) error {
 		// a lone session 0 counts as a fresh start).
 		id := livePanel()
 		cells := savedPanelCells()
-		if id != "" && !cells[paneCell(id)] {
-			// On the side it was saved on: the first pane is the left edge,
-			// any other the right. join-pane numbers the pane next to its
+		if id != "" && cells[paneCell(id)] == "" {
+			// On the side it was saved on. join-pane numbers the pane next to its
 			// target, so the target is the window's first or last pane.
 			// after moves it to the side chosen now.
-			if win, idx := savedPanelWindow(cells); win != "" {
+			if win, side := savedPanelWindow(cells); win != "" {
 				ids, _ := tmuxOut("list-panes", "-t", win, "-F", "#{pane_id}")
 				panes := strings.Fields(ids)
 				if len(panes) > 0 {
-					side, target := "right", panes[len(panes)-1]
-					if idx == "0" {
-						side, target = "left", panes[0]
+					target := panes[len(panes)-1]
+					if side == "left" {
+						target = panes[0]
 					}
 					tmuxOut(append(append([]string{"join-pane", "-d"}, sideArgs(panelWidth(id), side)...), "-s", id, "-t", target)...)
 				}
 			}
 		}
-		if id != "" && !cells[paneCell(id)] {
+		if id != "" && cells[paneCell(id)] == "" {
 			if w, ok := measurePanel(id); ok {
 				core.UpdatePanelPrefs(func(p *core.PanelPrefs) { p.Size = w })
 			}
@@ -571,7 +582,7 @@ func panelResurrect(when string, stdout io.Writer) error {
 	// restore, and not a panel already. Without before's list no pane is
 	// known to be new, so none closes.
 	var ghosts []string
-	cells := map[string]bool{}
+	cells := map[string]string{}
 	if len(before) > 0 {
 		cells = savedPanelCells()
 	}
@@ -581,7 +592,7 @@ func panelResurrect(when string, stdout io.Writer) error {
 		if len(f) != 6 || f[4] == "1" {
 			continue
 		}
-		if cells[f[0]+"\t"+f[1]+"\t"+f[2]] && !before[f[3]] {
+		if cells[f[0]+"\t"+f[1]+"\t"+f[2]] != "" && !before[f[3]] {
 			ghosts = append(ghosts, f[3])
 		} else if f[5] == panelTitle {
 			// resurrect gave a pane of the user's the panel's saved title:
@@ -616,39 +627,62 @@ func panelResurrect(when string, stdout io.Writer) error {
 }
 
 // savedPanelCells are the session, window and pane index of every panel in
-// tmux-resurrect's last save: the panel's title and the dashboard's process
-// both, so neither a pane that only got the title nor one where the user ran
-// the dashboard counts.
-func savedPanelCells() map[string]bool {
-	cells := map[string]bool{}
+// tmux-resurrect's last save, with the side it was on: left when it has its
+// window's first pane index (pane-base-index may make that 1), else right.
+// A panel needs the panel's title and the dashboard's process both, so
+// neither a pane that only got the title nor one where the user ran the
+// dashboard counts.
+func savedPanelCells() map[string]string {
+	cells := map[string]string{}
 	b, err := os.ReadFile(filepath.Join(resurrectDir(), "last"))
 	if err != nil {
 		return cells
 	}
+	first := map[string]int{}
+	type saved struct {
+		win string
+		idx int
+	}
+	var panels []saved
 	for _, l := range strings.Split(string(b), "\n") {
 		f := strings.Split(l, "\t")
 		if len(f) < 11 || f[0] != "pane" {
 			continue
 		}
-		if f[6] == panelTitle && sameProcess(f[9], selfName()) {
-			cells[f[1]+"\t"+f[2]+"\t"+f[5]] = true
+		idx, err := strconv.Atoi(f[5])
+		if err != nil {
+			continue
 		}
+		win := f[1] + "\t" + f[2]
+		if n, ok := first[win]; !ok || idx < n {
+			first[win] = idx
+		}
+		if f[6] == panelTitle && sameProcess(f[9], selfName()) {
+			panels = append(panels, saved{win, idx})
+		}
+	}
+	for _, p := range panels {
+		side := "right"
+		if p.idx == first[p.win] {
+			side = "left"
+		}
+		cells[p.win+"\t"+strconv.Itoa(p.idx)] = side
 	}
 	return cells
 }
 
 // savedPanelWindow is the ID of an open window the save has a panel in, and
-// the panel's saved pane index there.
-func savedPanelWindow(cells map[string]bool) (string, string) {
+// the side the panel was saved on there.
+func savedPanelWindow(cells map[string]string) (string, string) {
 	wins, _ := tmuxOut("list-windows", "-a", "-F", "#{session_name}\t#{window_index}\t#{window_id}")
 	for _, l := range strings.Split(wins, "\n") {
 		f := strings.Split(l, "\t")
 		if len(f) != 3 {
 			continue
 		}
-		for c := range cells {
-			if idx, ok := strings.CutPrefix(c, f[0]+"\t"+f[1]+"\t"); ok {
-				return f[2], idx
+		for c, side := range cells {
+			if strings.HasPrefix(c, f[0]+"\t"+f[1]+"\t") {
+				return f[2], side
 			}
 		}
 	}
