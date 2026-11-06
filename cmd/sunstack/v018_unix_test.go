@@ -340,6 +340,7 @@ func resurrectFixture(t *testing.T, open bool) (*tmuxFixture, []string, string) 
 	s.tmux(t, "set-option", "-g", "remain-on-exit", "on")
 	dir := t.TempDir()
 	s.tmux(t, "set-option", "-g", "@resurrect-dir", dir)
+	s.tmux(t, "set-option", "-g", "@resurrect-hook-post-restore-all", "sunstack tmux resurrect after")
 	save := "pane\twork\t0\t1\t:*\t0\tsunstack-panel\t:" + p + "\t0\tsunstack\t:\n" +
 		"pane\twork\t0\t1\t:*\t1\thost\t:" + p + "\t1\tzsh\t:\n"
 	must(t, os.WriteFile(filepath.Join(dir, "tmux_resurrect_1.txt"), []byte(save), 0o644))
@@ -436,10 +437,53 @@ func TestInstallResurrectHooks(t *testing.T) {
 	if v := s.tmux(t, "show-options", "-gqv", "@resurrect-hook-pre-restore-all"); v != "echo mine" {
 		t.Errorf("the user's hook was replaced: %q", v)
 	}
-	if v := s.tmux(t, "show-options", "-gqv", "@resurrect-hook-post-restore-all"); strings.HasPrefix(v, "/old/") || !strings.HasSuffix(v, " tmux resurrect after") {
-		t.Errorf("post hook: %q", v)
+	if v := s.tmux(t, "show-options", "-gqv", "@resurrect-hook-post-restore-all"); v != "/old/sunstack tmux resurrect after" {
+		t.Errorf("one hook was set while the other is the user's: %q", v)
+	}
+	// Both free (empty, or an older sunstack's): both set.
+	s.tmux(t, "set-option", "-g", "@resurrect-hook-pre-restore-all", "")
+	s.tmux(t, "source-file", file)
+	for _, h := range []string{"pre", "post"} {
+		if v := s.tmux(t, "show-options", "-gqv", "@resurrect-hook-"+h+"-restore-all"); strings.HasPrefix(v, "/old/") || !strings.Contains(v, " tmux resurrect ") {
+			t.Errorf("%s hook: %q", h, v)
+		}
 	}
 	if v := s.tmux(t, "show-hooks", "-g", "client-attached"); !strings.Contains(v, "--if-attached") {
 		t.Errorf("client-attached hook: %q", v)
+	}
+}
+
+// before holds nothing off when the post hook is not sunstack's, so the flag
+// cannot stay set (§43.5).
+func TestResurrectBeforeNeedsAfter(t *testing.T) {
+	s, env, p := resurrectFixture(t, false)
+	expect(t, sh(t, p, env, "tmux", "panel", "--pane", s.pane), 0, "panel shown")
+	s.tmux(t, "set-option", "-g", "@resurrect-hook-post-restore-all", "true")
+	expect(t, sh(t, p, env, "tmux", "resurrect", "before"), 0, "")
+	if v := s.tmux(t, "show-options", "-gqv", "@sunstack-restoring"); v != "" {
+		t.Errorf("flag set without after: %q", v)
+	}
+	if out := s.tmux(t, "list-panes", "-a", "-F", "#{@sunstack-is-panel}"); !strings.Contains(out, "1") {
+		t.Errorf("panel closed without after:\n%s", out)
+	}
+}
+
+// A panel already in its saved cell stays through the restore, so the panes
+// after it keep their indexes; a pane of the user's that resurrect gave the
+// panel's title loses it, and is never taken for the panel (§43.5).
+func TestResurrectKeepsPanelInItsSavedCell(t *testing.T) {
+	s, env, p := resurrectFixture(t, true)
+	s.tmux(t, "new-session", "-d", "-s", "work", "-c", p, "/bin/sh")
+	work := s.tmux(t, "display-message", "-p", "-t", "work:0.0", "#{pane_id}")
+	expect(t, sh(t, p, env, "tmux", "panel", "--pane", work), 0, "panel shown")
+	panel := s.tmux(t, "display-message", "-p", "-t", "work:0.0", "#{pane_id}")
+	expect(t, sh(t, p, env, "tmux", "resurrect", "before"), 0, "before")
+	if got := s.tmux(t, "display-message", "-p", "-t", "work:0.0", "#{pane_id} #{@sunstack-is-panel}"); got != panel+" 1" {
+		t.Fatalf("panel moved or closed: %q, was %s", got, panel)
+	}
+	s.tmux(t, "select-pane", "-t", "work:0.1", "-T", "sunstack-panel") // as resurrect does by index
+	expect(t, sh(t, p, env, "tmux", "resurrect", "after"), 0, "after")
+	if got := workPanes(t, s); got != "0 1 sunstack-panel\n1" {
+		t.Errorf("work:0 after the restore: %q", got)
 	}
 }

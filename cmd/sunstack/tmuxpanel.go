@@ -345,14 +345,19 @@ func tmuxConf(home string) string {
 
 func fileExists(p string) bool { _, err := os.Stat(p); return err == nil }
 
-// resurrectHook sets one of tmux-resurrect's restore hooks to sunstack tmux
-// resurrect when, unless the user set that hook to something else (§43.5).
-// resurrect runs the value as a shell command.
-func resurrectHook(kind, when string) string {
-	opt := "@resurrect-hook-" + kind + "-restore-all"
-	free := "#{||:#{==:#{" + opt + "},},#{m:*sunstack*tmux resurrect*,#{" + opt + "}}}"
-	set := "set -g " + opt + " " + tmuxDQ(selfCmd("tmux", "resurrect", when))
-	return "if-shell -F " + tmuxDQ(free) + " " + tmuxDQ(set) + "\n"
+// resurrectHooks sets tmux-resurrect's two restore hooks to sunstack tmux
+// resurrect before and after (§43.5), as a pair: when the user set either one
+// to something else, neither is set, since before without after would hold
+// off the panel's restore for good. resurrect runs each value as a shell
+// command.
+func resurrectHooks() string {
+	free := func(opt string) string {
+		return "#{||:#{==:#{" + opt + "},},#{m:*sunstack*tmux resurrect*,#{" + opt + "}}}"
+	}
+	pre, post := "@resurrect-hook-pre-restore-all", "@resurrect-hook-post-restore-all"
+	set := "set -g " + pre + " " + tmuxDQ(selfCmd("tmux", "resurrect", "before")) +
+		" ; set -g " + post + " " + tmuxDQ(selfCmd("tmux", "resurrect", "after"))
+	return "if-shell -F " + tmuxDQ("#{&&:"+free(pre)+","+free(post)+"}") + " " + tmuxDQ(set) + "\n"
 }
 
 // tmuxInstall writes the key bindings file and sources it from the user's
@@ -376,7 +381,7 @@ func tmuxInstall(yes bool, stdout io.Writer) error {
 		"# Reopens the panel where you attach; tmux-resurrect restores run the two hooks below.\n" +
 		"set-hook -g session-created" + panelHook + " " + restoreHook + "\n" +
 		"set-hook -g client-attached" + panelHook + " " + restoreHook + "\n" +
-		resurrectHook("pre", "before") + resurrectHook("post", "after") +
+		resurrectHooks() +
 		"bind-key S run-shell -b " + tmuxDQ(selfCmd("tmux", "panel")+" --pane '#{pane_id}'") + "\n" +
 		"bind-key F run-shell -b " + tmuxDQ(selfCmd("tmux", "popup")+" --pane '#{pane_id}' --client '#{client_name}'") + "\n"
 	old, _ := os.ReadFile(conf)
@@ -497,9 +502,18 @@ func panelResurrect(when string, stdout io.Writer) error {
 	}
 	defer unlock()
 	if when == "before" {
+		// Only with after to clear the flag again: a post hook the user
+		// set later would leave the panel's restore held off for good.
+		if !strings.Contains(tmuxOpt("@resurrect-hook-post-restore-all", ""), "tmux resurrect after") {
+			return nil
+		}
 		ids, _ := tmuxOut("list-panes", "-a", "-F", "#{pane_id}")
 		tmuxOut("set-option", "-g", optRestoring, strings.Join(strings.Fields(ids), " "))
-		if id := livePanel(); id != "" {
+		// A panel already in a cell the save has it in stays: closing it
+		// would shift the panes after it, and resurrect matches panes by
+		// index. Anywhere else it closes, so the restore finds only the
+		// panes it saved (and a lone session 0 counts as a fresh start).
+		if id := livePanel(); id != "" && !savedPanelCells()[paneCell(id)] {
 			if w, ok := measurePanel(id); ok {
 				core.UpdatePanelPrefs(func(p *core.PanelPrefs) { p.Size = w })
 			}
@@ -521,11 +535,18 @@ func panelResurrect(when string, stdout io.Writer) error {
 	if len(before) > 0 {
 		cells = savedPanelCells()
 	}
-	panes, _ := tmuxOut("list-panes", "-a", "-F", "#{session_name}\t#{window_index}\t#{pane_index}\t#{pane_id}\t#{"+paneTag+"}")
+	panes, _ := tmuxOut("list-panes", "-a", "-F", "#{session_name}\t#{window_index}\t#{pane_index}\t#{pane_id}\t#{"+paneTag+"}\t#{pane_title}")
 	for _, l := range strings.Split(panes, "\n") {
 		f := strings.Split(l, "\t")
-		if len(f) == 5 && cells[f[0]+"\t"+f[1]+"\t"+f[2]] && !before[f[3]] && f[4] != "1" {
+		if len(f) != 6 || f[4] == "1" {
+			continue
+		}
+		if cells[f[0]+"\t"+f[1]+"\t"+f[2]] && !before[f[3]] {
 			ghosts = append(ghosts, f[3])
+		} else if f[5] == panelTitle {
+			// resurrect gave a pane of the user's the panel's saved title:
+			// clear it, so no later save takes that pane for the panel.
+			tmuxOut("select-pane", "-t", f[3], "-T", "")
 		}
 	}
 	show := core.LoadPanelPrefs().Open && livePanel() == ""
@@ -551,7 +572,9 @@ func panelResurrect(when string, stdout io.Writer) error {
 }
 
 // savedPanelCells are the session, window and pane index of every panel in
-// tmux-resurrect's last save, found by its title.
+// tmux-resurrect's last save: the panel's title and the dashboard's process
+// both, so neither a pane that only got the title nor one where the user ran
+// the dashboard counts.
 func savedPanelCells() map[string]bool {
 	cells := map[string]bool{}
 	b, err := os.ReadFile(filepath.Join(resurrectDir(), "last"))
@@ -563,11 +586,27 @@ func savedPanelCells() map[string]bool {
 		if len(f) < 11 || f[0] != "pane" {
 			continue
 		}
-		if f[6] == panelTitle {
+		if f[6] == panelTitle && f[9] == selfName() {
 			cells[f[1]+"\t"+f[2]+"\t"+f[5]] = true
 		}
 	}
 	return cells
+}
+
+// paneCell is pane id's session, window and pane index, as savedPanelCells
+// keys them.
+func paneCell(id string) string {
+	c, _ := tmuxOut("display-message", "-p", "-t", id, "#{session_name}\t#{window_index}\t#{pane_index}")
+	return c
+}
+
+// selfName is the process name tmux shows for this binary.
+func selfName() string {
+	exe, err := os.Executable()
+	if err != nil {
+		return "sunstack"
+	}
+	return filepath.Base(exe)
 }
 
 // resurrectDir is where tmux-resurrect saves, found as it finds it.
