@@ -52,14 +52,14 @@ const shortUsage = `sunstack — agent-team layer for Claude Code and Codex
   sunstack update                       update this binary and the plugin
 
 Skills have the command's name: /sunstack:<name> in Claude Code, $sunstack:<name> in Codex
-(as, board, check, clean, direct, fire, health, hire, hr, issues, next, org, release, send, spawn; save and
-verify are skills only). Every command and flag: sunstack help all
+(as, board, check, clean, direct, fire, health, hire, hr, issues, next, org, release, send, spawn; save,
+verify and formal-verify are skills only). Every command and flag: sunstack help all
 `
 
 const usage = `sunstack — agent-team layer for Claude Code and Codex
 
 Each skill has the name of the command it runs: sunstack <name>, /sunstack:<name> in Claude Code,
-$sunstack:<name> in Codex; save and verify are skills only.
+$sunstack:<name> in Codex; save, verify and formal-verify are skills only.
 
 Agent identity (used by the plugin's skills):
   sunstack as <id|title> [--task LABEL] [--join] [--token T] [--takeover --expect CLAIM] [--tool claude|codex] [--root DIR]

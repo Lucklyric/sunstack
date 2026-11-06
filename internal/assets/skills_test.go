@@ -82,7 +82,7 @@ func TestSkillReferencesExist(t *testing.T) {
 			return nil
 		})
 	}
-	ref := regexp.MustCompile("(?:(?:the |use |\\()([a-z]+) skill\\b|skills `([a-z]+)` and `([a-z]+)`|skills? `([a-z]+)`|[/$]sunstack:([a-z]+)|(?:the |\\()([a-z]+) or [a-z]+ skill\\b)")
+	ref := regexp.MustCompile("(?:(?:the |use |\\()([a-z]+(?:-[a-z]+)*) skill\\b|skills `([a-z]+)` and `([a-z]+)`|skills? `([a-z]+(?:-[a-z]+)*)`|[/$]sunstack:([a-z]+(?:-[a-z]+)*)|(?:the |\\()([a-z]+) or [a-z]+ skill\\b)")
 	for _, f := range files {
 		b, err := os.ReadFile(f)
 		if err != nil {

@@ -75,6 +75,9 @@ List any source you could not reach (another session's conversation, another hos
 history). The list is a bounded reconstruction, not proof that nothing was missed; the user
 confirms it next.
 
+Mark the requirements shaped like properties ("always", "never", "every", "at the same time"):
+the verifier can check them with the formal-verify skill instead of a few sample runs.
+
 ## 3. Confirm with the user
 
 Show the list, then settle what would turn a verdict into a guess, in a short Q&A: at most
@@ -217,6 +220,8 @@ For the agent that received a verification task. Do not run the steps above.
    or read. Seed data that lacks a journey's precondition makes it `unverifiable`, with the
    reason in that feature's Gotchas: never weaken the journey to make it pass. Work the user
    never asked for is a finding even when it works.
+   A requirement checked with the formal-verify skill answers with the property, the scope (bound
+   and assumptions) and the deliberate break the check caught.
 5. **Map or product.** Where the verify skill describes the app wrongly, fix the skill. Where
    the app breaks an agreed requirement, report it and keep the requirement: never rewrite the
    map to match a regression. Edit nothing outside the brief's Scope.

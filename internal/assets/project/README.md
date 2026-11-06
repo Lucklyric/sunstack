@@ -14,7 +14,7 @@ This folder holds the project's agent team, managed by [Sunstack](https://github
 
 Every entry starts with a date, so you can see how fresh it is. Agents update their own boards and context automatically. Changes to objectives, `PILLARS.md`, `pillars.md` or `AGENT.md` happen only after you approve them.
 
-Commands and skills: each skill has the name of the command it runs, `sunstack <name>` in a terminal, `/sunstack:<name>` in Claude Code, `$sunstack:<name>` in Codex. `save` and `verify` are skills only.
+Commands and skills: each skill has the name of the command it runs, `sunstack <name>` in a terminal, `/sunstack:<name>` in Claude Code, `$sunstack:<name>` in Codex. `save`, `verify` and `formal-verify` are skills only.
 
 - What to do next: `next` (this team; every team: `sunstack org --attention`)
 - Set up, check and upgrade: `health` (also `init`, `update`, `migrate`)
