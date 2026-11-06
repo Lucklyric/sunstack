@@ -2156,6 +2156,20 @@ func nextCommand(a *args, hostWide bool, stdout io.Writer) error {
 			items = append(items, is)
 		}
 	}
+	// This folder's formal checks whose covered files moved on (§44), and
+	// the team root's when that is another folder.
+	if !hostWide {
+		roots := []string{}
+		if wd, err := os.Getwd(); err == nil {
+			roots = append(roots, wd)
+		}
+		if err == nil && (len(roots) == 0 || filepath.Clean(p.Root) != filepath.Clean(roots[0])) {
+			roots = append(roots, p.Root)
+		}
+		for _, r := range roots {
+			items = append(items, core.VerifyDrift(r)...)
+		}
+	}
 	if c, ok := core.TriageCheck(time.Now()); ok {
 		if is, ok := core.CheckIssue(c); ok {
 			items = append(items, is)
