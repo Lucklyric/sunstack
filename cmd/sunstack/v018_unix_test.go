@@ -487,3 +487,32 @@ func TestResurrectKeepsPanelInItsSavedCell(t *testing.T) {
 		t.Errorf("work:0 after the restore: %q", got)
 	}
 }
+
+// A panel that followed the user to another session goes back to its saved
+// cell before the restore, so the saved window's panes keep their indexes
+// (§43.5).
+func TestResurrectBringsMovedPanelBack(t *testing.T) {
+	s, env, p := resurrectFixture(t, true)
+	s.tmux(t, "new-session", "-d", "-s", "work", "-c", p, "/bin/sh")
+	expect(t, sh(t, p, env, "tmux", "panel", "--pane", s.pane), 0, "panel shown in the first session")
+	expect(t, sh(t, p, env, "tmux", "resurrect", "before"), 0, "before")
+	if got := workPanes(t, s); !strings.HasPrefix(got, "0 1 ") || strings.Count(got, "\n") != 1 {
+		t.Errorf("work:0 before the restore:\n%s", got)
+	}
+	expect(t, sh(t, p, env, "tmux", "resurrect", "after"), 0, "after")
+	if out := s.tmux(t, "list-panes", "-a", "-F", "#{@sunstack-is-panel}"); strings.Count(out, "1") != 1 {
+		t.Errorf("panels:\n%s", out)
+	}
+}
+
+// macOS keeps 15 characters of a process name (§43.5).
+func TestSameProcess(t *testing.T) {
+	for _, c := range []struct {
+		saved, name string
+		want        bool
+	}{{"sunstack", "sunstack", true}, {"sunstack-long-r", "sunstack-long-renamed-binary", true}, {"sunstack-l", "sunstack-long-renamed-binary", false}, {"zsh", "sunstack", false}} {
+		if got := sameProcess(c.saved, c.name); got != c.want {
+			t.Errorf("sameProcess(%q, %q) = %v", c.saved, c.name, got)
+		}
+	}
+}

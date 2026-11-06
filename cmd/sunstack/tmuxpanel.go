@@ -509,11 +509,20 @@ func panelResurrect(when string, stdout io.Writer) error {
 		}
 		ids, _ := tmuxOut("list-panes", "-a", "-F", "#{pane_id}")
 		tmuxOut("set-option", "-g", optRestoring, strings.Join(strings.Fields(ids), " "))
-		// A panel already in a cell the save has it in stays: closing it
-		// would shift the panes after it, and resurrect matches panes by
-		// index. Anywhere else it closes, so the restore finds only the
-		// panes it saved (and a lone session 0 counts as a fresh start).
-		if id := livePanel(); id != "" && !savedPanelCells()[paneCell(id)] {
+		// A panel in a cell the save has it in stays: closing it would
+		// shift the panes after it, and resurrect matches panes by index.
+		// One that followed the user elsewhere goes back to a saved window
+		// that is still open, at its side, which is its saved cell. Anywhere
+		// else it closes, so the restore finds only the panes it saved (and
+		// a lone session 0 counts as a fresh start).
+		id := livePanel()
+		cells := savedPanelCells()
+		if id != "" && !cells[paneCell(id)] {
+			if win := savedPanelWindow(cells); win != "" {
+				tmuxOut(append(append([]string{"join-pane", "-d"}, splitArgs(panelWidth(id))...), "-s", id, "-t", win)...)
+			}
+		}
+		if id != "" && !cells[paneCell(id)] {
 			if w, ok := measurePanel(id); ok {
 				core.UpdatePanelPrefs(func(p *core.PanelPrefs) { p.Size = w })
 			}
@@ -586,11 +595,28 @@ func savedPanelCells() map[string]bool {
 		if len(f) < 11 || f[0] != "pane" {
 			continue
 		}
-		if f[6] == panelTitle && f[9] == selfName() {
+		if f[6] == panelTitle && sameProcess(f[9], selfName()) {
 			cells[f[1]+"\t"+f[2]+"\t"+f[5]] = true
 		}
 	}
 	return cells
+}
+
+// savedPanelWindow is the ID of an open window the save has a panel in.
+func savedPanelWindow(cells map[string]bool) string {
+	wins, _ := tmuxOut("list-windows", "-a", "-F", "#{session_name}\t#{window_index}\t#{window_id}")
+	for _, l := range strings.Split(wins, "\n") {
+		f := strings.Split(l, "\t")
+		if len(f) != 3 {
+			continue
+		}
+		for c := range cells {
+			if strings.HasPrefix(c, f[0]+"\t"+f[1]+"\t") {
+				return f[2]
+			}
+		}
+	}
+	return ""
 }
 
 // paneCell is pane id's session, window and pane index, as savedPanelCells
@@ -607,6 +633,12 @@ func selfName() string {
 		return "sunstack"
 	}
 	return filepath.Base(exe)
+}
+
+// sameProcess says whether saved, a process name tmux recorded, is name.
+// macOS keeps 15 characters of a process name.
+func sameProcess(saved, name string) bool {
+	return saved == name || len(saved) >= 15 && strings.HasPrefix(name, saved)
 }
 
 // resurrectDir is where tmux-resurrect saves, found as it finds it.
