@@ -6,6 +6,7 @@ package main
 // that logs its calls.
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -170,7 +171,7 @@ func TestTmuxInstall(t *testing.T) {
 		t.Errorf("absolute line not replaced:\n%s", b)
 	}
 	f, _ := os.ReadFile(filepath.Join(home, ".config", "sunstack", "sunstack.tmux"))
-	for _, want := range []string{`set-hook -g session-created[42] "run-shell -b `, ` tmux restore --pane '#{pane_id}'`, `bind-key S run-shell -b "`, ` tmux panel --pane '#{pane_id}'"`, `bind-key F run-shell -b "`, `--client '#{client_name}'"`} {
+	for _, want := range []string{`set-hook -g session-created[42] "run-shell -b `, `set-hook -g client-attached[42] "run-shell -b `, ` tmux restore --if-attached --pane '#{pane_id}'`, `set -g @resurrect-hook-pre-restore-all `, ` tmux resurrect before`, ` tmux resurrect after`, `bind-key S run-shell -b "`, ` tmux panel --pane '#{pane_id}'"`, `bind-key F run-shell -b "`, `--client '#{client_name}'"`} {
 		if !strings.Contains(string(f), want) {
 			t.Errorf("sunstack.tmux lacks %q:\n%s", want, f)
 		}
@@ -325,5 +326,120 @@ func TestPanelShowNeedsSavedState(t *testing.T) {
 	log := tmuxLog(t, state)
 	if r.code == 0 || !strings.Contains(log, "kill-pane -t %99") || strings.Contains(log, "set-hook -g") || strings.Contains(panelJSON(t, env), `"open"`) {
 		t.Errorf("show with the settings locked: %d %s\n%s\n%s", r.code, r.out, log, panelJSON(t, env))
+	}
+}
+
+// resurrectFixture is a private tmux with the panel's settings open and a
+// tmux-resurrect save whose window work:0 had the panel at pane 0 (§43.5).
+func resurrectFixture(t *testing.T, open bool) (*tmuxFixture, []string, string) {
+	t.Helper()
+	p := t.TempDir()
+	s := privateTmux(t, p, isolatedEnv(t))
+	env := append(append([]string{}, s.env...), "SUNSTACK_TEST_DEFAULT_SOCKET="+s.socket)
+	writePanelJSON(t, env, fmt.Sprintf(`{"size": "40", "open": %v}`, open))
+	s.tmux(t, "set-option", "-g", "remain-on-exit", "on")
+	dir := t.TempDir()
+	s.tmux(t, "set-option", "-g", "@resurrect-dir", dir)
+	save := "pane\twork\t0\t1\t:*\t0\tsunstack-panel\t:" + p + "\t0\tsunstack\t:\n" +
+		"pane\twork\t0\t1\t:*\t1\thost\t:" + p + "\t1\tzsh\t:\n"
+	must(t, os.WriteFile(filepath.Join(dir, "tmux_resurrect_1.txt"), []byte(save), 0o644))
+	must(t, os.Symlink("tmux_resurrect_1.txt", filepath.Join(dir, "last")))
+	return s, env, p
+}
+
+// resurrectMakes stands in for tmux-resurrect: the saved window, with a
+// blank shell in each cell.
+func resurrectMakes(t *testing.T, s *tmuxFixture, p string) {
+	t.Helper()
+	s.tmux(t, "new-session", "-d", "-s", "work", "-c", p, "/bin/sh")
+	s.tmux(t, "split-window", "-d", "-h", "-t", "work:0", "-c", p, "/bin/sh")
+}
+
+func workPanes(t *testing.T, s *tmuxFixture) string {
+	return s.tmux(t, "list-panes", "-t", "work:0", "-F", "#{pane_index} #{@sunstack-is-panel} #{pane_title}")
+}
+
+// A restore closes the open panel first, keeps it open in panel.json, holds
+// off the hooks while it runs, then turns the blank pane resurrect left in
+// the panel's cell back into the panel (§43.5).
+func TestResurrectRestoresPanelInItsCell(t *testing.T) {
+	s, env, p := resurrectFixture(t, false)
+	expect(t, sh(t, p, env, "tmux", "panel", "--pane", s.pane), 0, "panel shown")
+	expect(t, sh(t, p, env, "tmux", "resurrect", "before"), 0, "before")
+	if out := s.tmux(t, "list-panes", "-a", "-F", "#{@sunstack-is-panel}"); strings.Contains(out, "1") {
+		t.Errorf("panel still open during the restore:\n%s", out)
+	}
+	if !strings.Contains(panelJSON(t, env), `"open": true`) {
+		t.Errorf("before changed the open state: %s", panelJSON(t, env))
+	}
+	resurrectMakes(t, s, p)
+	if r := sh(t, p, env, "tmux", "restore", "--pane", s.pane); r.code != 0 || strings.Contains(r.out, "shown") {
+		t.Errorf("restore during a resurrect restore: %d %s", r.code, r.out)
+	}
+	r := sh(t, p, env, "tmux", "resurrect", "after")
+	expect(t, r, 0, "panel restored")
+	if got := workPanes(t, s); !strings.HasPrefix(got, "0 1 sunstack-panel\n1  ") || strings.Count(got, "\n") != 1 {
+		t.Errorf("work:0 after the restore:\n%s", got)
+	}
+	if out := s.tmux(t, "list-panes", "-a", "-F", "#{@sunstack-is-panel}"); strings.Count(out, "1") != 1 {
+		t.Errorf("panels:\n%s", out)
+	}
+	if v := s.tmux(t, "show-options", "-gqv", "@sunstack-restoring"); v != "" {
+		t.Errorf("restoring flag left: %q", v)
+	}
+}
+
+// With the panel closed, the blank pane in its cell closes (§43.5).
+func TestResurrectClosedPanelLeavesNoBlankPane(t *testing.T) {
+	s, env, p := resurrectFixture(t, false)
+	expect(t, sh(t, p, env, "tmux", "resurrect", "before"), 0, "before")
+	resurrectMakes(t, s, p)
+	expect(t, sh(t, p, env, "tmux", "resurrect", "after"), 0, "")
+	if got := workPanes(t, s); strings.Count(got, "\n") != 0 || strings.Contains(got, " 1 ") {
+		t.Errorf("work:0:\n%s", got)
+	}
+}
+
+// Panes that were there before the restore are never closed, and after
+// without before closes nothing (§43.5).
+func TestResurrectKeepsPanesItDidNotMake(t *testing.T) {
+	s, env, p := resurrectFixture(t, false)
+	resurrectMakes(t, s, p)
+	expect(t, sh(t, p, env, "tmux", "resurrect", "after"), 0, "after alone")
+	expect(t, sh(t, p, env, "tmux", "resurrect", "before"), 0, "before")
+	expect(t, sh(t, p, env, "tmux", "resurrect", "after"), 0, "after")
+	if got := workPanes(t, s); strings.Count(got, "\n") != 1 {
+		t.Errorf("a pane the restore did not make closed:\n%s", got)
+	}
+}
+
+// The hooks open the panel only in a session someone is attached to, so a
+// background session never gets it (§43.5).
+func TestRestoreIfAttachedSkipsBackground(t *testing.T) {
+	s, env, p := resurrectFixture(t, true)
+	expect(t, sh(t, p, env, "tmux", "restore", "--if-attached", "--pane", s.pane), 0, "")
+	if out := s.tmux(t, "list-panes", "-a", "-F", "#{@sunstack-is-panel}"); strings.Contains(out, "1") {
+		t.Errorf("panel opened in a detached session:\n%s", out)
+	}
+}
+
+// The installed file loads in tmux; a resurrect hook the user set stays, an
+// empty or older sunstack one is set (§43.5).
+func TestInstallResurrectHooks(t *testing.T) {
+	s, env, p := resurrectFixture(t, false)
+	env = append(env, "TMUX=")
+	expect(t, sh(t, p, env, "tmux", "install", "--yes"), 0, "install")
+	file := filepath.Join(envValue(env, "HOME"), ".config", "sunstack", "sunstack.tmux")
+	s.tmux(t, "set-option", "-g", "@resurrect-hook-pre-restore-all", "echo mine")
+	s.tmux(t, "set-option", "-g", "@resurrect-hook-post-restore-all", "/old/sunstack tmux resurrect after")
+	s.tmux(t, "source-file", file)
+	if v := s.tmux(t, "show-options", "-gqv", "@resurrect-hook-pre-restore-all"); v != "echo mine" {
+		t.Errorf("the user's hook was replaced: %q", v)
+	}
+	if v := s.tmux(t, "show-options", "-gqv", "@resurrect-hook-post-restore-all"); strings.HasPrefix(v, "/old/") || !strings.HasSuffix(v, " tmux resurrect after") {
+		t.Errorf("post hook: %q", v)
+	}
+	if v := s.tmux(t, "show-hooks", "-g", "client-attached"); !strings.Contains(v, "--if-attached") {
+		t.Errorf("client-attached hook: %q", v)
 	}
 }

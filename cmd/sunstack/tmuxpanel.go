@@ -23,6 +23,10 @@ const (
 	optScope = "@sunstack-scope"    // org (every team) or team (the folder's team)
 	optPanel = "@sunstack-panel"    // set by sunstack: the panel's pane ID
 	paneTag  = "@sunstack-is-panel" // set by sunstack on the panel's own pane
+	// set by sunstack while tmux-resurrect restores: the panes there before
+	optRestoring = "@sunstack-restoring"
+	// the panel's pane title, which tmux-resurrect saves (§43.5)
+	panelTitle = "sunstack-panel"
 )
 
 // panelHook is the index the follow hooks use in tmux's hook arrays, so the
@@ -62,12 +66,12 @@ func runTmux(rest []string, stdout io.Writer) error {
 	if len(rest) > 0 {
 		sub, rest = rest[0], rest[1:]
 	}
-	a, err := parse(rest, "pane client window", "yes")
+	a, err := parse(rest, "pane client window", "yes if-attached")
 	if err != nil {
 		return err
 	}
 	n := 0
-	if sub == "side" || sub == "scope" {
+	if sub == "side" || sub == "scope" || sub == "resurrect" {
 		n = 1
 	}
 	if err := a.atMost(n, "tmux "+sub); err != nil {
@@ -83,11 +87,13 @@ func runTmux(rest []string, stdout io.Writer) error {
 	case "install":
 		return tmuxInstall(a.has("yes"), stdout)
 	case "restore":
-		return panelRestore(a.flags["pane"], stdout)
+		return panelRestore(a.flags["pane"], a.has("if-attached"), stdout)
+	case "resurrect":
+		return panelResurrect(strings.Join(a.pos, ""), stdout)
 	case "side", "scope":
 		return panelChoose(sub, strings.Join(a.pos, ""), stdout)
 	}
-	return &core.Error{Code: core.ExitUsage, Reason: "usage", Msg: "usage: sunstack tmux panel|popup|install [--yes]|restore|side left|right|scope org|team"}
+	return &core.Error{Code: core.ExitUsage, Reason: "usage", Msg: "usage: sunstack tmux panel|popup|install [--yes]|restore|resurrect before|after|side left|right|scope org|team"}
 }
 
 func needTmux() error {
@@ -216,16 +222,23 @@ func panelShow(pane string, stdout io.Writer) error {
 		tmuxOut("kill-pane", "-t", id)
 		return err
 	}
+	adoptPanel(id)
+	fmt.Fprintf(stdout, "sunstack: panel shown (%s); it follows you to every window and session\n", id)
+	return nil
+}
+
+// adoptPanel makes pane id the panel: the option, its tag and the follow
+// hooks.
+func adoptPanel(id string) {
 	tmuxOut("set-option", "-g", optPanel, id)
 	tmuxOut("set-option", "-p", "-t", id, paneTag, "1")
+	tmuxOut("select-pane", "-t", id, "-T", panelTitle)
 	// The hook names the window that changed: a background run-shell has no
 	// client of its own to ask.
 	follow := "run-shell -b " + tmuxDQ(selfCmd("tmux", "follow")+" --window '#{window_id}'")
 	for _, h := range panelHooks {
 		tmuxOut("set-hook", "-g", h, follow)
 	}
-	fmt.Fprintf(stdout, "sunstack: panel shown (%s); it follows you to every window and session\n", id)
-	return nil
 }
 
 // panelFollow moves the panel into window (default: the one in front). The
@@ -332,6 +345,16 @@ func tmuxConf(home string) string {
 
 func fileExists(p string) bool { _, err := os.Stat(p); return err == nil }
 
+// resurrectHook sets one of tmux-resurrect's restore hooks to sunstack tmux
+// resurrect when, unless the user set that hook to something else (§43.5).
+// resurrect runs the value as a shell command.
+func resurrectHook(kind, when string) string {
+	opt := "@resurrect-hook-" + kind + "-restore-all"
+	free := "#{||:#{==:#{" + opt + "},},#{m:*sunstack*tmux resurrect*,#{" + opt + "}}}"
+	set := "set -g " + opt + " " + tmuxDQ(selfCmd("tmux", "resurrect", when))
+	return "if-shell -F " + tmuxDQ(free) + " " + tmuxDQ(set) + "\n"
+}
+
 // tmuxInstall writes the key bindings file and sources it from the user's
 // tmux config, after --yes.
 func tmuxInstall(yes bool, stdout io.Writer) error {
@@ -346,10 +369,14 @@ func tmuxInstall(yes bool, stdout io.Writer) error {
 	// absolute line is replaced.
 	source := "source-file -q ~/.config/sunstack/sunstack.tmux"
 	absolute := "source-file -q " + core.ShellQuote(file)
+	restoreHook := tmuxDQ("run-shell -b " + tmuxDQ(selfCmd("tmux", "restore")+" --if-attached --pane '#{pane_id}'"))
 	body := "# Sunstack panel and popup, written by sunstack tmux install (§40).\n" +
 		"# Defaults: set -g @sunstack-side left|right, @sunstack-size 35%, @sunstack-scope org|team.\n" +
 		"# What you choose in the panel (width, side, scope, open) is kept in ~/.sunstack/panel.json and wins.\n" +
-		"set-hook -g session-created" + panelHook + " " + tmuxDQ("run-shell -b "+tmuxDQ(selfCmd("tmux", "restore")+" --pane '#{pane_id}'")) + "\n" +
+		"# Reopens the panel where you attach; tmux-resurrect restores run the two hooks below.\n" +
+		"set-hook -g session-created" + panelHook + " " + restoreHook + "\n" +
+		"set-hook -g client-attached" + panelHook + " " + restoreHook + "\n" +
+		resurrectHook("pre", "before") + resurrectHook("post", "after") +
 		"bind-key S run-shell -b " + tmuxDQ(selfCmd("tmux", "panel")+" --pane '#{pane_id}'") + "\n" +
 		"bind-key F run-shell -b " + tmuxDQ(selfCmd("tmux", "popup")+" --pane '#{pane_id}' --client '#{client_name}'") + "\n"
 	old, _ := os.ReadFile(conf)
@@ -421,9 +448,46 @@ func tmuxInstall(yes bool, stdout io.Writer) error {
 }
 
 // panelRestore opens the panel beside pane when it was open last time and is
-// not open now (§43); the session-created hook runs it, so a tmux restart
-// brings it back.
-func panelRestore(pane string, stdout io.Writer) error {
+// not open now (§43). The session-created and client-attached hooks run it
+// with ifAttached, so a tmux restart brings it back where the user looks,
+// never in a background session, and never while tmux-resurrect restores
+// (§43.5).
+func panelRestore(pane string, ifAttached bool, stdout io.Writer) error {
+	if err := needTmux(); err != nil {
+		return err
+	}
+	// Read once without the lock: most runs find it closed.
+	if !core.LoadPanelPrefs().Open {
+		return nil
+	}
+	if pane == "" {
+		pane = os.Getenv("TMUX_PANE")
+	}
+	if ifAttached {
+		if n, _ := tmuxOut("display-message", "-p", "-t", pane, "#{session_attached}"); n == "" || n == "0" {
+			return nil
+		}
+	}
+	unlock, err := core.LockPanel()
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	if !core.LoadPanelPrefs().Open || tmuxOpt(optRestoring, "") != "" || livePanel() != "" {
+		return nil
+	}
+	return panelShow(pane, stdout)
+}
+
+// panelResurrect runs from tmux-resurrect's restore hooks (§43.5). before
+// closes an open panel, keeping its open state, so the restore finds the
+// panes it saved and none of ours. after turns the blank pane resurrect
+// left where the panel was saved back into the panel, or closes it when the
+// panel is closed now, and opens the panel when there is no such pane.
+func panelResurrect(when string, stdout io.Writer) error {
+	if when != "before" && when != "after" {
+		return &core.Error{Code: core.ExitUsage, Reason: "usage", Msg: "usage: sunstack tmux resurrect before|after"}
+	}
 	if err := needTmux(); err != nil {
 		return err
 	}
@@ -432,10 +496,95 @@ func panelRestore(pane string, stdout io.Writer) error {
 		return err
 	}
 	defer unlock()
-	if !core.LoadPanelPrefs().Open || livePanel() != "" {
+	if when == "before" {
+		ids, _ := tmuxOut("list-panes", "-a", "-F", "#{pane_id}")
+		tmuxOut("set-option", "-g", optRestoring, strings.Join(strings.Fields(ids), " "))
+		if id := livePanel(); id != "" {
+			if w, ok := measurePanel(id); ok {
+				core.UpdatePanelPrefs(func(p *core.PanelPrefs) { p.Size = w })
+			}
+			unhookPanel()
+			tmuxOut("kill-pane", "-t", id)
+		}
+		return nil
+	}
+	before := map[string]bool{}
+	for _, id := range strings.Fields(tmuxOpt(optRestoring, "")) {
+		before[id] = true
+	}
+	defer tmuxOut("set-option", "-gu", optRestoring)
+	// The panes resurrect made where the panel was: not there before the
+	// restore, and not a panel already. Without before's list no pane is
+	// known to be new, so none closes.
+	var ghosts []string
+	cells := map[string]bool{}
+	if len(before) > 0 {
+		cells = savedPanelCells()
+	}
+	panes, _ := tmuxOut("list-panes", "-a", "-F", "#{session_name}\t#{window_index}\t#{pane_index}\t#{pane_id}\t#{"+paneTag+"}")
+	for _, l := range strings.Split(panes, "\n") {
+		f := strings.Split(l, "\t")
+		if len(f) == 5 && cells[f[0]+"\t"+f[1]+"\t"+f[2]] && !before[f[3]] && f[4] != "1" {
+			ghosts = append(ghosts, f[3])
+		}
+	}
+	show := core.LoadPanelPrefs().Open && livePanel() == ""
+	if show && len(ghosts) > 0 {
+		// In its own cell, at the width it was saved with.
+		if _, err := tmuxOut("respawn-pane", "-k", "-t", ghosts[0], selfCmd(tuiArgs("--compact")...)); err == nil {
+			adoptPanel(ghosts[0])
+			fmt.Fprintf(stdout, "sunstack: panel restored (%s)\n", ghosts[0])
+			ghosts, show = ghosts[1:], false
+		}
+	}
+	for _, id := range ghosts {
+		tmuxOut("kill-pane", "-t", id)
+	}
+	if !show {
+		return nil
+	}
+	pane, err := tmuxOut("display-message", "-p", "#{pane_id}")
+	if err != nil || pane == "" {
 		return nil
 	}
 	return panelShow(pane, stdout)
+}
+
+// savedPanelCells are the session, window and pane index of every panel in
+// tmux-resurrect's last save, found by its title.
+func savedPanelCells() map[string]bool {
+	cells := map[string]bool{}
+	b, err := os.ReadFile(filepath.Join(resurrectDir(), "last"))
+	if err != nil {
+		return cells
+	}
+	for _, l := range strings.Split(string(b), "\n") {
+		f := strings.Split(l, "\t")
+		if len(f) < 11 || f[0] != "pane" {
+			continue
+		}
+		if f[6] == panelTitle {
+			cells[f[1]+"\t"+f[2]+"\t"+f[5]] = true
+		}
+	}
+	return cells
+}
+
+// resurrectDir is where tmux-resurrect saves, found as it finds it.
+func resurrectDir() string {
+	home, _ := os.UserHomeDir()
+	if d := tmuxOpt("@resurrect-dir", ""); d != "" {
+		host, _ := os.Hostname()
+		return strings.NewReplacer("$HOME", home, "$HOSTNAME", host, "~", home).Replace(d)
+	}
+	if d := filepath.Join(home, ".tmux", "resurrect"); fileExists(d) {
+		return d
+	}
+	data := os.Getenv("XDG_DATA_HOME")
+	if data == "" {
+		data = filepath.Join(home, ".local", "share")
+	}
+	return filepath.Join(data, "tmux", "resurrect")
 }
 
 // panelChoose keeps the panel's side or scope (§43) and moves an open panel
