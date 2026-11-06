@@ -535,7 +535,9 @@ func (m *model) key(k string) tea.Cmd {
 		if m.panel {
 			// Closed on purpose: a tmux restart does not bring it back. If
 			// that cannot be saved, stay, so restore does not reopen it.
-			if err := core.UpdatePanelPrefs(func(p *core.PanelPrefs) { p.Open = false }); err != nil {
+			// Saved under the panel lock, like prefix S: a show or a restore
+			// running now would otherwise save open over it.
+			if err := savePanelClosed(); err != nil {
 				m.note = "could not save that the panel is closed (" + err.Error() + "); q again to retry"
 				return nil
 			}
@@ -1226,4 +1228,14 @@ func (m *model) panelScopeIsTeam() bool {
 	}
 	s, _ := m.run("tmux", "show-options", "-gqv", "@sunstack-scope")
 	return s == "team"
+}
+
+// savePanelClosed marks the panel closed in panel.json under the panel lock.
+func savePanelClosed() error {
+	unlock, err := core.LockPanel()
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	return core.UpdatePanelPrefs(func(p *core.PanelPrefs) { p.Open = false })
 }

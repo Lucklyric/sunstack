@@ -1,6 +1,8 @@
 package tui
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -115,5 +117,29 @@ func TestDividerEdgeCases(t *testing.T) {
 	m.Update(tea.MouseMsg{X: 70, Y: y, Action: tea.MouseActionMotion, Button: tea.MouseButtonLeft})
 	if m.dragging || m.leftW() != before {
 		t.Errorf("stale drag: dragging %v, list %d (was %d)", m.dragging, m.leftW(), before)
+	}
+}
+
+// q in the panel saves closed under the panel lock, so a show or a restore
+// holding it cannot save open over it afterwards; while it is held, q stays
+// and says so (v0.18.4).
+func TestPanelQuitTakesPanelLock(t *testing.T) {
+	m := treeModel(t)
+	m.compact, m.panel = true, true
+	m.run = func(string, ...string) (string, error) { return "", nil }
+	core.UpdatePanelPrefs(func(p *core.PanelPrefs) { p.Open = true })
+	held := filepath.Join(core.Home(), "locks", "panel")
+	if err := os.MkdirAll(held, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(held, "owner"), []byte("another sunstack\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if cmd := m.key("q"); cmd != nil || !core.LoadPanelPrefs().Open || !strings.Contains(m.note, "could not save") {
+		t.Errorf("q with the panel lock held: quit=%v open=%v note=%q", cmd != nil, core.LoadPanelPrefs().Open, m.note)
+	}
+	os.RemoveAll(held)
+	if cmd := m.key("q"); cmd == nil || core.LoadPanelPrefs().Open {
+		t.Errorf("q after the lock is free: quit=%v open=%v", cmd != nil, core.LoadPanelPrefs().Open)
 	}
 }
