@@ -3,6 +3,7 @@ package tui
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"testing"
 	"time"
@@ -110,7 +111,8 @@ func TestOrgCacheConcurrentSaves(t *testing.T) {
 	if loadOrgCache(time.Now()) == nil {
 		t.Fatal("cache not readable after overlapping saves")
 	}
-	if st, _ := os.Stat(orgCachePath()); st.Mode().Perm() != 0o600 {
+	// Windows has no Unix modes; only there may the file read as 0666.
+	if st, _ := os.Stat(orgCachePath()); runtime.GOOS != "windows" && st.Mode().Perm() != 0o600 {
 		t.Errorf("mode %v", st.Mode().Perm())
 	}
 	if left, _ := filepath.Glob(filepath.Join(filepath.Dir(orgCachePath()), ".org-cache-*")); len(left) != 0 {
