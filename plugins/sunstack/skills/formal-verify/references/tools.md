@@ -7,7 +7,7 @@ Pick by the question. Check each with `command -v` before you use it; when the r
 - **Hand-written state explorer** in the project's language (see `code.md`). Every order of steps up to a bound. Needs nothing.
 - **TLA+ with TLC**: every interleaving of a design or protocol model, with a standard notation others can read. Needs a Java runtime. Install: `brew install openjdk` and the `tla2tools.jar` release from github.com/tlaplus/tlaplus. Apalache (`brew install apalache`) checks the same specs symbolically, for larger bounds.
 - **Alloy**: every structure up to a size (relations, permissions, schemas, configurations). Install: the Alloy app from alloytools.org (needs Java).
-- **Fuzzing and property tests on the real code**: Go `go test -fuzz` (built in); Python Hypothesis (`uv add --dev hypothesis`); Rust proptest (`cargo add --dev proptest`).
+- **Enumeration on the real code**: a test that runs the real function on every input of a stated finite domain. Needs nothing.
 - **Bounded code verifiers**: Kani for Rust (`cargo install --locked kani-verifier && cargo kani setup`); CBMC for C (`brew install cbmc`).
 
 ## Unbounded: every case, any size
@@ -19,7 +19,11 @@ Pick by the question. Check each with `command -v` before you use it; when the r
 ## Choosing
 
 - Bad order of steps: state explorer, or TLA+ when the model is large or will be shared.
-- Every input to real code: fuzzing or property tests; Kani or CBMC where they apply.
+- Every input to real code: enumeration of a finite domain, or Kani or CBMC where they apply.
+
+## Sampling: extra evidence, not exhaustive
+
+- **Fuzzing and property tests**: Go `go test -fuzz` (built in); Python Hypothesis (`uv add --dev hypothesis`); Rust proptest (`cargo add --dev proptest`). They reach inputs beyond the bound, but a pass covers only the inputs they tried. Report a check that rests on them alone as not exhaustive.
 - Must hold at every size: Lean or Dafny. Cost is high (the proof often outgrows the code), so say so and ask the user before starting.
 - A constraint or arithmetic question: Z3.
 - Writing: the lists and scripts in `writing.md`; no external tool is needed.

@@ -35,4 +35,4 @@ Tell it as a path the reader recognizes: "1. the panel is open, 2. the server re
 
 ## Rerun record
 
-The table or model file, the command, the bound, the design sections covered, and the sync marker (commit, or content hash for a doc outside git).
+The table or model file, the command, the bound, the design sections covered, and the sync marker (commit, or a content hash plus a copy of the checked text for a doc outside git).

@@ -54,6 +54,9 @@ func TestVerifierTemplate(t *testing.T) {
 	}
 }
 
+// skillRef finds a skill named in text; names may hold hyphens (formal-verify).
+var skillRef = regexp.MustCompile("(?:(?:the |use |\\()([a-z]+(?:-[a-z]+)*) skill\\b|skills `([a-z]+(?:-[a-z]+)*)` and `([a-z]+(?:-[a-z]+)*)`|skills? `([a-z]+(?:-[a-z]+)*)`|[/$]sunstack:([a-z]+(?:-[a-z]+)*)|(?:the |\\()([a-z]+(?:-[a-z]+)*) or [a-z]+(?:-[a-z]+)* skill\\b)")
+
 // Every skill named in the skills, the READMEs and the CLI's messages exists,
 // and each skill's name matches its folder.
 func TestSkillReferencesExist(t *testing.T) {
@@ -82,7 +85,7 @@ func TestSkillReferencesExist(t *testing.T) {
 			return nil
 		})
 	}
-	ref := regexp.MustCompile("(?:(?:the |use |\\()([a-z]+(?:-[a-z]+)*) skill\\b|skills `([a-z]+)` and `([a-z]+)`|skills? `([a-z]+(?:-[a-z]+)*)`|[/$]sunstack:([a-z]+(?:-[a-z]+)*)|(?:the |\\()([a-z]+) or [a-z]+ skill\\b)")
+	ref := skillRef
 	for _, f := range files {
 		b, err := os.ReadFile(f)
 		if err != nil {
@@ -108,6 +111,29 @@ func TestSkillReferencesExist(t *testing.T) {
 			if m := old.FindString(parts[2]); m != "" {
 				t.Errorf("%s uses the old name %q", f, m)
 			}
+		}
+	}
+}
+
+// Each form of skillRef captures a hyphenated name whole, on either side of a pair.
+func TestSkillRefNames(t *testing.T) {
+	for text, want := range map[string]string{
+		"the formal-verify skill":              "formal-verify",
+		"/sunstack:formal-verify":              "formal-verify",
+		"skill `formal-verify`":                "formal-verify",
+		"skills `formal-verify` and `no-such`": "formal-verify no-such",
+		"skills `verify` and `formal-verify`":  "verify formal-verify",
+		"(the formal-verify or verify skill":   "formal-verify",
+	} {
+		m := skillRef.FindStringSubmatch(text)
+		var got []string
+		for _, g := range m[1:] {
+			if g != "" {
+				got = append(got, g)
+			}
+		}
+		if strings.Join(got, " ") != want {
+			t.Errorf("%q: got %q, want %q", text, got, want)
 		}
 	}
 }
