@@ -135,6 +135,7 @@ func TestTimeoutIsUnknown(t *testing.T) {
 		t.Error("a server that does not answer counted as restarted")
 	}
 	scripts(t, map[string]string{"tmux": "echo 999"})
+	cmdWait = 5 * time.Second // it answers at once; a short bound fails it on a busy machine
 	if !serverChanged(&Live{TmuxSocket: sock, TmuxPane: "%1", TmuxServer: "123"}) {
 		t.Error("a server with another pid not counted as restarted")
 	}
