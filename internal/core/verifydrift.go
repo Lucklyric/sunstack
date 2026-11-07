@@ -12,7 +12,8 @@ import (
 	"strings"
 )
 
-// A project's verify-<area> skills (§44) each keep a coverage record:
+// A project's formal checks (§44) live in .formal-verify/<area>/check.md,
+// each with a coverage record:
 //
 //	## Coverage
 //	sync: <commit>            (or sha256:<hex> of the covered files, in order)
@@ -22,14 +23,14 @@ import (
 // whose covered files changed since its sync marker, so next can say that
 // the check needs a maintain pass before it is trusted again.
 
-// verifyRecord is one verify-<area> skill's coverage record.
+// verifyRecord is one check's coverage record.
 type verifyRecord struct {
 	name   string
 	sync   string
 	covers []string
 }
 
-// readVerifyRecord reads the Coverage section of a verify skill.
+// readVerifyRecord reads the Coverage section of a check.
 func readVerifyRecord(path string) (verifyRecord, bool) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -60,11 +61,11 @@ func readVerifyRecord(path string) (verifyRecord, bool) {
 	return r, true
 }
 
-// VerifyDrift is an issue for each verify-<area> skill under root whose
+// VerifyDrift is an issue for each check under root/.formal-verify whose
 // covered files changed since its sync marker, or that has no record to
 // check against.
 func VerifyDrift(root string) []Issue {
-	paths, _ := filepath.Glob(filepath.Join(root, ".claude", "skills", "verify-*", "SKILL.md"))
+	paths, _ := filepath.Glob(filepath.Join(root, ".formal-verify", "*", "check.md"))
 	sort.Strings(paths)
 	var out []Issue
 	for _, p := range paths {
@@ -72,11 +73,9 @@ func VerifyDrift(root string) []Issue {
 		if !ok {
 			continue
 		}
-		do := "run the formal-verify skill in maintain mode on " + r.name
+		do := "run the formal-verify skill in maintain mode on .formal-verify/" + r.name
 		if r.sync == "" || len(r.covers) == 0 {
-			if isFormalVerify(p) {
-				out = append(out, Issue{"drift", "user", r.name + " has no coverage record (sync: and covers: under ## Coverage), so its staleness is unknown", do})
-			}
+			out = append(out, Issue{"drift", "user", r.name + " has no coverage record (sync: and covers: under ## Coverage), so its staleness is unknown", do})
 			continue
 		}
 		if changed := verifyChanged(root, r); len(changed) > 0 {
@@ -88,19 +87,6 @@ func VerifyDrift(root string) []Issue {
 		}
 	}
 	return out
-}
-
-// isFormalVerify tells a check that formal-verify made (it has a Coverage
-// heading) from another project skill that happens to start with verify-,
-// such as a verify-<app> driving skill, which keeps no such record.
-func isFormalVerify(path string) bool {
-	b, _ := os.ReadFile(path)
-	for _, l := range strings.Split(string(b), "\n") {
-		if t := strings.TrimSpace(l); strings.HasPrefix(t, "#") && strings.EqualFold(strings.TrimSpace(strings.TrimLeft(t, "#")), "coverage") {
-			return true
-		}
-	}
-	return false
 }
 
 // verifyChanged lists the covered files that differ from the sync marker:

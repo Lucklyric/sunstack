@@ -21,13 +21,13 @@ func vgit(t *testing.T, dir string, args ...string) string {
 	return strings.TrimSpace(string(out))
 }
 
-func writeSkill(t *testing.T, root, name, body string) {
+func writeCheck(t *testing.T, root, name, body string) {
 	t.Helper()
-	d := filepath.Join(root, ".claude", "skills", name)
+	d := filepath.Join(root, ".formal-verify", name)
 	if err := os.MkdirAll(d, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(d, "SKILL.md"), []byte(body), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(d, "check.md"), []byte(body), 0o644); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -53,8 +53,11 @@ func TestVerifyDrift(t *testing.T) {
 	vgit(t, repo, "add", "-A")
 	vgit(t, repo, "commit", "-qm", "one")
 	sync := vgit(t, repo, "rev-parse", "HEAD")
-	writeSkill(t, root, "verify-lease", "---\nname: verify-lease\n---\n# Lease\n\n## Coverage\n\n- sync: `"+sync+"`\n- covers: `src/lease.go`\n")
-	writeSkill(t, root, "verify-app", "---\nname: verify-app\n---\n# Driving the app\n\n## Launch\nsync: none\n") // a driving skill, no record
+	writeCheck(t, root, "lease", "# lease: one holder at a time\n\n## Coverage\n\n- sync: `"+sync+"`\n- covers: `src/lease.go`\n")
+	// An app-driving verify skill is not a formal check and is never read.
+	d := filepath.Join(root, ".claude", "skills", "verify-app")
+	must(os.MkdirAll(d, 0o755))
+	must(os.WriteFile(filepath.Join(d, "SKILL.md"), []byte("# Driving the app\n## Coverage\nnothing\n"), 0o644))
 	if got := VerifyDrift(root); len(got) != 0 {
 		t.Fatalf("fresh check flagged: %+v", got)
 	}
@@ -66,7 +69,7 @@ func TestVerifyDrift(t *testing.T) {
 	}
 
 	must(os.WriteFile(filepath.Join(root, "src", "lease.go"), []byte("package src // edited\n"), 0o644))
-	if got := VerifyDrift(root); len(got) != 1 || !strings.Contains(got[0].Text, "verify-lease") || !strings.Contains(got[0].Text, "src/lease.go") || got[0].Kind != "drift" {
+	if got := VerifyDrift(root); len(got) != 1 || !strings.Contains(got[0].Text, "lease") || !strings.Contains(got[0].Text, "src/lease.go") || got[0].Kind != "drift" {
 		t.Errorf("uncommitted edit: %+v", got)
 	}
 	vgit(t, repo, "commit", "-qam", "covered")
@@ -76,7 +79,7 @@ func TestVerifyDrift(t *testing.T) {
 
 	// A content-hash marker, for files outside git.
 	sum := sha256.Sum256([]byte("package src // edited\n"))
-	writeSkill(t, root, "verify-lease", "# Lease\n## Coverage\nsync: sha256:"+hex.EncodeToString(sum[:])+"\ncovers: src/lease.go\n")
+	writeCheck(t, root, "lease", "# Lease\n## Coverage\nsync: sha256:"+hex.EncodeToString(sum[:])+"\ncovers: src/lease.go\n")
 	if got := VerifyDrift(root); len(got) != 0 {
 		t.Errorf("matching hash flagged: %+v", got)
 	}
@@ -86,11 +89,11 @@ func TestVerifyDrift(t *testing.T) {
 	}
 
 	// A record that cannot be checked says so.
-	writeSkill(t, root, "verify-lease", "# Lease\n## Coverage\nsync: 0123456789abcdef\ncovers: other.go\n")
+	writeCheck(t, root, "lease", "# Lease\n## Coverage\nsync: 0123456789abcdef\ncovers: other.go\n")
 	if got := VerifyDrift(root); len(got) != 1 || !strings.Contains(got[0].Text, "not found") {
 		t.Errorf("unknown marker: %+v", got)
 	}
-	writeSkill(t, root, "verify-lease", "# Lease\n## Coverage\nnothing yet\n")
+	writeCheck(t, root, "lease", "# Lease\n## Coverage\nnothing yet\n")
 	if got := VerifyDrift(root); len(got) != 1 || !strings.Contains(got[0].Text, "no coverage record") {
 		t.Errorf("empty record: %+v", got)
 	}
