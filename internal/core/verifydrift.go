@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -12,7 +13,8 @@ import (
 	"strings"
 )
 
-// A project's formal checks live in .sunstack/formal-verify/<area>/check.md.
+// A project's formal checks live in <data>/formal-verify/<area>/check.md, with
+// <data> from SkillDataDir.
 // The formal-verify skill owns their coverage record (its "Create: the check
 // folder" section); next only reads it to suggest a maintain pass:
 //
@@ -62,11 +64,11 @@ func readVerifyRecord(path string) (verifyRecord, bool) {
 	return r, true
 }
 
-// VerifyDrift is an issue for each check under root/.sunstack/formal-verify whose
+// VerifyDrift is an issue for each check under the project's formal-verify folder whose
 // covered files changed since its sync marker, or that has no record to
 // check against.
 func VerifyDrift(root string) []Issue {
-	paths, _ := filepath.Glob(filepath.Join(root, ".sunstack", "formal-verify", "*", "check.md"))
+	paths, _ := filepath.Glob(filepath.Join(SkillDataDir(root), "formal-verify", "*", "check.md"))
 	sort.Strings(paths)
 	var out []Issue
 	for _, p := range paths {
@@ -74,7 +76,7 @@ func VerifyDrift(root string) []Issue {
 		if !ok {
 			continue
 		}
-		do := "run the formal-verify skill in maintain mode on .sunstack/formal-verify/" + r.name
+		do := "run the formal-verify skill in maintain mode on its check " + r.name
 		if r.sync == "" || len(r.covers) == 0 {
 			out = append(out, Issue{"drift", "user", r.name + " has no coverage record (sync: and covers: under ## Coverage), so its staleness is unknown", do})
 			continue
@@ -149,4 +151,18 @@ func coverHash(root string, covers []string) (string, error) {
 	}
 	sum := sha256.Sum256([]byte(lines.String()))
 	return hex.EncodeToString(sum[:]), nil
+}
+
+// SkillDataDir is the folder where Sunstack skills keep a project's data
+// (§44): sunstack/ unless the user picked another one, which sunstack.json
+// at the project's top records as {"data": "<path inside the project>"}.
+func SkillDataDir(root string) string {
+	var c struct{ Data string }
+	if b, err := os.ReadFile(filepath.Join(root, "sunstack.json")); err == nil && json.Unmarshal(b, &c) == nil && c.Data != "" {
+		d := filepath.Join(root, filepath.FromSlash(c.Data))
+		if rel, err := filepath.Rel(root, d); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			return d
+		}
+	}
+	return filepath.Join(root, "sunstack")
 }

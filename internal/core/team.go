@@ -36,7 +36,7 @@ func Init(dir string, refresh bool) ([]string, error) {
 		return nil, err
 	}
 	ss := filepath.Join(root, "sunstack")
-	if entries, err := os.ReadDir(ss); err == nil && len(entries) > 0 {
+	if entries, err := os.ReadDir(ss); err == nil && !onlySkillData(entries) {
 		if _, err := os.Stat(filepath.Join(ss, "PROTOCOL.md")); err != nil {
 			return nil, fail(ExitFail, "not_a_team", "%s already exists and is not a Sunstack team (no PROTOCOL.md); nothing was written. Run init in another folder, or move that folder", ss)
 		}
@@ -757,4 +757,19 @@ func (p *Project) Inbox(id string) []InboxEntry {
 		add(p.takenDir(id, d.Name()), "taken by "+who)
 	}
 	return out
+}
+
+// skillData are the folders Sunstack skills keep in sunstack/ without a
+// team (§44): the verify skill's run maps and formal-verify's checks.
+var skillData = map[string]bool{"verify": true, "formal-verify": true}
+
+// onlySkillData reports whether a sunstack/ folder holds nothing but skill
+// data, so init may turn it into a team.
+func onlySkillData(entries []os.DirEntry) bool {
+	for _, e := range entries {
+		if !(e.IsDir() && skillData[e.Name()]) && !strings.HasPrefix(e.Name(), ".") {
+			return false
+		}
+	}
+	return true
 }

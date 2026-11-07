@@ -21,7 +21,7 @@ func vgit(t *testing.T, dir string, args ...string) string {
 
 func writeCheck(t *testing.T, root, name, body string) {
 	t.Helper()
-	d := filepath.Join(root, ".sunstack", "formal-verify", name)
+	d := filepath.Join(root, "sunstack", "formal-verify", name)
 	if err := os.MkdirAll(d, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -143,5 +143,56 @@ func TestVerifyDriftOlderCheckoutAndMovedBytes(t *testing.T) {
 	w("y", "bc")
 	if got := VerifyDrift(root); len(got) != 1 || !strings.Contains(got[0].Text, "content hash") {
 		t.Errorf("bytes moved between files: %+v", got)
+	}
+}
+
+// sunstack.json moves the skill data folder; a path leaving the project is
+// ignored.
+func TestSkillDataDir(t *testing.T) {
+	root := t.TempDir()
+	if got := SkillDataDir(root); got != filepath.Join(root, "sunstack") {
+		t.Errorf("default = %s", got)
+	}
+	for body, want := range map[string]string{
+		`{"data": "docs/agents"}`: filepath.Join(root, "docs", "agents"),
+		`{"data": "../outside"}`:  filepath.Join(root, "sunstack"),
+		`not json`:                filepath.Join(root, "sunstack"),
+	} {
+		if err := os.WriteFile(filepath.Join(root, "sunstack.json"), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if got := SkillDataDir(root); got != want {
+			t.Errorf("%s: %s, want %s", body, got, want)
+		}
+	}
+	os.WriteFile(filepath.Join(root, "sunstack.json"), []byte(`{"data": "docs/agents"}`), 0o644)
+	writeDataCheck := filepath.Join(root, "docs", "agents", "formal-verify", "x")
+	os.MkdirAll(writeDataCheck, 0o755)
+	os.WriteFile(filepath.Join(writeDataCheck, "check.md"), []byte("# x\n## Coverage\nnothing\n"), 0o644)
+	if got := VerifyDrift(root); len(got) != 1 {
+		t.Errorf("check in the picked folder not read: %+v", got)
+	}
+}
+
+// init turns a sunstack/ that holds only skill data into a team, and still
+// refuses one that holds anything else.
+func TestInitOverSkillData(t *testing.T) {
+	t.Setenv("SUNSTACK_HOME", t.TempDir())
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "sunstack", "formal-verify", "lock"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Init(root, false); err != nil {
+		t.Fatalf("init over skill data: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "sunstack", "PROTOCOL.md")); err != nil {
+		t.Error("no PROTOCOL.md after init")
+	}
+	other := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(other, "sunstack", "notes"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Init(other, false); err == nil {
+		t.Error("init took over a sunstack/ folder that is not skill data")
 	}
 }

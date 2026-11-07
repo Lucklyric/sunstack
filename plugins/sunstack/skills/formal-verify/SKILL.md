@@ -1,6 +1,6 @@
 ---
 name: formal-verify
-description: "Check one promise of a piece of work against every case in a stated scope, not a sample: code (every order of steps, every input up to a bound), a project design (every state and event), or writing (every requirement, claim and term). The check must catch a deliberate break before it counts. Modes: check (on the fly, leaves nothing), create (leaves a rerunnable check in the project's .sunstack/formal-verify/ folder), maintain (brings a check back in line after changes). Works in any session, with or without a Sunstack team. Use for \"sunstack formal-verify\", \"/sunstack:formal-verify\", \"formal verify\", \"prove this can't happen\", \"model-check this\", \"check every case\", \"is every requirement covered\", \"does the design handle every event\", or when tests or a read-through cannot reach the case that breaks."
+description: "Check one promise of a piece of work against every case in a stated scope, not a sample: code (every order of steps, every input up to a bound), a project design (every state and event), or writing (every requirement, claim and term). The check must catch a deliberate break before it counts. Modes: check (on the fly, leaves nothing), create (leaves a rerunnable check in the project's sunstack/formal-verify/ folder), maintain (brings a check back in line after changes). Works in any session, with or without a Sunstack team. Use for \"sunstack formal-verify\", \"/sunstack:formal-verify\", \"formal verify\", \"prove this can't happen\", \"model-check this\", \"check every case\", \"is every requirement covered\", \"does the design handle every event\", or when tests or a read-through cannot reach the case that breaks."
 ---
 
 # Sunstack: formal-verify
@@ -14,11 +14,11 @@ A test or a read-through checks the cases someone thought of. This skill checks 
 - Writing (a proposal, a spec, a paper, docs): `references/writing.md`
 - Checkers and how to install them: `references/tools.md`
 
-Pick the mode from the request. When the request names none, look in `.sunstack/formal-verify/` first: a check for this promise that is out of date means maintain, one that is current means rerun it, none means create (or check, when the user wants nothing left behind).
+Pick the mode from the request. When the request names none, look in `sunstack/formal-verify/` first: a check for this promise that is out of date means maintain, one that is current means rerun it, none means create (or check, when the user wants nothing left behind).
 
 - **check**: answer one question now. Leave nothing in the project except what the user asks for.
-- **create**: verify one promise and leave a check at `.sunstack/formal-verify/<area>/` in the project, so the next agent can rerun it on a change.
-- **maintain**: a check exists under `.sunstack/formal-verify/` and the work changed since it last matched. Bring the check back in line (see Maintain).
+- **create**: verify one promise and leave a check at `sunstack/formal-verify/<area>/` in the project, so the next agent can rerun it on a change.
+- **maintain**: a check exists under `sunstack/formal-verify/` and the work changed since it last matched. Bring the check back in line (see Maintain).
 
 ## The loop
 
@@ -39,10 +39,12 @@ Pick the mode from the request. When the request names none, look in `.sunstack/
 
 ## Create: the check folder
 
-All checks of a project live in `.sunstack/formal-verify/` at the top of the project, one subfolder per area. `.sunstack/` is the project's one folder for data that Sunstack skills create and read (the verify skill keeps its run map in `.sunstack/verify/`); it holds only what is committed, never run output. Nothing else in the project changes. Each area folder holds `check.md` and the files it needs (a model, a script, a kept copy of checked text):
+**Project data folder.** Sunstack skills keep a project's data in `sunstack/` at the top of the project (beside the team files, when there is a team), or in the folder that `sunstack.json` there names (`{"data": "<path inside the project>"}`). Paths in this skill that start with `sunstack/verify/` or `sunstack/formal-verify/` mean that folder. It holds only what is committed, never run output. Before a skill creates it for the first time, settle the place with the user in a short Q&A (AskUserQuestion in Claude Code, a numbered question in Codex), showing what will go in it: `sunstack/` (recommended: one folder for skill data and any later team), `.sunstack/` (hidden), `docs/sunstack/`, or create nothing (check only, leave nothing behind); the user may name another folder. For any folder other than `sunstack/`, write `sunstack.json` with its path and commit both. When the folder already exists, use it without asking.
+
+All checks of a project live in `sunstack/formal-verify/`, one subfolder per area (the verify skill keeps its run map beside it, in `sunstack/verify/`). Nothing else in the project changes. Each area folder holds `check.md` and the files it needs (a model, a script, a kept copy of checked text):
 
 ```
-.sunstack/
+sunstack/
   formal-verify/
     lock/
       check.md
@@ -50,9 +52,9 @@ All checks of a project live in `.sunstack/formal-verify/` at the top of the pro
       go.mod
 ```
 
-The folder is data, not a skill: this skill reads and runs it, in Claude Code and Codex alike. A model in the project's own language gets its own module or package file (`go.mod`, `pyproject.toml`) so the project's build and tests never pick it up. Commit the folder with the work, so other sessions and hosts find it.
+The folder is data, not a skill: this skill reads and runs it, in Claude Code and Codex alike. A model in the project's own language gets its own module or package file (`go.mod`, `pyproject.toml`) so the project's build and tests never pick it up; with a Go model, the go tool's `./...` also stops at a folder with its own `go.mod`. Commit the folder with the work, so other sessions and hosts find it.
 
-Write `check.md` for an agent who reads it cold, mid-change. Start it with `# <area>: <property in one sentence>`. From it alone, the next agent must be able to tell whether a change touches the covered work, run the check, tell a real finding from a modeling error, and update the model when a change is intended. Put in the property and its harm, the bound and assumptions, the command (run from the area folder, with the tool version, writing every trace, cache or build output outside `.sunstack/`: to `sunstack/_local/formal-verify/<area>/` in a team, else the session's scratch folder; after a rerun, `git status .sunstack/` shows nothing new), each break it catches and how to apply it, and the coverage record. This skill owns its format; `sunstack next` only reads it to suggest a maintain pass when the covered files change:
+Write `check.md` for an agent who reads it cold, mid-change. Start it with `# <area>: <property in one sentence>`. From it alone, the next agent must be able to tell whether a change touches the covered work, run the check, tell a real finding from a modeling error, and update the model when a change is intended. Put in the property and its harm, the bound and assumptions, the command (run from the area folder, with the tool version, writing every trace, cache or build output outside the committed data: to `sunstack/_local/formal-verify/<area>/` in a team (not committed), else the session's scratch folder; after a rerun, `git status` on the area folder shows nothing new), each break it catches and how to apply it, and the coverage record. This skill owns its format; `sunstack next` only reads it to suggest a maintain pass when the covered files change:
 
 ```
 ## Coverage
@@ -67,7 +69,7 @@ Before you hand it over, follow it once as the next agent would, on a scratch br
 
 ## Maintain
 
-Find the checks under `.sunstack/formal-verify/` (or the one the user named). If none exists, offer create mode. Run each check once as it is and record the result: a pass now only says the old description still holds. Read every change to the covered work since the sync marker, including moved or renamed parts and new parts that reach the guarded state. When no marker is recorded, use the last commit that changed the check's files, and say so. When the marker is a hash with no kept copy, the changes cannot be read: map the model against the work again from scratch, and say that the change history is unknown. Update the model from the work, not from the result. Change the property only for a promise that changed on purpose, with the evidence (a commit message, a changelog, the user's words). Keep the bound unless the change makes it wrong, and say so when you reduce it. Rerun, and break the updated model once to show it can still fail. Give each check one outcome:
+Find the checks under `sunstack/formal-verify/` (or the one the user named). If none exists, offer create mode. Run each check once as it is and record the result: a pass now only says the old description still holds. Read every change to the covered work since the sync marker, including moved or renamed parts and new parts that reach the guarded state. When no marker is recorded, use the last commit that changed the check's files, and say so. When the marker is a hash with no kept copy, the changes cannot be read: map the model against the work again from scratch, and say that the change history is unknown. Update the model from the work, not from the result. Change the property only for a promise that changed on purpose, with the evidence (a commit message, a changelog, the user's words). Keep the bound unless the change makes it wrong, and say so when you reduce it. Rerun, and break the updated model once to show it can still fail. Give each check one outcome:
 
 - **in sync**: nothing since the marker changes what the check describes, and it passes.
 - **updated**: the model now describes the changed work, and it passes.
@@ -81,7 +83,7 @@ Move the sync marker only after you confirm the model describes the work at the 
 None of this needs a team. In a project with a `sunstack/` folder:
 
 - The verify skill collects a task's requirements. Requirements shaped like properties ("always", "never", "every", "none", "at the same time") suit this skill: the verifier checks them with it and answers per requirement with the property, the scope and the break it caught.
-- A check under `.sunstack/formal-verify/` is not the verify skill's run map in `.sunstack/verify/`: it models one promise, it does not drive the app.
+- A check under `sunstack/formal-verify/` is not the verify skill's run map in `sunstack/verify/`: it models one promise, it does not drive the app.
 - `sunstack next` flags each check whose covered files changed since its sync marker. An agent that owns a check runs maintain when a delivery touches the covered work.
 
 ## Report
