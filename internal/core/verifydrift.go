@@ -16,7 +16,7 @@ import (
 // each with a coverage record:
 //
 //	## Coverage
-//	sync: <commit>            (or sha256:<hex> of the covered files, in order)
+//	sync: <commit>            (or sha256:<hex>, see coverHash)
 //	covers: path/a.go path/b.go
 //
 // Paths are relative to the project folder. VerifyDrift reports each check
@@ -90,21 +90,25 @@ func VerifyDrift(root string) []Issue {
 }
 
 // verifyChanged lists the covered files that differ from the sync marker:
-// committed since it, edited and not committed, or gone.
+// changed against it (committed or not), gone, or not in it at all.
 func verifyChanged(root string, r verifyRecord) []string {
-	var changed []string
+	var changed, present []string
 	for _, c := range r.covers {
 		if _, err := os.Stat(filepath.Join(root, c)); err != nil {
 			changed = append(changed, c+" (missing)")
+		} else {
+			present = append(present, c)
 		}
 	}
-	if hexsum, ok := strings.CutPrefix(r.sync, "sha256:"); ok {
-		h := sha256.New()
-		for _, c := range r.covers {
-			b, _ := os.ReadFile(filepath.Join(root, c))
-			h.Write(b)
+	if want, ok := strings.CutPrefix(r.sync, "sha256:"); ok {
+		if len(changed) > 0 {
+			return changed
 		}
-		if !strings.EqualFold(hex.EncodeToString(h.Sum(nil)), strings.TrimSpace(hexsum)) && len(changed) == 0 {
+		got, err := coverHash(root, r.covers)
+		if err != nil {
+			return append(changed, err.Error())
+		}
+		if !strings.EqualFold(got, strings.TrimSpace(want)) {
 			changed = append(changed, "content hash differs")
 		}
 		return changed
@@ -112,14 +116,36 @@ func verifyChanged(root string, r verifyRecord) []string {
 	if exec.Command("git", "-C", root, "cat-file", "-e", r.sync+"^{commit}").Run() != nil {
 		return append(changed, "sync marker "+r.sync+" not found in git")
 	}
-	// One path at a time, named as the record names it: git prints paths
-	// from the repository's top, and the project may be a folder inside it.
-	for _, c := range r.covers {
-		logged, _ := exec.Command("git", "-C", root, "log", "-1", "--format=%h", r.sync+"..HEAD", "--", c).Output()
-		edited, _ := exec.Command("git", "-C", root, "status", "--porcelain", "--", c).Output()
-		if strings.TrimSpace(string(logged)) != "" || strings.TrimSpace(string(edited)) != "" {
+	// Each file against the marker's own tree, so a checkout older than the
+	// marker counts too. Paths are as the record names them: ./ and -- read
+	// them from the project folder, which may sit inside the repository.
+	for _, c := range present {
+		if exec.Command("git", "-C", root, "cat-file", "-e", r.sync+":./"+filepath.ToSlash(c)).Run() != nil {
+			changed = append(changed, c+" (not in the sync commit)")
+			continue
+		}
+		err := exec.Command("git", "-C", root, "diff", "--quiet", r.sync, "--", c).Run()
+		if ee, ok := err.(*exec.ExitError); ok && ee.ExitCode() == 1 {
 			changed = append(changed, c)
+		} else if err != nil {
+			changed = append(changed, c+" (git diff failed, so unknown)")
 		}
 	}
 	return changed
+}
+
+// coverHash is the content marker for files outside git: the SHA-256 of
+// what `shasum -a 256 <covers...>` prints in the project folder, one
+// "<hex>  <path>" line per file, so a boundary moved between files counts.
+func coverHash(root string, covers []string) (string, error) {
+	var lines strings.Builder
+	for _, c := range covers {
+		b, err := os.ReadFile(filepath.Join(root, c))
+		if err != nil {
+			return "", fmt.Errorf("%s unreadable, so unknown", c)
+		}
+		fmt.Fprintf(&lines, "%x  %s\n", sha256.Sum256(b), c)
+	}
+	sum := sha256.Sum256([]byte(lines.String()))
+	return hex.EncodeToString(sum[:]), nil
 }

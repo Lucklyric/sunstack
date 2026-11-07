@@ -1,8 +1,6 @@
 package core
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -78,8 +76,9 @@ func TestVerifyDrift(t *testing.T) {
 	}
 
 	// A content-hash marker, for files outside git.
-	sum := sha256.Sum256([]byte("package src // edited\n"))
-	writeCheck(t, root, "lease", "# Lease\n## Coverage\nsync: sha256:"+hex.EncodeToString(sum[:])+"\ncovers: src/lease.go\n")
+	sum, err := coverHash(root, []string{"src/lease.go"})
+	must(err)
+	writeCheck(t, root, "lease", "# Lease\n## Coverage\nsync: sha256:"+sum+"\ncovers: src/lease.go\n")
 	if got := VerifyDrift(root); len(got) != 0 {
 		t.Errorf("matching hash flagged: %+v", got)
 	}
@@ -96,5 +95,53 @@ func TestVerifyDrift(t *testing.T) {
 	writeCheck(t, root, "lease", "# Lease\n## Coverage\nnothing yet\n")
 	if got := VerifyDrift(root); len(got) != 1 || !strings.Contains(got[0].Text, "no coverage record") {
 		t.Errorf("empty record: %+v", got)
+	}
+}
+
+// A checkout older than the marker, and bytes moved between two covered
+// files, both count as drift (review of a9e49a7).
+func TestVerifyDriftOlderCheckoutAndMovedBytes(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("no git")
+	}
+	root := t.TempDir()
+	w := func(name, body string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(root, name), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	w("a.go", "one\n")
+	vgit(t, root, "init", "-q")
+	vgit(t, root, "add", "-A")
+	vgit(t, root, "commit", "-qm", "one")
+	old := vgit(t, root, "rev-parse", "HEAD")
+	w("a.go", "two\n")
+	vgit(t, root, "commit", "-qam", "two")
+	sync := vgit(t, root, "rev-parse", "HEAD")
+	vgit(t, root, "checkout", "-q", old)
+	writeCheck(t, root, "a", "# a\n## Coverage\nsync: "+sync+"\ncovers: a.go\n")
+	if got := VerifyDrift(root); len(got) != 1 || !strings.Contains(got[0].Text, "a.go") {
+		t.Errorf("older checkout: %+v", got)
+	}
+
+	w("x", "ab")
+	w("y", "c")
+	sum, err := coverHash(root, []string{"x", "y"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The skill's recipe: shasum -a 256 x y | shasum -a 256
+	if sum != "4fbc8dfd67807af31f631407b246522d9b44e2c050689f6867b06669d2b32405" {
+		t.Errorf("coverHash = %s, not the shasum recipe", sum)
+	}
+	writeCheck(t, root, "a", "# a\n## Coverage\nsync: sha256:"+sum+"\ncovers: x y\n")
+	if got := VerifyDrift(root); len(got) != 0 {
+		t.Fatalf("matching hash flagged: %+v", got)
+	}
+	w("x", "a")
+	w("y", "bc")
+	if got := VerifyDrift(root); len(got) != 1 || !strings.Contains(got[0].Text, "content hash") {
+		t.Errorf("bytes moved between files: %+v", got)
 	}
 }
