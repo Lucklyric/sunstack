@@ -20,7 +20,7 @@ Prefer what the project already uses. When the right tool is not installed, ask 
 
 ## True to the code
 
-- Each model step names the function and line it stands for. A lock, a file rename or a single tmux command is one step; two calls are two steps.
+- Each model step names the function and line it stands for. A file rename or a single system call is one step; two calls are two steps. A section run under a lock may be one step, but only when every competing writer of that state takes the same lock.
 - Each model variable stands for real state: a field, a file, an option, a row.
 - Include the outside actors that matter: a second process, a crash between two writes, a timeout, a user action.
 
@@ -34,4 +34,4 @@ Tell it as numbered steps in the code's words: "1. process A reads the file, 2. 
 
 ## Rerun record
 
-The command (for example `go test ./internal/x -run TestModelLease -count=1`), the bound, the covered files and functions, and the sync commit.
+The command (for example `cd .formal-verify/lock && go run .`), the Go or tool version, the bound, the covered files and functions, and the sync commit.

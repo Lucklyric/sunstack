@@ -5,7 +5,7 @@ Use this when the promise is about how a flow, protocol, plan or system is meant
 ## Properties that earn a formal check
 
 - Completeness: every state meets every event with a defined outcome. No case is "we will see".
-- Safety: a bad state is never reached ("two leases are never held", "a hidden panel never comes back on its own").
+- Safety: a bad state is never reached ("two leases are never held", "a closed window never reopens on its own").
 - Progress: from every state the work can reach an end state (no stuck flag, no wait that never clears).
 - Contract: each interface states what it requires and what it ensures, and every caller meets the requirement.
 
@@ -31,7 +31,7 @@ Delete one transition, swap two steps, drop a guard, remove the restart event. T
 
 ## Counterexample
 
-Tell it as a path the reader recognizes: "1. the panel is open, 2. the server restarts, 3. resurrect restores the layout, the old cell comes back as a blank shell beside the new panel".
+Tell it as a path the reader recognizes: "1. the job is running, 2. the server restarts, 3. the scheduler restores its queue, the old job comes back beside the new one".
 
 ## Rerun record
 
