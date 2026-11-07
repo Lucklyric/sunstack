@@ -233,3 +233,34 @@ func TestSkillDataLinks(t *testing.T) {
 		t.Error("PROTOCOL.md written outside the project")
 	}
 }
+
+// Recheck of 31f53a1: any linked sunstack/ is refused by init, and a broken
+// or circular link in the data path is not taken as a folder yet to come.
+func TestSkillDataLinkEdges(t *testing.T) {
+	t.Setenv("SUNSTACK_HOME", t.TempDir())
+	for name, fill := range map[string]func(dir string){
+		"empty":    func(string) {},
+		"protocol": func(dir string) { os.WriteFile(filepath.Join(dir, "PROTOCOL.md"), []byte("x"), 0o644) },
+	} {
+		root, outside := t.TempDir(), t.TempDir()
+		fill(outside)
+		if err := os.Symlink(outside, filepath.Join(root, "sunstack")); err != nil {
+			t.Skip("no symlinks here")
+		}
+		if _, err := Init(root, false); err == nil {
+			t.Errorf("%s: init through a linked sunstack/", name)
+		}
+		if _, err := os.Stat(filepath.Join(outside, "README.md")); err == nil {
+			t.Errorf("%s: team files written outside the project", name)
+		}
+	}
+	root, outside := t.TempDir(), t.TempDir()
+	os.Symlink(filepath.Join(outside, "not-created"), filepath.Join(root, "dangling"))
+	os.Symlink(filepath.Join(root, "loop"), filepath.Join(root, "loop"))
+	for _, data := range []string{"dangling/child", "loop", "loop/child"} {
+		os.WriteFile(filepath.Join(root, "sunstack.json"), []byte(`{"data": "`+data+`"}`), 0o644)
+		if got := SkillDataDir(root); got != filepath.Join(root, "sunstack") {
+			t.Errorf("%s: %q", data, got)
+		}
+	}
+}

@@ -187,12 +187,16 @@ func inside(root, d string) string {
 		r = root
 	}
 	for p := d; within(root, p); p = filepath.Dir(p) {
-		if e, err := filepath.EvalSymlinks(p); err == nil {
-			if within(r, e) {
-				return d
-			}
+		if _, err := os.Lstat(p); os.IsNotExist(err) {
+			continue // not created yet: its nearest existing folder decides
+		} else if err != nil {
 			return ""
 		}
+		// It exists: a broken or circular link fails here and is refused.
+		if e, err := filepath.EvalSymlinks(p); err == nil && within(r, e) {
+			return d
+		}
+		return ""
 	}
 	return ""
 }
