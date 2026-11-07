@@ -17,7 +17,7 @@ the project holds only the data.
 
 ## Rules
 
-- **Just running the app** (no verification asked): follow `.sunstack/verify/<app>/run.md`, Launch to Cleanup, with or without a team. No map yet: say so and offer to write one (step 2 of the Verifier's procedure); do not guess a launch command into it.
+- **Just running the app** (no verification asked), with or without a team: follow `.sunstack/verify/<app>/run.md`, Launch to Cleanup. If Launch or Doctor fails because the map no longer matches the repo, fix the map from the repo (step 2 of the Verifier's procedure) and run it once more. No map yet: say so and offer to write one; do not guess a launch command into it. Evidence goes to `sunstack/_local/verify/run-<UTC time>/` in a team, else to this session's scratch folder.
 - Otherwise, if there is no Sunstack team here (no `sunstack/PROTOCOL.md` in this folder or above), say so in one line and stop; the health skill sets one up.
 - Act only on this folder's team (its sessions on other hosts included). Work for a different
   team is delegated: send it as a task (send skill) to its agent that owns that work, else
@@ -198,8 +198,9 @@ For the agent that received a verification task. Do not run the steps above.
 2. **The run map.** For a task that changes something a user runs, use the project's run map:
    `.sunstack/verify/<app>/run.md` at the top of the project (several apps: ask the requester
    which). An older project may still have it as a `verify-*` skill under `.claude/skills/` or
-   `.agents/skills/`: use it, and offer the requester to move it to `.sunstack/verify/<app>/`
-   (frontmatter dropped, same sections). None: create `.sunstack/verify/<app>/run.md` and commit
+   `.agents/skills/`: that is only input for the map. Move it to `.sunstack/verify/<app>/`
+   (`git mv`, `SKILL.md` to `run.md`, frontmatter dropped, `features/` along), remove its
+   `.agents/skills/` symlink, say so in the reply, and work from the moved map. None: create `.sunstack/verify/<app>/run.md` and commit
    it with the project. It is data this skill reads, not a skill: no frontmatter, five sections
    grounded in this repo, no placeholders: Launch (the exact command from an empty data dir, migrations and seed data
    included; ready means usable, not that a process answers; teardown), Doctor (one

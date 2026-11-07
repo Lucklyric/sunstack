@@ -121,7 +121,7 @@ It checks the tree and the manifests, runs the tests, pushes `main`, and waits f
 
 ## Credits
 
-Several of Sunstack's working rules are adapted from [pstack](https://github.com/backnotprop/pstack), the standalone mirror of Cursor's [pstack plugin](https://github.com/cursor/plugins/tree/main/pstack) (MIT): task briefs and proof of done, rules that return after compaction, asks with a default, the delegation ledger, halt, follow-up rounds with the whole scope, review on another model, acceptance checks through a `verify-<app>` skill (whose section names follow pstack's), triage of the issue log, and formal checks that must catch a deliberate break (from pstack's formal verification skills). Sunstack adapts the ideas to its own CLI and skills; no pstack code or text is included.
+Several of Sunstack's working rules are adapted from [pstack](https://github.com/backnotprop/pstack), the standalone mirror of Cursor's [pstack plugin](https://github.com/cursor/plugins/tree/main/pstack) (MIT): task briefs and proof of done, rules that return after compaction, asks with a default, the delegation ledger, halt, follow-up rounds with the whole scope, review on another model, acceptance checks through a project run map (whose section names follow pstack's), triage of the issue log, and formal checks that must catch a deliberate break (from pstack's formal verification skills). Sunstack adapts the ideas to its own CLI and skills; no pstack code or text is included.
 
 ## License
 
