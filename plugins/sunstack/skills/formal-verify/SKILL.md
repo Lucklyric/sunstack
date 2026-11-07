@@ -60,7 +60,7 @@ sync: <commit>
 covers: internal/core/lock.go internal/core/prefs.go
 ```
 
-`sync:` is the marker from step 6 (`sha256:<hex>` of the covered files, read in the listed order, for work outside git). `covers:` lists the covered files, relative to the top of the project. Use the project's real paths, commands and names; leave no placeholders.
+`sync:` is the marker from step 6. For work outside git or with uncommitted changes, it is `sha256:` followed by the output of `shasum -a 256 <the covered files, in the covers order> | shasum -a 256` run at the top of the project (the first field only), and the kept copy goes in the area folder. `covers:` lists the covered files, relative to the top of the project. Use the project's real paths, commands and names; leave no placeholders.
 
 Before you hand it over, follow it once as the next agent would, on a scratch break of the real work. It must catch the break. Then drop the break and confirm the check is back where it started. A skill that was never run is a draft.
 

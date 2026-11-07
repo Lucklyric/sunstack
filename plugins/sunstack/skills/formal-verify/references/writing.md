@@ -48,7 +48,7 @@ Name the item, where it fails, and what the source actually says or does: "secti
 
 ## Rerun record
 
-In check mode, keep the lists and scripts in a scratch folder, not beside the document. In create mode they go beside the document or in the check's `.formal-verify/<area>/` folder. Record the script command, the document version (the commit; a content hash plus a copy of the checked text when the file is outside git or has uncommitted changes), the source version, and what was not checked (the truth of a source itself, `heading` and `intent` rows, facts with no source).
+In check mode, keep the lists and scripts in a scratch folder, not beside the document. In create mode they go in the check's `.formal-verify/<area>/` folder, never beside the document. Record the script command, the document version (the commit; a content hash plus a copy of the checked text when the file is outside git or has uncommitted changes), the source version, and what was not checked (the truth of a source itself, `heading` and `intent` rows, facts with no source).
 
 ## Report
 
