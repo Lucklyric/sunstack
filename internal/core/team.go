@@ -36,7 +36,13 @@ func Init(dir string, refresh bool) ([]string, error) {
 		return nil, err
 	}
 	ss := filepath.Join(root, "sunstack")
-	if entries, err := os.ReadDir(ss); err == nil && !onlySkillData(entries) {
+	link := false
+	if fi, err := os.Lstat(ss); err == nil {
+		link = fi.Mode()&os.ModeSymlink != 0
+	}
+	// Skill data alone may become a team, but only in a real folder here: a
+	// link could carry the team files outside the project.
+	if entries, err := os.ReadDir(ss); err == nil && (link && len(entries) > 0 || !onlySkillData(entries)) {
 		if _, err := os.Stat(filepath.Join(ss, "PROTOCOL.md")); err != nil {
 			return nil, fail(ExitFail, "not_a_team", "%s already exists and is not a Sunstack team (no PROTOCOL.md); nothing was written. Run init in another folder, or move that folder", ss)
 		}

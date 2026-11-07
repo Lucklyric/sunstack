@@ -68,7 +68,11 @@ func readVerifyRecord(path string) (verifyRecord, bool) {
 // covered files changed since its sync marker, or that has no record to
 // check against.
 func VerifyDrift(root string) []Issue {
-	paths, _ := filepath.Glob(filepath.Join(SkillDataDir(root), "formal-verify", "*", "check.md"))
+	dir := SkillDataDir(root)
+	if dir == "" {
+		return nil
+	}
+	paths, _ := filepath.Glob(filepath.Join(dir, "formal-verify", "*", "check.md"))
 	sort.Strings(paths)
 	var out []Issue
 	for _, p := range paths {
@@ -155,14 +159,46 @@ func coverHash(root string, covers []string) (string, error) {
 
 // SkillDataDir is the folder where Sunstack skills keep a project's data
 // (§44): sunstack/ unless the user picked another one, which sunstack.json
-// at the project's top records as {"data": "<path inside the project>"}.
+// at the project's top records as {"data": "<relative path inside the
+// project>"}. An absolute path or one leaving the project, by spelling or
+// through a link, is not used; "" means no folder inside the project.
 func SkillDataDir(root string) string {
 	var c struct{ Data string }
 	if b, err := os.ReadFile(filepath.Join(root, "sunstack.json")); err == nil && json.Unmarshal(b, &c) == nil && c.Data != "" {
-		d := filepath.Join(root, filepath.FromSlash(c.Data))
-		if rel, err := filepath.Rel(root, d); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-			return d
+		rel := filepath.FromSlash(c.Data)
+		if !filepath.IsAbs(rel) && filepath.VolumeName(rel) == "" && !strings.HasPrefix(c.Data, "/") && !strings.HasPrefix(c.Data, `\`) {
+			if d := inside(root, filepath.Join(root, rel)); d != "" {
+				return d
+			}
 		}
 	}
-	return filepath.Join(root, "sunstack")
+	return inside(root, filepath.Join(root, "sunstack"))
+}
+
+// inside is d when it stays inside root both as written and with links
+// resolved (through its nearest existing folder, as it may not exist yet),
+// else "".
+func inside(root, d string) string {
+	if !within(root, d) {
+		return ""
+	}
+	r, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		r = root
+	}
+	for p := d; within(root, p); p = filepath.Dir(p) {
+		if e, err := filepath.EvalSymlinks(p); err == nil {
+			if within(r, e) {
+				return d
+			}
+			return ""
+		}
+	}
+	return ""
+}
+
+// within reports whether path is root or below it, by spelling.
+func within(root, path string) bool {
+	rel, err := filepath.Rel(root, path)
+	return err == nil && !filepath.IsAbs(rel) && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }

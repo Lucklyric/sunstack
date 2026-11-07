@@ -19,7 +19,7 @@ the project holds only the data.
 
 ## Rules
 
-- **Just running the app** (no verification asked), with or without a team: follow `sunstack/verify/<app>/run.md`, Launch to Cleanup. If Launch or Doctor fails because the map no longer matches the repo, fix the map from the repo (step 2 of the Verifier's procedure) and run it once more. No map yet: say so and offer to write one; do not guess a launch command into it. Evidence goes to `sunstack/_local/verify/run-<UTC time>/` in a team, else to this session's scratch folder.
+- **Just running the app** (no verification asked), with or without a team: follow `sunstack/verify/<app>/run.md`, Launch to Cleanup. If Launch or Doctor fails because the map no longer matches the repo, fix the map from the repo (step 2 of the Verifier's procedure) and run it once more. No map yet: say so and offer to write one; do not guess a launch command into it. Evidence goes to `sunstack/_local/verify/run-<UTC time>/` in a team (a `sunstack/PROTOCOL.md` here or above, which also keeps `_local/` out of git), else to this session's scratch folder.
 - Otherwise, if there is no Sunstack team here (no `sunstack/PROTOCOL.md` in this folder or above), say so in one line and stop; the health skill sets one up.
 - Act only on this folder's team (its sessions on other hosts included). Work for a different
   team is delegated: send it as a task (send skill) to its agent that owns that work, else

@@ -196,3 +196,40 @@ func TestInitOverSkillData(t *testing.T) {
 		t.Error("init took over a sunstack/ folder that is not skill data")
 	}
 }
+
+// Links never carry skill data or team files outside the project, and an
+// absolute data path is not used (review of abfdfb4).
+func TestSkillDataLinks(t *testing.T) {
+	root, outside := t.TempDir(), t.TempDir()
+	if err := os.MkdirAll(filepath.Join(outside, "verify", "app"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(root, "linked")); err != nil {
+		t.Skip("no symlinks here")
+	}
+	for body, want := range map[string]string{
+		`{"data": "linked"}`:                            "",
+		`{"data": "` + filepath.ToSlash(outside) + `"}`: "",
+	} {
+		if err := os.WriteFile(filepath.Join(root, "sunstack.json"), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if got := SkillDataDir(root); got != want && got != filepath.Join(root, "sunstack") {
+			t.Errorf("%s: %q", body, got)
+		}
+	}
+	os.Remove(filepath.Join(root, "sunstack.json"))
+	if err := os.Symlink(outside, filepath.Join(root, "sunstack")); err != nil {
+		t.Fatal(err)
+	}
+	if got := SkillDataDir(root); got != "" {
+		t.Errorf("linked sunstack/ used: %q", got)
+	}
+	t.Setenv("SUNSTACK_HOME", t.TempDir())
+	if _, err := Init(root, false); err == nil {
+		t.Error("init wrote team files through a linked sunstack/")
+	}
+	if _, err := os.Stat(filepath.Join(outside, "PROTOCOL.md")); err == nil {
+		t.Error("PROTOCOL.md written outside the project")
+	}
+}

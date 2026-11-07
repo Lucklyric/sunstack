@@ -54,7 +54,7 @@ sunstack/
 
 The folder is data, not a skill: this skill reads and runs it, in Claude Code and Codex alike. A model in the project's own language gets its own module or package file (`go.mod`, `pyproject.toml`) so the project's build and tests never pick it up; with a Go model, the go tool's `./...` also stops at a folder with its own `go.mod`. Commit the folder with the work, so other sessions and hosts find it.
 
-Write `check.md` for an agent who reads it cold, mid-change. Start it with `# <area>: <property in one sentence>`. From it alone, the next agent must be able to tell whether a change touches the covered work, run the check, tell a real finding from a modeling error, and update the model when a change is intended. Put in the property and its harm, the bound and assumptions, the command (run from the area folder, with the tool version, writing every trace, cache or build output outside the committed data: to `sunstack/_local/formal-verify/<area>/` in a team (not committed), else the session's scratch folder; after a rerun, `git status` on the area folder shows nothing new), each break it catches and how to apply it, and the coverage record. This skill owns its format; `sunstack next` only reads it to suggest a maintain pass when the covered files change:
+Write `check.md` for an agent who reads it cold, mid-change. Start it with `# <area>: <property in one sentence>`. From it alone, the next agent must be able to tell whether a change touches the covered work, run the check, tell a real finding from a modeling error, and update the model when a change is intended. Put in the property and its harm, the bound and assumptions, the command (run from the area folder, with the tool version, writing every trace, cache or build output outside the committed data: to `sunstack/_local/formal-verify/<area>/` in a team (`sunstack/PROTOCOL.md` here or above; `_local/` is ignored only there), else the session's scratch folder; after a rerun, `git status` on the area folder shows nothing new), each break it catches and how to apply it, and the coverage record. This skill owns its format; `sunstack next` only reads it to suggest a maintain pass when the covered files change:
 
 ```
 ## Coverage
@@ -80,7 +80,7 @@ Move the sync marker only after you confirm the model describes the work at the 
 
 ## With a Sunstack team
 
-None of this needs a team. In a project with a `sunstack/` folder:
+None of this needs a team. A team means a `sunstack/PROTOCOL.md` in this folder or above; a `sunstack/` folder that holds only skill data is not one. In a team:
 
 - The verify skill collects a task's requirements. Requirements shaped like properties ("always", "never", "every", "none", "at the same time") suit this skill: the verifier checks them with it and answers per requirement with the property, the scope and the break it caught.
 - A check under `sunstack/formal-verify/` is not the verify skill's run map in `sunstack/verify/`: it models one promise, it does not drive the app.
