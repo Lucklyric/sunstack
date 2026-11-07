@@ -12,8 +12,9 @@ import (
 	"strings"
 )
 
-// A project's formal checks (§44) live in .formal-verify/<area>/check.md,
-// each with a coverage record:
+// A project's formal checks live in .sunstack/formal-verify/<area>/check.md.
+// The formal-verify skill owns their coverage record (its "Create: the check
+// folder" section); next only reads it to suggest a maintain pass:
 //
 //	## Coverage
 //	sync: <commit>            (or sha256:<hex>, see coverHash)
@@ -61,11 +62,11 @@ func readVerifyRecord(path string) (verifyRecord, bool) {
 	return r, true
 }
 
-// VerifyDrift is an issue for each check under root/.formal-verify whose
+// VerifyDrift is an issue for each check under root/.sunstack/formal-verify whose
 // covered files changed since its sync marker, or that has no record to
 // check against.
 func VerifyDrift(root string) []Issue {
-	paths, _ := filepath.Glob(filepath.Join(root, ".formal-verify", "*", "check.md"))
+	paths, _ := filepath.Glob(filepath.Join(root, ".sunstack", "formal-verify", "*", "check.md"))
 	sort.Strings(paths)
 	var out []Issue
 	for _, p := range paths {
@@ -73,7 +74,7 @@ func VerifyDrift(root string) []Issue {
 		if !ok {
 			continue
 		}
-		do := "run the formal-verify skill in maintain mode on .formal-verify/" + r.name
+		do := "run the formal-verify skill in maintain mode on .sunstack/formal-verify/" + r.name
 		if r.sync == "" || len(r.covers) == 0 {
 			out = append(out, Issue{"drift", "user", r.name + " has no coverage record (sync: and covers: under ## Coverage), so its staleness is unknown", do})
 			continue

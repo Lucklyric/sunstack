@@ -1,6 +1,6 @@
 ---
 name: verify
-description: Have a Sunstack agent check the active task against everything the user asked for, the way the user would before accepting it. It gathers the task's requirements and the standing ones from the team's history, settles open points with the user in a short Q&A, picks or hires a verifier (preferably on the other CLI), and sends it a task; the verifier drives the real app and answers per requirement with evidence. Use for "sunstack verify", "/sunstack:verify", "verify this", "check it does what I asked", "acceptance check", "keep checking deliveries", "does the verifier need an update". A verifier that received such a task follows the Verifier's procedure section.
+description: Have a Sunstack agent check the active task against everything the user asked for, the way the user would before accepting it. It gathers the task's requirements and the standing ones from the team's history, settles open points with the user in a short Q&A, picks or hires a verifier (preferably on the other CLI), and sends it a task; the verifier drives the real app and answers per requirement with evidence. Use for "sunstack verify", "/sunstack:verify", "verify this", "check it does what I asked", "acceptance check", "keep checking deliveries", "does the verifier need an update". A verifier that received such a task follows the Verifier's procedure section. Any session, with or without a team, may also use it to run, launch or drive this project's app from its run map in `.sunstack/verify/<app>/run.md`.
 ---
 
 # Sunstack: verify
@@ -11,12 +11,14 @@ The user checks deliveries by hand: does it run, and is it what they asked for, 
 everything they said before. This skill hands that check to an agent. The requester (this
 session) collects the requirements, because it heard the conversation. The verifier, a
 different agent and preferably on the other CLI, checks the delivery against them by the
-Verifier's procedure at the end of this skill, using the project's verify skill
-(`verify-<app>`).
+Verifier's procedure at the end of this skill, using the project's run map
+(`.sunstack/verify/<app>/`). This skill owns that map: it creates it, keeps it true and reads it;
+the project holds only the data.
 
 ## Rules
 
-- If there is no Sunstack team here (no `sunstack/PROTOCOL.md` in this folder or above), say so in one line and stop; the health skill sets one up.
+- **Just running the app** (no verification asked): follow `.sunstack/verify/<app>/run.md`, Launch to Cleanup, with or without a team. No map yet: say so and offer to write one (step 2 of the Verifier's procedure); do not guess a launch command into it.
+- Otherwise, if there is no Sunstack team here (no `sunstack/PROTOCOL.md` in this folder or above), say so in one line and stop; the health skill sets one up.
 - Act only on this folder's team (its sessions on other hosts included). Work for a different
   team is delegated: send it as a task (send skill) to its agent that owns that work, else
   to its lead (its `pm` agent; none: ask the user), as `<team>/<id>` or `<host>:<team>/<id>`,
@@ -121,12 +123,12 @@ Run every `git` here from the team root (`git -C "<team root>" ...`), with paths
   (`git log -1 --format=%h -- sunstack/<verifier>/context.md`), list
   `git log --oneline C..HEAD -- sunstack/BOARD.md sunstack/PILLARS.md sunstack/<verifier>/pillars.md sunstack/<verifier>/AGENT.md`,
   plus uncommitted changes to those files (`git status --short -- <files>`).
-- **Code that may have outrun the verify skill**: for each feature file the task touches in
-  `verify-<app>/features/`, with `F` its last commit, `git log --oneline F..HEAD -- <the task's files>`
+- **Code that may have outrun the run map**: for each feature file the task touches in
+  `.sunstack/verify/<app>/features/`, with `F` its last commit, `git log --oneline F..HEAD -- <the task's files>`
   and uncommitted changes to them. Changed code means "check this feature's instructions", not
   that they are wrong.
 
-No repository, no commit for `C` or `F`, no verify skill or no file for a feature: say
+No repository, no commit for `C` or `F`, no run map or no file for a feature: say
 `unknown` for that line. Each finding is one line under `Verifier freshness:` in the brief's
 Context; `fresh` only when every check ran and found nothing.
 
@@ -136,13 +138,13 @@ Write the brief to a file in this session's scratch or temporary folder:
 
 ```text
 Goal: Check <the product task: its message ID, or a one-line description> against the user's requirements below, the way the user would before accepting it.
-Scope: Verify <the task's files and behavior> at <commit> plus <uncommitted files and diff fingerprint, if any>. You may write the project's verify skill, your own run and evidence folder, and your own Sunstack state. Product code, other agents' state and the user's live data stay read-only.
+Scope: Verify <the task's files and behavior> at <commit> plus <uncommitted files and diff fingerprint, if any>. You may write the project's run map (`.sunstack/verify/<app>/`), your evidence folder (`sunstack/_local/verify/<this task's message ID>/`), and your own Sunstack state. Product code, other agents' state and the user's live data stay read-only.
 Done when:
   - every requirement below has a verdict: met, partly, not met, changed, pending or unverifiable
   - each verdict says how it was checked (live, tests or read) and where its evidence is
-  - <when the task changes something a user runs:> the verify skill ran from launch to cleanup on an instance you own, and its evidence survived
+  - <when the task changes something a user runs:> the run map ran from launch to cleanup on an instance you own, and its evidence survived
 Verify: Follow the Verifier's procedure in the sunstack verify skill (only that section).
-Report: One line per requirement (quote, source, verdict, how checked, evidence), then findings, then verify-skill changes, then the identity you tested, then verified: <counts> by <your id>.
+Report: One line per requirement (quote, source, verdict, how checked, evidence), then findings, then run-map changes, then the identity you tested, then verified: <counts> by <your id>.
 Context:
   The task's requirements (newest first):
     - "<quote>" (<source>, <speaker>)
@@ -193,18 +195,19 @@ For the agent that received a verification task. Do not run the steps above.
    you caught up on.
 1. **Requirements first.** Take the brief's list, check it against its sources and the
    authority rule, and add what it missed, marked as added by you. Verify this task only.
-2. **The verify skill.** For a task that changes something a user runs, use the project's
-   verify skill: a `verify-*` folder under `.claude/skills/` or `.agents/skills/` in the project
-   root (several: ask the requester which). None: create `.claude/skills/verify-<app>/` with a
-   relative symlink at `.agents/skills/verify-<app>` when that path is free. It has a
-   frontmatter `name` and `description` and five sections grounded in this repo, no
-   placeholders: Launch (the exact command from an empty data dir, migrations and seed data
+2. **The run map.** For a task that changes something a user runs, use the project's run map:
+   `.sunstack/verify/<app>/run.md` at the top of the project (several apps: ask the requester
+   which). An older project may still have it as a `verify-*` skill under `.claude/skills/` or
+   `.agents/skills/`: use it, and offer the requester to move it to `.sunstack/verify/<app>/`
+   (frontmatter dropped, same sections). None: create `.sunstack/verify/<app>/run.md` and commit
+   it with the project. It is data this skill reads, not a skill: no frontmatter, five sections
+   grounded in this repo, no placeholders: Launch (the exact command from an empty data dir, migrations and seed data
    included; ready means usable, not that a process answers; teardown), Doctor (one
    read-only check that the instance is worth driving), Drive (the repo's real commands, routes
-   and handles), Evidence (what to capture, kept in a named folder), Cleanup (stop only what the
-   run started; evidence survives). Add `features/README.md` and one file per feature this task
+   and handles), Evidence (what to capture; each run keeps it in `sunstack/_local/verify/<task message ID>/`,
+   never in `.sunstack/`), Cleanup (stop only what the run started; evidence survives). Add `features/README.md` and one file per feature this task
    touches (Sub-features, How to get to it, Driving it, Gotchas); the map grows task by task.
-   A new or changed verify skill runs once from launch to cleanup before it counts. If that
+   A new or changed run map runs once from launch to cleanup before it counts. If that
    run used a stand-in for the real target (a container for a fresh machine, a local stack for
    a remote one), list each setup step the stand-in did that the target will not; they stay
    unverified until a run on the target.
@@ -222,7 +225,7 @@ For the agent that received a verification task. Do not run the steps above.
    never asked for is a finding even when it works.
    A requirement checked with the formal-verify skill answers with the property, the scope (bound
    and assumptions) and the deliberate break the check caught.
-5. **Map or product.** Where the verify skill describes the app wrongly, fix the skill. Where
+5. **Map or product.** Where the run map describes the app wrongly, fix the map. Where
    the app breaks an agreed requirement, report it and keep the requirement: never rewrite the
    map to match a regression. Edit nothing outside the brief's Scope.
 6. **Reply** with a `done` message to the verification task you received

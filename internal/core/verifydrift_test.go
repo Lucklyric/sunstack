@@ -21,7 +21,7 @@ func vgit(t *testing.T, dir string, args ...string) string {
 
 func writeCheck(t *testing.T, root, name, body string) {
 	t.Helper()
-	d := filepath.Join(root, ".formal-verify", name)
+	d := filepath.Join(root, ".sunstack", "formal-verify", name)
 	if err := os.MkdirAll(d, 0o755); err != nil {
 		t.Fatal(err)
 	}

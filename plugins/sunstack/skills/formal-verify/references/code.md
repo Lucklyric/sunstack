@@ -34,4 +34,4 @@ Tell it as numbered steps in the code's words: "1. process A reads the file, 2. 
 
 ## Rerun record
 
-The command (for example `cd .formal-verify/lock && go run .`), the Go or tool version, the bound, the covered files and functions, and the sync commit.
+The command (for example `cd .sunstack/formal-verify/lock && go run .`), the Go or tool version, the bound, the covered files and functions, and the sync commit.
