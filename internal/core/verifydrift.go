@@ -20,9 +20,10 @@ import (
 //
 //	## Coverage
 //	sync: <commit>            (or sha256:<hex>, see coverHash)
-//	covers: path/a.go path/b.go
+//	covers: path/a.go path/b.go path/dir/
 //
-// Paths are relative to the project folder. VerifyDrift reports each check
+// Paths are relative to the project folder; a folder covers every file
+// under it, including ones added after the marker. VerifyDrift reports each check
 // whose covered files changed since its sync marker, so next can say that
 // the check needs a maintain pass before it is trusted again.
 
@@ -131,6 +132,10 @@ func verifyChanged(root string, r verifyRecord) []string {
 			changed = append(changed, c+" (not in the sync commit)")
 			continue
 		}
+		if coverIsDir(root, c) {
+			changed = append(changed, dirChanged(root, r.sync, c)...)
+			continue
+		}
 		err := exec.Command("git", "-C", root, "diff", "--quiet", r.sync, "--", c).Run()
 		if ee, ok := err.(*exec.ExitError); ok && ee.ExitCode() == 1 {
 			changed = append(changed, c)
@@ -141,20 +146,89 @@ func verifyChanged(root string, r verifyRecord) []string {
 	return changed
 }
 
+// coverIsDir says whether a covers entry is a folder: written with a
+// trailing / or a folder on disk.
+func coverIsDir(root, c string) bool {
+	if strings.HasSuffix(c, "/") {
+		return true
+	}
+	st, err := os.Stat(filepath.Join(root, c))
+	return err == nil && st.IsDir()
+}
+
+// dirChanged lists the files under a covered folder that differ from the
+// sync marker: changed, gone or added since (committed or not), and new
+// files git does not track yet unless they are ignored.
+func dirChanged(root, sync, c string) []string {
+	diff, err := exec.Command("git", "-C", root, "diff", "--relative", "--name-only", "-z", sync, "--", c).Output()
+	if err != nil {
+		return []string{c + " (git diff failed, so unknown)"}
+	}
+	added, err := exec.Command("git", "-C", root, "ls-files", "-z", "--others", "--exclude-standard", "--", c).Output()
+	if err != nil {
+		return []string{c + " (git ls-files failed, so unknown)"}
+	}
+	var out []string
+	for _, f := range strings.Split(string(diff), "\x00") {
+		if f != "" {
+			out = append(out, f)
+		}
+	}
+	for _, f := range strings.Split(string(added), "\x00") {
+		if f != "" {
+			out = append(out, f+" (new)")
+		}
+	}
+	return out
+}
+
 // coverHash is the content marker for files outside git: the SHA-256 of
-// what `shasum -a 256 <covers...>` prints in the project folder, one
+// what `shasum -a 256 <files...>` prints in the project folder, one
 // "<hex>  <path>" line per file, so a boundary moved between files counts.
+// A folder stands for every regular file under it, in byte order, as
+// `find <folder> -type f | LC_ALL=C sort` lists them, so an added or
+// removed file changes the hash too.
 func coverHash(root string, covers []string) (string, error) {
 	var lines strings.Builder
 	for _, c := range covers {
-		b, err := os.ReadFile(filepath.Join(root, c))
-		if err != nil {
-			return "", fmt.Errorf("%s unreadable, so unknown", c)
+		files := []string{c}
+		if coverIsDir(root, c) {
+			var err error
+			if files, err = dirFiles(root, strings.TrimSuffix(c, "/")); err != nil {
+				return "", fmt.Errorf("%s unreadable, so unknown", c)
+			}
 		}
-		fmt.Fprintf(&lines, "%x  %s\n", sha256.Sum256(b), c)
+		for _, f := range files {
+			b, err := os.ReadFile(filepath.Join(root, f))
+			if err != nil {
+				return "", fmt.Errorf("%s unreadable, so unknown", f)
+			}
+			fmt.Fprintf(&lines, "%x  %s\n", sha256.Sum256(b), f)
+		}
 	}
 	sum := sha256.Sum256([]byte(lines.String()))
 	return hex.EncodeToString(sum[:]), nil
+}
+
+// dirFiles lists the regular files under a folder as dir/sub/name, in
+// byte order.
+func dirFiles(root, dir string) ([]string, error) {
+	var files []string
+	err := filepath.WalkDir(filepath.Join(root, dir), func(p string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.Type().IsRegular() {
+			rel, err := filepath.Rel(root, p)
+			if err != nil {
+				return err
+			}
+			files = append(files, filepath.ToSlash(rel))
+		}
+		return nil
+	})
+	sort.Strings(files)
+	return files, err
 }
 
 // SkillDataDir is the folder where Sunstack skills keep a project's data

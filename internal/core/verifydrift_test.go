@@ -146,6 +146,117 @@ func TestVerifyDriftOlderCheckoutAndMovedBytes(t *testing.T) {
 	}
 }
 
+// A covered folder counts every file under it: one edited, deleted, added
+// and committed after the marker, or new and not yet tracked; an ignored
+// file does not count, and a content hash changes with the file list.
+func TestVerifyDriftFolder(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("no git")
+	}
+	repo := t.TempDir()
+	root := filepath.Join(repo, "proj")
+	w := func(name, body string) {
+		t.Helper()
+		p := filepath.Join(root, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	rm := func(name string) {
+		t.Helper()
+		if err := os.Remove(filepath.Join(root, filepath.FromSlash(name))); err != nil {
+			t.Fatal(err)
+		}
+	}
+	w("src/a.go", "a\n")
+	w("src/sub/b.go", "b\n")
+	w("other.go", "x\n")
+	w(".gitignore", "*.log\nsunstack/\n")
+	vgit(t, repo, "init", "-q")
+	vgit(t, repo, "add", "-A")
+	vgit(t, repo, "commit", "-qm", "one")
+	sync := vgit(t, repo, "rev-parse", "HEAD")
+	flagged := func(covers string, want ...string) {
+		t.Helper()
+		writeCheck(t, root, "src", "# src\n## Coverage\nsync: "+sync+"\ncovers: "+covers+"\n")
+		got := VerifyDrift(root)
+		if len(want) == 0 {
+			if len(got) != 0 {
+				t.Errorf("covers %s flagged: %+v", covers, got)
+			}
+			return
+		}
+		if len(got) != 1 {
+			t.Fatalf("covers %s: %+v, want %v", covers, got, want)
+		}
+		for _, s := range want {
+			if !strings.Contains(got[0].Text, s) {
+				t.Errorf("covers %s: %q lacks %q", covers, got[0].Text, s)
+			}
+		}
+	}
+	flagged("src/")
+	flagged("src")
+	w("other.go", "y\n")
+	vgit(t, repo, "commit", "-qam", "uncovered")
+	flagged("src/")
+
+	w("src/debug.log", "ignored\n")
+	flagged("src/")
+	w("src/sub/new file.go", "n\n")
+	flagged("src/", "src/sub/new file.go (new)")
+	flagged("src", "src/sub/new file.go (new)")
+	vgit(t, repo, "add", "-A")
+	vgit(t, repo, "commit", "-qm", "added")
+	flagged("src/", "src/sub/new file.go")
+	vgit(t, root, "rm", "-q", "src/sub/new file.go")
+	vgit(t, repo, "commit", "-qm", "back")
+	flagged("src/")
+
+	w("src/sub/b.go", "b edited\n")
+	flagged("src/", "src/sub/b.go")
+	w("src/sub/b.go", "b\n")
+	rm("src/a.go")
+	flagged("src/", "src/a.go")
+	w("src/a.go", "a\n")
+	flagged("src/ other.go", "other.go")
+
+	// The content hash: every regular file under the folder in byte order.
+	rm("src/debug.log")
+	sum, err := coverHash(root, []string{"src/", "other.go"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := exec.LookPath("shasum"); err == nil {
+		// The skill's recipe for a folder.
+		cmd := exec.Command("sh", "-c", "{ find src -type f | LC_ALL=C sort; echo other.go; } | tr '\\n' '\\0' | xargs -0 shasum -a 256 | shasum -a 256")
+		cmd.Dir = root
+		out, err := cmd.Output()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if f := strings.Fields(string(out)); len(f) == 0 || f[0] != sum {
+			t.Errorf("coverHash = %s, recipe printed %s", sum, out)
+		}
+	}
+	writeCheck(t, root, "src", "# src\n## Coverage\nsync: sha256:"+sum+"\ncovers: src/ other.go\n")
+	if got := VerifyDrift(root); len(got) != 0 {
+		t.Fatalf("matching hash flagged: %+v", got)
+	}
+	w("src/sub/c.go", "c\n")
+	if got := VerifyDrift(root); len(got) != 1 || !strings.Contains(got[0].Text, "content hash") {
+		t.Errorf("file added under a hashed folder: %+v", got)
+	}
+	rm("src/sub/c.go")
+	rm("src/sub/b.go")
+	if got := VerifyDrift(root); len(got) != 1 || !strings.Contains(got[0].Text, "content hash") {
+		t.Errorf("file removed under a hashed folder: %+v", got)
+	}
+}
+
 // sunstack.json moves the skill data folder; a path leaving the project is
 // ignored.
 func TestSkillDataDir(t *testing.T) {
