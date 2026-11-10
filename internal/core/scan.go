@@ -528,6 +528,14 @@ func quick(name string, args ...string) (*exec.Cmd, context.CancelFunc) {
 	return cmd, cancel
 }
 
+// quickTmux runs one tmux command bounded by cmdWait, for calls made while
+// a lock is held: a tmux server that stopped answering must not hold it.
+func quickTmux(socket string, args ...string) ([]byte, error) {
+	cmd, cancel := quick("tmux", TmuxArgs(socket, args...)...)
+	defer cancel()
+	return cmd.Output()
+}
+
 func tmuxPanes() map[string]paneInfo {
 	out := map[string]paneInfo{}
 	if _, err := exec.LookPath("tmux"); err != nil {

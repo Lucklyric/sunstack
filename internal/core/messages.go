@@ -321,9 +321,10 @@ func (p *Project) Send(o SendOptions) (*SendResult, error) {
 		if prev := findOp(m, p.inboxDir(id), p.messageArchive(), p.local("inbox", id, ".taken")); prev != nil {
 			return &SendResult{ID: prev.ID, To: id, Session: prev.Session, Note: "already sent with this --op; not sent again"}, nil
 		}
-		if o.ID != "" && idUsed(o.ID, p.inboxDir(id), p.messageArchive(), p.local("inbox", id, ".taken")) {
-			return nil, fail(ExitFail, "conflict", "a different message with id %s is already here", o.ID)
-		}
+	}
+	// With or without --op: a preset id never replaces a message already here.
+	if o.ID != "" && idUsed(o.ID, p.inboxDir(id), p.messageArchive(), p.local("inbox", id, ".taken")) {
+		return nil, fail(ExitFail, "conflict", "a different message with id %s is already here", o.ID)
 	}
 	// After the --op lookup, so a retry of a delivered replacement returns it
 	// even once the older task is closed.
@@ -344,6 +345,9 @@ func (p *Project) Send(o SendOptions) (*SendResult, error) {
 			m.ID = o.ID
 		}
 		tmp = filepath.Join(dir, "."+m.ID+".tmp")
+		if o.ID != "" {
+			dropStaleTmp(tmp, true)
+		}
 		f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
 		if errors.Is(err, os.ErrExist) && i < 5 {
 			continue
@@ -651,17 +655,13 @@ func (p *Project) requeue(id string, claims []*Live, gone map[string]string) (ou
 			src, dst := filepath.Join(p.takenDir(id, d.Name()), f), filepath.Join(p.inboxDir(id), f)
 			// Mark it returned before it moves, so whoever reads it next
 			// knows it was started and left (§31). One header: the latest.
+			// Keep the file's time: the ledger orders same-second replies by
+			// it, and the header holds the return time. Only the one header
+			// line changes; a file without a header moves as it is.
 			m, err := parseMessage(src)
-			marked := false
-			if err == nil {
-				// Keep the file's time: the ledger orders same-second
-				// replies by it, and the header holds the return time.
-				st, serr := os.Stat(src)
+			marked := err == nil && p.setHeader(src, "returned", label+" "+now()) == nil
+			if marked {
 				m.Returned = label + " " + now()
-				marked = p.rewriteMessage(src, m) == nil
-				if marked && serr == nil {
-					os.Chtimes(src, st.ModTime(), st.ModTime())
-				}
 			}
 			if os.Rename(src, dst) != nil {
 				stuck = append(stuck, strings.TrimSuffix(f, ".md"))
@@ -692,17 +692,49 @@ func (m *Message) ReturnedBy() (label, at string) {
 	return m.Returned[:i], m.Returned[i+1:]
 }
 
-// rewriteMessage replaces a message file through a temporary file and a
-// rename, so a reader never sees half of it.
-func (p *Project) rewriteMessage(path string, m *Message) error {
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, []byte(m.text()), 0o644); err != nil {
-		os.Remove(tmp)
+// setHeader sets one header line of a message file and leaves every other
+// byte as it was, keeping the file's time. A file without a header is an
+// error and stays untouched.
+func (p *Project) setHeader(path, key, value string) error {
+	b, err := os.ReadFile(path)
+	if err != nil {
 		return err
 	}
-	if err := os.Rename(tmp, path); err != nil {
-		os.Remove(tmp)
+	s := string(b)
+	nl := "\n"
+	if strings.HasPrefix(s, "---\r\n") {
+		nl = "\r\n"
+	}
+	end := strings.Index(s, nl+"---"+nl)
+	if !strings.HasPrefix(s, "---"+nl) || end < 0 {
+		return fmt.Errorf("%s has no header", filepath.Base(path))
+	}
+	lines := strings.Split(s[len("---"+nl):end], nl)
+	found := false
+	for i, l := range lines {
+		if k, _, ok := strings.Cut(l, ":"); ok && strings.TrimSpace(k) == key {
+			if found {
+				lines[i] = ""
+				continue
+			}
+			lines[i], found = key+": "+value, true
+		}
+	}
+	if !found {
+		lines = append(lines, key+": "+value)
+	}
+	kept := lines[:0]
+	for _, l := range lines {
+		if l != "" {
+			kept = append(kept, l)
+		}
+	}
+	st, serr := os.Stat(path)
+	if err := writeAtomic(path, []byte("---"+nl+strings.Join(kept, nl)+s[end:])); err != nil {
 		return err
+	}
+	if serr == nil {
+		os.Chtimes(path, st.ModTime(), st.ModTime())
 	}
 	return nil
 }
@@ -960,6 +992,15 @@ var opRe = regexp.MustCompile(`^[A-Za-z0-9._-]{1,64}$`)
 // folder under taken) or already handled.
 // idUsed reports whether a message file with this ID exists in the pending,
 // archive or taken folders (taken has one folder per session).
+// dropStaleTmp removes the temporary file a killed delivery of a preset id
+// left behind, so the retry is not refused for good. Under the inbox's lock
+// no other writer can own it; without the lock only an old one is dropped.
+func dropStaleTmp(tmp string, locked bool) {
+	if st, err := os.Lstat(tmp); err == nil && st.Mode().IsRegular() && (locked || time.Since(st.ModTime()) > time.Minute) {
+		os.Remove(tmp)
+	}
+}
+
 func idUsed(id, pending, archive, taken string) bool {
 	dirs := []string{pending, archive}
 	if taken != "" {

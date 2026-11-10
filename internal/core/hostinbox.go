@@ -149,6 +149,9 @@ func SendToSession(s *HostSession, o SendOptions) (*SendResult, error) {
 			m.ID = o.ID
 		}
 		tmp = filepath.Join(dir, "."+m.ID+".tmp")
+		if o.ID != "" {
+			dropStaleTmp(tmp, o.Op != "")
+		}
 		f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 		if errors.Is(err, os.ErrExist) && i < 5 {
 			continue

@@ -146,7 +146,7 @@ func SpawnFree(o FreeOptions) (*FreeResult, error) {
 			return nil, err
 		}
 	}
-	defer unlock()
+	defer func() { unlock() }() // the current value: the success path releases early
 	taken := map[string]bool{}
 	ps, _ := freePanes()
 	for _, fp := range ps {

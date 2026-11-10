@@ -137,11 +137,11 @@ func (p *Project) Spawn(o SpawnOptions) (*SpawnResult, error) {
 		}
 	}
 	window := place == "window"
-	closePane := func() { exec.Command("tmux", TmuxArgs(o.Socket, "kill-pane", "-t", pane)...).Run() }
+	closePane := func() { quickTmux(o.Socket, "kill-pane", "-t", pane) }
 	// Mark the pane, so kill can tell it from the user's own panes.
-	exec.Command("tmux", TmuxArgs(o.Socket, "set-option", "-p", "-t", pane, "@sunstack", p.Root+"|"+id)...).Run()
+	quickTmux(o.Socket, "set-option", "-p", "-t", pane, "@sunstack", p.Root+"|"+id)
 	if o.Request != "" {
-		exec.Command("tmux", TmuxArgs(o.Socket, "set-option", "-p", "-t", pane, "@sunstack_request", o.Request)...).Run()
+		quickTmux(o.Socket, "set-option", "-p", "-t", pane, "@sunstack_request", o.Request)
 	}
 
 	unlock, err := p.lock(id)
@@ -189,7 +189,7 @@ func (p *Project) Spawn(o SpawnOptions) (*SpawnResult, error) {
 			return nil, fail(ExitFail, "brief", "could not deliver the brief to %s: %v", name, err)
 		}
 	}
-	exec.Command("tmux", TmuxArgs(o.Socket, "select-pane", "-t", pane, "-T", name)...).Run()
+	quickTmux(o.Socket, "select-pane", "-t", pane, "-T", name)
 
 	note := o.Note
 	if note == "" {

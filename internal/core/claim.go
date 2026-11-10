@@ -379,7 +379,7 @@ func (p *Project) As(o AsOptions) (*AsResult, error) {
 		// Remember the pane's title so release can put it back.
 		if replace != nil && replace.PaneTitle != "" && replace.TmuxPane == l.TmuxPane {
 			l.PaneTitle = replace.PaneTitle
-		} else if out, err := exec.Command("tmux", TmuxArgs(l.TmuxSocket, "display-message", "-p", "-t", l.TmuxPane, "#{pane_title}")...).Output(); err == nil {
+		} else if out, err := quickTmux(l.TmuxSocket, "display-message", "-p", "-t", l.TmuxPane, "#{pane_title}"); err == nil {
 			l.PaneTitle = strings.TrimSpace(string(out))
 		}
 	}
@@ -395,7 +395,7 @@ func (p *Project) As(o AsOptions) (*AsResult, error) {
 		// Name the pane after the session so tmux shows who works there; only
 		// when we know which tmux server the pane lives on.
 		if l.TmuxSocket != "" {
-			exec.Command("tmux", TmuxArgs(l.TmuxSocket, "select-pane", "-t", l.TmuxPane, "-T", l.Label(id))...).Run()
+			quickTmux(l.TmuxSocket, "select-pane", "-t", l.TmuxPane, "-T", l.Label(id))
 		}
 	}
 	p.LogEvent(map[string]string{"claimed": "claim", "joined": "join", "resumed": "resume", "taken_over": "takeover"}[res.Mode], id, fields...)
@@ -576,7 +576,7 @@ func (p *Project) Release(id, token string) (err error) {
 		return fail(ExitFail, "fs", "%v", err)
 	}
 	if cur.TmuxPane != "" && cur.TmuxSocket != "" && cur.PaneTitle != "" {
-		exec.Command("tmux", TmuxArgs(cur.TmuxSocket, "select-pane", "-t", cur.TmuxPane, "-T", cur.PaneTitle)...).Run()
+		quickTmux(cur.TmuxSocket, "select-pane", "-t", cur.TmuxPane, "-T", cur.PaneTitle)
 	}
 	os.RemoveAll(p.sessionTmp(id, token))
 	p.clearNudged(id, token)

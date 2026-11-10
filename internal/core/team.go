@@ -440,6 +440,15 @@ func (p *Project) Rename(id, to string) error {
 			os.Rename(p.local(sub, id), p.local(sub, to))
 		}
 	}
+	// Its waiting and taken mail now names the new ID, so a reply from it
+	// still closes the task it answers.
+	mail, _ := filepath.Glob(filepath.Join(p.local("inbox", to), "*.md"))
+	taken, _ := filepath.Glob(filepath.Join(p.local("inbox", to), ".taken", "*", "*.md"))
+	for _, f := range append(mail, taken...) {
+		if m, err := parseMessage(f); err == nil && m.To == id {
+			p.setHeader(f, "to", to)
+		}
+	}
 	p.LogEvent("rename", id, "to="+to)
 	return nil
 }
