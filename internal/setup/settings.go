@@ -303,6 +303,11 @@ prefix_rule(
     justification = "Sunstack kill closes a session's pane; the user must approve it.",
 )
 prefix_rule(
+    pattern = ["sunstack", "clean", "--yes"],
+    decision = "prompt",
+    justification = "Sunstack clean --yes closes every idle session and leftover pane; the user must approve it.",
+)
+prefix_rule(
     pattern = ["sunstack", "direct"],
     decision = "prompt",
     justification = "Sunstack direct adds a directive in the user's name; only the user may do that.",

@@ -1,6 +1,6 @@
 ---
 name: clean
-description: Close the Sunstack team's idle sessions and leftover panes in one go (agent and free sessions at their prompt over 24h with nothing unfinished, and panes whose Claude or Codex exited), after one confirmation. Use for "sunstack clean", "/sunstack:clean", "clean up", "clean up sessions", "clean up panes", "close idle sessions", "close exited panes", "sunstack kill --idle". Closing one named session is the spawn skill. Only in projects with a sunstack/ folder.
+description: Close the Sunstack team's idle sessions and leftover panes in one go (agent and free sessions at their prompt over 24h with nothing unfinished, and panes whose Claude or Codex exited), after one confirmation. Use for "sunstack clean", "/sunstack:clean", "clean up", "clean up sessions", "clean up panes", "close idle sessions", "close exited panes", "sunstack kill --idle". Closing one named session is the spawn skill. Only in projects with a Sunstack team (sunstack/PROTOCOL.md).
 ---
 
 # Sunstack: clean
@@ -15,7 +15,7 @@ Command: `sunstack clean` (also `kill --idle`). Skill: `/sunstack:clean` in Clau
 
 ## What it closes
 
-`sunstack next` in a team shows one `[user]` line when there is something to close, for example
+`sunstack next --team` shows one `[user]` line when there is something to close, for example
 `2 agent session(s) idle over 24h: builder.alice_csv (3d), reviewer_ui (1d); 1 pane(s) whose CLI
 exited: scratch (free, claude exited)`. `sunstack clean` closes three kinds, all checked by the CLI,
 not by you:
@@ -40,7 +40,7 @@ anything no longer on it.
 2. Show the list and ask once: close all / cancel. To keep one open, dismiss or leave it and
    close the others one by one with `sunstack kill "<id_task>"` (or `sunstack kill <label>` for
    a free session) instead.
-3. On yes: `sunstack clean --yes`. Each one prints `closed <name>`, or `left alone <name>`
+3. On yes: `sunstack clean --yes`. The CLI asks the user to approve that command; this is expected. Each one prints `closed <name>`, or `left alone <name>`
    when it is no longer idle. Errors name the ones not closed (the reasons are as for
    `sunstack kill`).
 

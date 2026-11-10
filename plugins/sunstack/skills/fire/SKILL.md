@@ -1,6 +1,6 @@
 ---
 name: fire
-description: Remove an agent from this project's Sunstack team after the user approves, checking that nothing is lost. Use for "sunstack fire", "/sunstack:fire", "remove the reviewer agent", or deleting a Sunstack agent. Only in projects with a sunstack/ folder.
+description: Remove an agent from this project's Sunstack team after the user approves, checking that nothing is lost. Use for "sunstack fire", "/sunstack:fire", "remove the reviewer agent", or deleting a Sunstack agent. Only in projects with a Sunstack team (sunstack/PROTOCOL.md).
 ---
 
 # Sunstack: fire

@@ -226,7 +226,8 @@ func (sv *Server) join(w http.ResponseWriter, r *http.Request) {
 	}
 	sv.mu.Lock()
 	defer sv.mu.Unlock()
-	if msg := sv.useCode(req.Code); msg != "" {
+	spend, msg := sv.useCode(req.Code)
+	if msg != "" {
 		httpError(w, http.StatusForbidden, msg)
 		return
 	}
@@ -247,9 +248,11 @@ func (sv *Server) join(w http.ResponseWriter, r *http.Request) {
 			return fmt.Errorf("host ID %s is already in the org as %s; the hub's user runs sunstack hub revoke %s first", req.ID, h.Name, h.Name)
 		}
 		ro.Hosts = append(ro.Hosts, &Host{ID: req.ID, Name: req.Name, CanSend: inv.CanSend, Keys: req.Keys, Added: stamp(time.Now()), TokenHash: tokenHash(token), IP: peerIP(r)})
+		spend() // one use: only a join that got in spends the code
 		return nil
 	})
 	if err != nil {
+		// The code is still good: the host picks another name and joins.
 		httpError(w, http.StatusConflict, err.Error())
 		return
 	}
@@ -257,23 +260,25 @@ func (sv *Server) join(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(joinAnswer{OrgID: sv.c.OrgID, OrgName: sv.c.OrgName, HubID: sv.c.HubID, Token: token, Roster: ro, HubTime: stamp(time.Now())})
 }
 
-// useCode spends a code, or says why it cannot be used. Called with sv.mu.
-func (sv *Server) useCode(code string) string {
+// useCode checks a code and returns what spends it, or says why it cannot
+// be used. A join refused for its name or ID leaves the code unspent, so
+// the host can try again with it. Called with sv.mu.
+func (sv *Server) useCode(code string) (spend func(), msg string) {
 	if normCode(code) == "" {
-		return "that is not a join code"
+		return nil, "that is not a join code"
 	}
 	path := sv.s.inviteFile(code)
 	var inv invite
 	if readJSON(path, &inv) != nil {
 		sv.wrongCode()
-		return "unknown or used code (sunstack hub invite makes a new one)"
+		return nil, "unknown or used code (sunstack hub invite makes a new one)"
 	}
-	os.Remove(path) // one use
 	if t, ok := parseStamp(inv.Expires); !ok || time.Now().After(t) {
-		return "that code expired (sunstack hub invite makes a new one)"
+		os.Remove(path)
+		return nil, "that code expired (sunstack hub invite makes a new one)"
 	}
 	sv.lastInvite = inv
-	return ""
+	return func() { os.Remove(path) }, ""
 }
 
 // wrongCode counts a wrong code against every open invite: after 3, they

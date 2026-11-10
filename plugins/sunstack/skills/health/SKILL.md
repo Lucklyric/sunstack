@@ -25,8 +25,7 @@ Find out where this project stands and walk the user through the next steps, one
 When the user asks only to upgrade or update Sunstack, skip the full health pass:
 
 1. `sunstack update`. It updates the CLI and the Claude Code and Codex rules, and runs the
-   `[auto]` steps. The user may need to run it in a terminal, and a second time if the first
-   run updated the binary.
+   `[auto]` steps. The user may need to run it in a terminal.
 2. `sunstack migrate --host` lists the `[ask ]` steps for every team on this machine. Show
    them; on yes run `sunstack migrate --host --apply all`, then show `git diff --stat` of the
    changed `sunstack/` folders.
@@ -89,8 +88,7 @@ by an older Sunstack. Group them as one "migrate to this version" step: list eac
 do them in this order, one approval for the batch unless a change needs its own input:
 
 1. `sunstack update` when the Claude Code or Codex rules are from an older version (the user
-   may need to run it in a terminal, and a second time if the first run updated the binary;
-   the rest continues after).
+   may need to run it in a terminal; the rest continues after).
 2. `sunstack migrate` shows what this team needs, each step marked `[auto]` (only adds files:
    `TEAM`, `BOARD.md`, the `.gitignore` line, the host index) or `[ask ]` (rewrites files the
    agents read: `PROTOCOL.md`, `README.md`, the `AGENTS.md` block). `update` and `as` already

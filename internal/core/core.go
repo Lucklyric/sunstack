@@ -110,7 +110,7 @@ func FindProject(start string) (*Project, error) {
 		}
 		parent := filepath.Dir(d)
 		if parent == d {
-			return nil, fail(ExitFail, "no_root", "no sunstack/ team (with PROTOCOL.md) found from %s upward; run sunstack init first", start)
+			return nil, fail(ExitFail, "no_root", "no sunstack/ team (with PROTOCOL.md) found from %s upward; for a team elsewhere add --root <its folder> or address it as <team>/<id> (sunstack teams lists them); sunstack init only creates a new team here", start)
 		}
 		d = parent
 	}

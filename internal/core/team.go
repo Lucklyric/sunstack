@@ -265,7 +265,7 @@ func (p *Project) Hire(o HireOptions) (string, error) {
 		for _, e := range Library() {
 			fmt.Fprintf(&b, "%s\t%s\t%s\n", e.Title, e.Source, e.Summary)
 		}
-		return "", &Error{Code: ExitUsage, Reason: "missing_arguments", Msg: "choose a template, or use recruit for a new role", Stdout: b.String()}
+		return "", &Error{Code: ExitUsage, Reason: "missing_arguments", Msg: "choose a template, or use the hire skill for a new role", Stdout: b.String()}
 	}
 	if !ValidPart(o.Title) || o.Title == "review" {
 		return "", fail(ExitUsage, "usage", "invalid title: %s", o.Title)

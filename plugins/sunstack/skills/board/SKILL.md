@@ -40,7 +40,7 @@ Add an ID (`sunstack board builder.alice`) to see one agent's whole board.
 Summarize for the user, short:
 
 - each objective and how its key results stand (who is on what, what is done);
-- **Needs attention**: the board prints only a count; `sunstack next --all` lists the items,
+- **Needs attention**: the board prints only a count; `sunstack next --team --all` lists the items,
   ranked. Group them: blocked (waiting on someone), broken (needs something that does not
   exist, or serves no objective), stale (Now entry not updated for a week), overdue, undated,
   and directives an agent has not aligned with yet;
@@ -79,7 +79,7 @@ Change only the approved lines and keep Directives exactly as they are.
 When the user asks to align the team ("sunstack align"), or accepts the offer in step 3. Each
 agent's board is written only by that agent, so this step asks each agent to fix its own.
 
-1. From `sunstack next --all`, group what needs attention by agent: directives it has
+1. From `sunstack next --team --all`, group what needs attention by agent: directives it has
    not aligned with, key results with no or an unknown objective, `needs:` pointing at a key
    result that does not exist, stale Now entries, overdue and undated entries, Done entries
    without a `verified:` line, asks without a default, asks past their default date, tasks
@@ -93,7 +93,7 @@ agent's board is written only by that agent, so this step asks each agent to fix
 3. For each approved agent, one message:
 
    ```sh
-   sunstack send "<id>" "Align your board: <the fixes from the line above>. Update it at your next save and set aligned: to the last directive checked." --type fyi --op "align-<today>-<id>"
+   sunstack send "<id>" "Align your board: <the fixes from the line above>. Update it at your next save and set aligned: to the last directive checked." --type fyi --nudge --op "align-<today>-<id>"
    ```
 
    Add `--from "<id>" --token "<token>"` only if this session holds an agent and the request

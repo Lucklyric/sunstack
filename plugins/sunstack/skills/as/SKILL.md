@@ -1,6 +1,6 @@
 ---
 name: as
-description: Take on a Sunstack agent identity (for example builder.alice) in this project, alone or alongside sessions already working as it, or recover the identity this session already holds. Use for "sunstack as", "/sunstack:as", "take on the builder agent", "which Sunstack agent should I be", "sunstack whoami", "which agent am I", or after compaction or /clear lost the session state. Only in projects with a sunstack/ folder.
+description: Take on a Sunstack agent identity (for example builder.alice) in this project, alone or alongside sessions already working as it, or recover the identity this session already holds. Use for "sunstack as", "/sunstack:as", "take on the builder agent", "which Sunstack agent should I be", "sunstack whoami", "which agent am I", or after compaction or /clear lost the session state. Only in projects with a Sunstack team (sunstack/PROTOCOL.md).
 ---
 
 # Sunstack: as

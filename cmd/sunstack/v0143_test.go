@@ -180,7 +180,8 @@ func TestReturnedMarkFailureKeepsTask(t *testing.T) {
 	ta := field(tokenRe, sh(t, p, nil, "as", "builder.alice").out)
 	task := field(msgRe, sh(t, p, nil, "send", "builder.alice", "--type", "task", "--file", brief).out)
 	expect(t, sh(t, p, nil, "take", "builder.alice", task, "--token", ta), 0, "take")
-	must(t, os.MkdirAll(filepath.Join(p, "sunstack", "_local", "inbox", "builder.alice", ".taken", ta, task+".md.tmp", "x"), 0o755))
+	// A file with no header has no line to mark: it goes back as it is.
+	must(t, os.WriteFile(filepath.Join(p, "sunstack", "_local", "inbox", "builder.alice", ".taken", ta, task+".md"), []byte("no header here\n"), 0o644))
 	expect(t, sh(t, p, nil, "release", "builder.alice", "--token", ta), 0, "release")
 	if n := len(inboxTexts(t, p, "builder.alice")); n != 1 {
 		t.Fatalf("task lost: %d in the inbox", n)

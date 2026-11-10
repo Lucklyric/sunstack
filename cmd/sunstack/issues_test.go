@@ -35,7 +35,7 @@ func TestIssueLogRecordsFailures(t *testing.T) {
 		t.Fatalf("want one entry without the input:\n%s", log)
 	}
 	// Usage errors quote their arguments: only the code is kept.
-	expect(t, sh(t, p, env, "send", "builder.alice", "body", "--token=SECRET-TOKEN-2"), 2, "unknown option")
+	expect(t, sh(t, p, env, "send", "builder.alice", "body", "--bogus=SECRET-TOKEN-2"), 2, "unknown option")
 	expect(t, sh(t, p, env, "issues", "SECRET-PROMPT"), 2, "surplus argument")
 	if log := issueLog(t, env); strings.Count(log, "\n") != 3 || strings.Contains(log, "SECRET") {
 		t.Fatalf("usage errors leaked their input:\n%s", log)

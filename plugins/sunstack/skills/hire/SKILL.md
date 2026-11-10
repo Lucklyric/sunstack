@@ -24,7 +24,7 @@ context.
   needs the user's explicit yes first.
 - If the shell says `sunstack` is not found, tell the user to install it
   (`curl -fsSL https://raw.githubusercontent.com/Lucklyric/sunstack/main/install.sh | sh`,
-  then `sunstack install`) and stop. If there is no `sunstack/` folder, offer `sunstack init`
+  then `sunstack install`) and stop. If there is no team here (no `sunstack/PROTOCOL.md` in this folder or above), offer `sunstack init`
   (it sets up the current folder).
 - Ask with AskUserQuestion if you have it, otherwise as numbered options in the conversation;
   then end your turn and wait. No answer, a cancel, or the user moving on is not approval.
@@ -59,7 +59,7 @@ only its line in `sunstack team`, before you judge:
   show its ID and the exact before and after, and on the user's yes
   run `sunstack amend "<id>" AGENT.md "<candidate>" "<checksum>" --summary "<one line>"` with
   that unchanged candidate. On a mismatch, snapshot again and show the change again. Do not
-  work as that agent for this. Then send its live sessions an `fyi` to reread it (send
+  work as that agent for this. Then send its live sessions an `fyi` with `--nudge` to reread it (send
   skill; this approval covers it), and stop here.
 - **Hire** only when no role fits, or the work needs separate lasting context or pillars (for
   example, checking that agent's own work). Say why in the proposal.

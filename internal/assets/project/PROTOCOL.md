@@ -67,7 +67,7 @@ A proposal is `- <date> [pillars|agent|board] Proposed: <exact change> — <reas
 - When `as` prints "Since your last save", read it first and continue from your board's Now entries. The board is the record: do not redo work it marks done or rerun checks a `verified:` line records.
 - Before you stop (release, a pause, the end of a session), leave each Now entry with its state and next step, so a fresh session can continue from the board alone. Ask the user before committing unfinished work.
 - `halt:` at the top of `BOARD.md` means the user halted the team. Finish and save the work in progress, start nothing new, take no new task or handoff (reply that the team is halted), and spawn nothing. Only the user runs `sunstack halt` and `sunstack halt --off`.
-- `sunstack next` ranks what to do now across the team; use it when you are unsure what comes next.
+- `sunstack next` ranks what this session should do now; `sunstack next --team` ranks it across the team. Use it when you are unsure what comes next.
 - A spawn is refused when the team has `max_sessions` live sessions (`sunstack/TEAM`, default 6). Finish one first, or ask the user before passing `--over-cap`.
 
 ## Messages

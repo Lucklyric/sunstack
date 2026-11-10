@@ -31,7 +31,7 @@ var version = "dev"
 // one, including those the plugin's skills run.
 const shortUsage = `sunstack — agent-team layer for Claude Code and Codex
 
-  sunstack next [--all]                 what to do now here: this team, or outside a team this session
+  sunstack next [--team] [--all]        what to do now: this session's own work; --team: the whole team
   sunstack                              dashboard (also sunstack tui)
   sunstack org [--attention]            every team and session on this host and the org; --attention: what waits on you
   sunstack board [id]                   objectives, key results and directives
@@ -82,11 +82,14 @@ Boards:
                                                   needs attention (stale, overdue, blocked, not aligned)
   sunstack direct "<text>" [--to ID,TITLE,...]    add a dated directive from the user to BOARD.md (default: all)
   sunstack answer <id> Q<n> "<answer>"            answer an agent's ask (its board's Asks); the agent records it
-  sunstack next [--all] [--json] [--root DIR]     what to do now, ranked: broken, waiting on you, blocked, drift,
+  sunstack next [--team] [--all] [--json] [--root DIR]
+                                                  what to do now, ranked: broken, waiting on you, blocked, drift,
                                                   then this session's own next step; each with the command to run.
-                                                  In a team (or --root): that team. Outside a team: this session's
+                                                  Inside a session: that session's own items, with a count of the
+                                                  team's other ones. --team (or --root): the whole team, as outside
+                                                  a session. Outside a team: this session's
                                                   inbox and open tasks only, plus a count of the rest (org --attention)
-  sunstack tasks [--all] [--from ID] [--type task|question]
+  sunstack tasks [--all] [--from ID] [--type task|question] [--root DIR]
                                                   open tasks and questions (open until a done reply), with replies
   sunstack halt "<reason>" | --off                pause the whole team: work in progress saves, nothing new starts
   sunstack tidy <id> | --team | --all             archive old finished entries by month; creates a missing board
@@ -94,19 +97,19 @@ Boards:
 Sessions and messages:
   sunstack team --sessions [--json]               every live session (also: sunstack sessions): name, tool, host, tmux place, resume command
   sunstack send <id|title|id_task|team/id|pane-id|session-id> "<text>"|--file F [--type task|question|handoff|fyi|done|shutdown]
-                [--reply-to MSG] [--from ID --token T] [--nudge|--no-nudge] [--op ID] [--follows TASK] [--replaces TASK]
+                [--reply-to MSG] [--from ID --token T] [--nudge|--no-nudge] [--op ID] [--follows TASK] [--replaces TASK] [--root DIR]
                                                   a task carries a brief: Goal, Scope, Done when, Verify, Report
                                                   (Context, Timebox, Not optional); a brief missing one is refused;
                                                   --follows quotes an earlier task and its replies into the new one
                                                   --replaces names an open task of yours to the same agent that this one replaces
                                                   write a message to the agent's inbox, then type a one-line nudge
                                                   into a live Claude Code or Codex pane of that agent (tmux)
-  sunstack check <id> --token T                   messages this session may handle (pending, and taken by it)
+  sunstack check <id> --token T [--root DIR]      messages this session may handle (pending, and taken by it)
   sunstack take <id> <msg> --token T              take a message so no other session works on it
   sunstack ack <id> <msg> --token T               archive a handled message
   sunstack check|take|ack --session [<msg>]       the same for a session that works as no agent (its host inbox)
   sunstack whoami [--root DIR]
-  sunstack spawn <id|title> [--tool claude|codex] [--task LABEL] [--note "..."] [--brief FILE] [--place team|here|window] [--over-cap]
+  sunstack spawn <id|title> [--tool claude|codex] [--task LABEL] [--note "..."] [--brief FILE] [--place team|here|window [--yes]] [--over-cap] [--root DIR]
                                                   start a session as that agent beside this pane (the default), or in a new
                                                   window when it is too small; window and team only when the user asks for that
                                                   place (window: always a new window; team: the team's tmux session
@@ -133,7 +136,7 @@ Team (run these yourself):
   sunstack library                                list templates (personal, then built-in)
   sunstack library show <title>                   print a template's AGENT.md
   sunstack library save <id> [--as TITLE] [--force]  save an agent's AGENT.md as a personal template
-  sunstack team                                   who is on the team, who holds whom, where
+  sunstack team [--root DIR]                      who is on the team, who holds whom, where
   sunstack ssh                                    shared SSH connections: which aliases share one, open or closed, last check
   sunstack ssh scan | map <host> <alias> | check <alias|host>   read ~/.ssh/config, name an org host's alias, try a login (yours only)
   sunstack ssh start | stop <alias|host> [--yes]  open or close the shared connection (yours only; stop asks first)
@@ -165,7 +168,7 @@ Org (every team and Claude Code or Codex session on this host):
   sunstack spawn --free [--tool claude|codex] [--name LABEL] [--note "..."] [--dir DIR | --beside SESSION] [--place P] [--over-cap]
                                                   start a plain session that holds no agent, placed as spawn is, working in the team
                                                   root, in DIR, or in the folder of another session; sunstack kill LABEL closes it
-  sunstack doing <id> "<line>" --token T          one line on what this session is doing now ("" clears)
+  sunstack doing <id> "<line>" --token T [--root DIR]  one line on what this session is doing now ("" clears)
   sunstack reopen <session-id> [--place P]        resume a closed session in a tmux pane (beside this one, else a new window;
                                                   outside tmux its team's tmux session), so messages wake it at once (exit it where it ran first)
   sunstack attach <session>                       go to a session's tmux pane: an agent session's name or any session's ID or label
@@ -247,25 +250,45 @@ func parse(in []string, valued, switches string) (*args, error) {
 	}
 	for i := 0; i < len(in); i++ {
 		s := in[i]
-		if !strings.HasPrefix(s, "--") {
+		if s == "--" { // everything after it is text, whatever it starts with
+			a.pos = append(a.pos, in[i+1:]...)
+			break
+		}
+		// Only --name and --name=value are options: a text that starts
+		// with dashes (a separator line, a quoted list) stays text.
+		if !flagRe.MatchString(s) {
 			a.pos = append(a.pos, s)
 			continue
 		}
-		name := strings.TrimPrefix(s, "--")
+		name, val, eq := strings.Cut(strings.TrimPrefix(s, "--"), "=")
 		switch {
 		case isIn(valued, name):
-			if i+1 >= len(in) {
-				return nil, &core.Error{Code: core.ExitUsage, Reason: "usage", Msg: s + " needs a value"}
+			if !eq {
+				// The next word is the value, unless it is another option
+				// of this command: then the value was left out.
+				if i+1 >= len(in) || isFlagOf(in[i+1], valued+" "+switches, isIn) {
+					return nil, &core.Error{Code: core.ExitUsage, Reason: "usage", Msg: "--" + name + " needs a value"}
+				}
+				val = in[i+1]
+				i++
 			}
-			a.flags[name] = in[i+1]
-			i++
+			a.flags[name] = val
 		case isIn(switches, name):
+			if eq {
+				return nil, &core.Error{Code: core.ExitUsage, Reason: "usage", Msg: "--" + name + " takes no value"}
+			}
 			a.flags[name] = "1"
 		default:
-			return nil, &core.Error{Code: core.ExitUsage, Reason: "usage", Msg: "unknown option: " + s}
+			return nil, &core.Error{Code: core.ExitUsage, Reason: "usage", Msg: "unknown option: --" + name + " (text that starts with -- goes after a lone --)"}
 		}
 	}
 	return a, nil
+}
+
+var flagRe = regexp.MustCompile(`^--[A-Za-z][A-Za-z0-9_-]*(=.*)?$`)
+
+func isFlagOf(s, known string, isIn func(list, name string) bool) bool {
+	return flagRe.MatchString(s) && !strings.Contains(s, "=") && isIn(known, strings.TrimPrefix(s, "--"))
 }
 
 func (a *args) has(name string) bool { _, ok := a.flags[name]; return ok }
@@ -274,9 +297,19 @@ func (a *args) has(name string) bool { _, ok := a.flags[name]; return ok }
 // silently does less than asked.
 func (a *args) atMost(n int, cmd string) error {
 	if len(a.pos) > n {
-		return &core.Error{Code: core.ExitUsage, Reason: "usage", Msg: fmt.Sprintf("too many arguments for %s: %s (see sunstack help)", cmd, strings.Join(a.pos[n:], " "))}
+		return &core.Error{Code: core.ExitUsage, Reason: "usage", Msg: fmt.Sprintf("too many arguments for %s: %s%s (see sunstack help)", cmd, strings.Join(a.pos[n:], " "), quoteHint[cmd])}
 	}
 	return nil
+}
+
+// quoteHint is the likely cause of a surplus argument, per command.
+var quoteHint = map[string]string{
+	"send":   "; quote the text as one argument, or pass it with --file",
+	"doing":  "; quote the line as one argument",
+	"direct": "; quote the text as one argument",
+	"answer": "; quote the answer as one argument",
+	"issue":  "; quote the note as one argument",
+	"tasks":  "; another agent's tasks: --from ID",
 }
 
 var askKeyRe = regexp.MustCompile(`^Q[0-9]+$`)
@@ -307,6 +340,9 @@ func tmuxServer() string {
 	}
 	return ""
 }
+
+// skillOnly names the plugin's skills that have no command of their own.
+var skillOnly = map[string]bool{"save": true, "verify": true, "formal-verify": true}
 
 func missing(what string) error {
 	return &core.Error{Code: core.ExitUsage, Reason: "missing_arguments", Msg: "missing " + what, Stdout: "missing_arguments: " + what + "\n"}
@@ -352,6 +388,11 @@ func run(argv []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if len(argv) == 0 || argv[0] == "help" || argv[0] == "--help" || argv[0] == "-h" {
 		if len(argv) > 1 && argv[1] == "all" {
 			fmt.Fprint(stdout, usage)
+		} else if h := ""; len(argv) > 1 && argv[0] == "help" {
+			if h = cmdUsage(argv[1]); h == "" {
+				h = shortUsage
+			}
+			fmt.Fprint(stdout, h)
 		} else {
 			fmt.Fprint(stdout, shortUsage)
 		}
@@ -388,7 +429,11 @@ func run(argv []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if p, perr := core.FindProject(root); perr == nil {
 		is.Team = filepath.Base(p.Root)
 	}
-	core.RecordIssue(is)
+	// A bare as or hire answers with the list to choose from: that is how
+	// the skills ask for it, not a mistake to count.
+	if ce == nil || ce.Reason != "missing_arguments" || strings.Count(ce.Stdout, "\n") < 2 {
+		core.RecordIssue(is)
+	}
 	if ce != nil {
 		fmt.Fprint(stdout, ce.Stdout)
 		fmt.Fprintf(stderr, "sunstack: %s: %s\n", ce.Reason, ce.Msg)
@@ -409,6 +454,9 @@ func run(argv []string, stdin io.Reader, stdout, stderr io.Writer) int {
 func cmdUsage(cmd string) string {
 	if cmd == "hub" {
 		return hubUsage
+	}
+	if cmd == "sessions" {
+		cmd = "team" // sunstack sessions is team --sessions
 	}
 	var b strings.Builder
 	in := false
@@ -519,6 +567,9 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 			return err
 		}
 		if len(a.pos) < need {
+			if o.Delete {
+				return missing("id target checksum")
+			}
 			return missing("id target candidate checksum")
 		}
 		o.ID, o.Rel = a.pos[0], a.pos[1]
@@ -1245,7 +1296,7 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 		// Beside this pane is the default. From an agent session, another
 		// place needs --yes: it says the user asked for that place (§34.16).
 		if place := a.flags["place"]; (place == "team" || place == "window" || a.has("window")) && !a.has("yes") && agentSession() {
-			return &core.Error{Code: core.ExitUsage, Reason: "usage", Msg: "spawn opens beside this pane by default; use --place team or window only when the user asked for that place, then add --yes (spawn skill)"}
+			return &core.Error{Code: core.ExitUsage, Reason: "confirm", Msg: "spawn opens beside this pane by default; use --place team or window only when the user asked for that place, then add --yes (spawn skill)"}
 		}
 		if a.has("free") {
 			if len(a.pos) > 0 || a.has("task") || a.has("brief") {
@@ -1858,6 +1909,9 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 			return &core.Error{Code: core.ExitFail, Reason: "no_cli", Msg: "neither claude nor codex found on PATH"}
 		}
 		return lifecycle(cmd, t, a.has("yes"), a.has("skip-binary"), rest, stdin, stdout)
+	}
+	if skillOnly[cmd] {
+		return &core.Error{Code: core.ExitUsage, Reason: "usage", Msg: "unknown command: " + cmd + " is a skill, not a command: run /sunstack:" + cmd + " in Claude Code or $sunstack:" + cmd + " in Codex"}
 	}
 	return &core.Error{Code: core.ExitUsage, Reason: "usage", Msg: "unknown command: " + cmd + " (see sunstack help)"}
 }
