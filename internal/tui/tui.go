@@ -418,10 +418,18 @@ func (m *model) mouse(e tea.MouseMsg) tea.Cmd {
 	}
 	target := m.listStart + e.Y - y0
 	if m.view == viewPicker && target >= len(m.teams) {
-		if target == len(m.teams) {
-			return nil // the rule between teams and actions
+		// Rows that select nothing: the rule between teams and actions,
+		// and above it the "no teams yet" line when there are none.
+		skip := 1
+		if len(m.teams) == 0 {
+			skip = 2
 		}
-		target--
+		if target < len(m.teams)+skip {
+			return nil
+		}
+		if target -= skip; target >= len(m.teams)+len(m.actions()) {
+			return nil
+		}
 	}
 	if target == m.selIndex() {
 		if e.Button == tea.MouseButtonRight {
