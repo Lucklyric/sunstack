@@ -166,7 +166,7 @@ func TestRetryMailOfferedAgain(t *testing.T) {
 	if err := saveConfig(cl.c); err != nil { // the connector runs only while this host is a member
 		t.Fatal(err)
 	}
-	go func() { ended <- session(cl, &log) }()
+	go func() { ended <- session(cl, &log, nil) }()
 	defer func() {
 		ts.CloseClientConnections()
 		select {

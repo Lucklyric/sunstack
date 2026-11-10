@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/Lucklyric/sunstack/internal/core"
@@ -81,32 +82,53 @@ func Connect(logw io.Writer) error {
 	// Requests a restart cut short get their answer (§20.3).
 	RecoverRequests()
 	cleanAsked()
-	backoff := time.Second
+	backoff, fails := time.Second, 0
 	for {
-		start := time.Now()
-		err := session(cl, logw)
+		var up atomic.Bool
+		err := session(cl, logw, &up)
 		if errors.Is(err, ErrRevoked) {
+			fmt.Fprintf(logw, "%s the hub no longer knows this host; the connector stops and its service is removed (join again with sunstack org join)\n", stamp(time.Now()))
 			return err
 		}
 		if errors.Is(err, errLeft) {
 			fmt.Fprintf(logw, "%s this host left its org; the connector stops\n", stamp(time.Now()))
 			return nil
 		}
-		if time.Since(start) > 30*time.Second {
-			backoff = time.Second
+		// A stream that worked starts the wait over. How long the attempt
+		// took says nothing: a dial that times out takes 30 seconds, and a
+		// sleeping laptop stops the clock.
+		if up.Load() {
+			backoff, fails = time.Second, 0
 		}
+		fails++
 		fmt.Fprintf(logw, "%s hub connection ended (%v); retry in %s\n", stamp(time.Now()), err, backoff)
-		connIssue("connect", fmt.Sprintf("hub connection ended (%v)", err))
-		time.Sleep(backoff)
-		if backoff *= 2; backoff > time.Minute {
-			backoff = time.Minute
+		// One drop is a laptop waking or the hub restarting. An outage is
+		// an issue once, at its third failure in a row.
+		if fails == outageAfter {
+			connIssue("connect", fmt.Sprintf("hub unreachable for %d tries (%v)", fails, err))
 		}
+		rotateConnectLog()
+		sleepFn(backoff)
+		backoff = nextBackoff(backoff)
 	}
+}
+
+// outageAfter is how many failed tries in a row make an outage worth an
+// issue entry.
+const outageAfter = 3
+
+var sleepFn = time.Sleep
+
+func nextBackoff(d time.Duration) time.Duration {
+	if d *= 2; d > time.Minute {
+		d = time.Minute
+	}
+	return d
 }
 
 // session runs one watch stream until it drops: frames come down the
 // stream, and this host's snapshots, pings, mail and acks go up as requests.
-func session(cl *client, logw io.Writer) error {
+func session(cl *client, logw io.Writer, up *atomic.Bool) error {
 	// After org leave, or a join to another org, nothing more goes in or
 	// out on this membership (§34.7).
 	member := func() bool {
@@ -237,6 +259,9 @@ func session(cl *client, logw io.Writer) error {
 	}
 	if err := pushSnap(); err != nil {
 		return err
+	}
+	if up != nil {
+		up.Store(true) // the stream answered and took this host's snapshot
 	}
 	for {
 		var err error

@@ -366,6 +366,14 @@ func (s store) putSnap(id string, raw []byte) error {
 	if err := json.Unmarshal(raw, &probe); err != nil || probe.Schema < 1 {
 		return errors.New("not a snapshot")
 	}
+	// As the watch stream will carry it: the encoder there escapes <, > and
+	// &, so a body within the limit could leave it as a frame every host
+	// refuses, on every reconnect.
+	sent, err := json.Marshal(json.RawMessage(raw))
+	if err != nil || len(sent) > MaxFrame {
+		return errors.New("snapshot larger than 256 KB")
+	}
+	raw = sent
 	return writeJSON(s.snapFile(id), &Snap{Host: id, ReceivedAt: stamp(time.Now()), Snapshot: json.RawMessage(raw)}, 0o600)
 }
 

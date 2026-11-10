@@ -19,7 +19,22 @@ import (
 	"github.com/Lucklyric/sunstack/internal/core"
 )
 
-func httpClient(timeout time.Duration) *http.Client { return &http.Client{Timeout: timeout} }
+// watchTransport is for the one request with no overall timeout, the watch
+// stream: a hub that accepts the connection and never answers ends it.
+var watchTransport = func() http.RoundTripper {
+	t := http.DefaultTransport.(*http.Transport).Clone()
+	t.ResponseHeaderTimeout = headerWait
+	return t
+}()
+
+var headerWait = 30 * time.Second
+
+func httpClient(timeout time.Duration) *http.Client {
+	if timeout == 0 {
+		return &http.Client{Transport: watchTransport}
+	}
+	return &http.Client{Timeout: timeout}
+}
 
 // client calls the hub over HTTP with this host's token. On the hub, it
 // calls its own listener, so the hub's own traffic takes the same checks.

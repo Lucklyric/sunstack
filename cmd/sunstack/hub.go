@@ -4,6 +4,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -218,7 +219,13 @@ func hubCommand(rest []string, stdin io.Reader, stdout, stderr io.Writer) error 
 		case a.has("uninstall"):
 			return hub.Uninstall(stdout)
 		}
-		return hub.Connect(stderr)
+		err = hub.Connect(stderr)
+		if errors.Is(err, hub.ErrRevoked) {
+			// The service manager would start it again every 10 seconds, to
+			// be refused each time. As after org leave, the service goes.
+			hub.RetireService()
+		}
+		return err
 
 	}
 	return &core.Error{Code: core.ExitUsage, Reason: "usage", Msg: "unknown hub command " + sub + "\n" + hubUsage}

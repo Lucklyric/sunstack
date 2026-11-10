@@ -126,6 +126,26 @@ WantedBy=default.target
 	return nil
 }
 
+// RetireService removes the service from inside the connector it runs: the
+// file goes first, since unloading the service ends this process.
+func RetireService() {
+	path, err := ServiceFile()
+	if err != nil {
+		return
+	}
+	if _, err := os.Stat(path); err != nil {
+		return
+	}
+	if os.Remove(path) != nil || os.Getenv("SUNSTACK_HUB_NO_LOAD") != "" {
+		return
+	}
+	if runtime.GOOS == "darwin" {
+		_ = exec.Command("launchctl", "bootout", "gui/"+strconv.Itoa(os.Getuid())+"/"+serviceName).Run()
+	} else {
+		_ = exec.Command("systemctl", "--user", "disable", "--now", "sunstack-hub-connect.service").Run()
+	}
+}
+
 // Uninstall stops and removes the service.
 func Uninstall(out io.Writer) error {
 	path, err := ServiceFile()
