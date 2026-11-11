@@ -182,3 +182,40 @@ func TestRenameKeepsTasksClosable(t *testing.T) {
 		}
 	}
 }
+
+// An empty header block is no header: setHeader refuses it without a panic,
+// and requeue moves the file back as it is (review of 2297a9d).
+func TestSetHeaderEmptyBlock(t *testing.T) {
+	p := secTeam(t)
+	for _, body := range []string{"---\n---\ntext\n", "---\r\n---\r\ntext\r\n", "---\n", "---"} {
+		f := filepath.Join(t.TempDir(), "m.md")
+		os.WriteFile(f, []byte(body), 0o644)
+		if err := p.setHeader(f, "returned", "x"); err == nil {
+			t.Errorf("%q: rewritten", body)
+		}
+		if b, _ := os.ReadFile(f); string(b) != body {
+			t.Errorf("%q changed to %q", body, b)
+		}
+	}
+	taken := p.takenDir("builder.ann", "deadtoken")
+	os.MkdirAll(taken, 0o755)
+	os.WriteFile(filepath.Join(taken, "odd.md"), []byte("---\n---\ntext\n"), 0o644)
+	p.requeue("builder.ann", nil, nil)
+	if b, _ := os.ReadFile(filepath.Join(p.inboxDir("builder.ann"), "odd.md")); string(b) != "---\n---\ntext\n" {
+		t.Errorf("after requeue: %q", b)
+	}
+}
+
+// The same preset ID with the same --op and text is a retry, not a clash:
+// what a spawn tried again sends for its brief.
+func TestPresetIDRetryWithOp(t *testing.T) {
+	p := secTeam(t)
+	o := SendOptions{To: "builder.ann", Body: "brief", ID: "20260101T090000Z-hostb-user-ddddd0", Op: "sp0123", FromLabel: "hostb:user", FromHost: "hostb"}
+	if _, err := send185(t, p, o); err != nil {
+		t.Fatal(err)
+	}
+	r, err := send185(t, p, o)
+	if err != nil || r == nil || !strings.Contains(r.Note, "already sent") {
+		t.Errorf("retry: %+v, %v", r, err)
+	}
+}

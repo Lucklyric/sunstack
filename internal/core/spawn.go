@@ -1,6 +1,8 @@
 package core
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"os/exec"
@@ -181,6 +183,10 @@ func (p *Project) Spawn(o SpawnOptions) (*SpawnResult, error) {
 			// an ID the asking host sent (§25.5).
 			if IsMessageID(o.Request) {
 				so.ID = o.Request
+				// The same request tried again finds its brief already
+				// there, instead of being refused as a different message.
+				sum := sha256.Sum256([]byte(o.Request))
+				so.Op = "sp" + hex.EncodeToString(sum[:16])
 			}
 		}
 		if _, err := p.Send(so); err != nil {

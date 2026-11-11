@@ -705,11 +705,19 @@ func (p *Project) setHeader(path, key, value string) error {
 	if strings.HasPrefix(s, "---\r\n") {
 		nl = "\r\n"
 	}
-	end := strings.Index(s, nl+"---"+nl)
-	if !strings.HasPrefix(s, "---"+nl) || end < 0 {
+	open := "---" + nl
+	end := -1
+	if strings.HasPrefix(s, open) {
+		// As parseMessage reads it: the closing line comes after the opening
+		// one, never overlapping it (an empty block is no header).
+		if i := strings.Index(s[len(open):], nl+"---"+nl); i >= 0 {
+			end = len(open) + i
+		}
+	}
+	if end < 0 {
 		return fmt.Errorf("%s has no header", filepath.Base(path))
 	}
-	lines := strings.Split(s[len("---"+nl):end], nl)
+	lines := strings.Split(s[len(open):end], nl)
 	found := false
 	for i, l := range lines {
 		if k, _, ok := strings.Cut(l, ":"); ok && strings.TrimSpace(k) == key {

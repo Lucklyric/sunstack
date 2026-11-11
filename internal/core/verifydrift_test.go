@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -373,5 +374,28 @@ func TestSkillDataLinkEdges(t *testing.T) {
 		if got := SkillDataDir(root); got != filepath.Join(root, "sunstack") {
 			t.Errorf("%s: %q", data, got)
 		}
+	}
+}
+
+// A covers path is one spelling, with or without a leading ./, and a name
+// shasum would print escaped cannot be covered by a content hash.
+func TestCoverSpelling(t *testing.T) {
+	root := t.TempDir()
+	os.MkdirAll(filepath.Join(root, "src"), 0o755)
+	os.WriteFile(filepath.Join(root, "src", "a.go"), []byte("a\n"), 0o644)
+	sum, err := coverHash(root, []string{"src/"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeCheck(t, root, "s", "# s\n## Coverage\nsync: sha256:"+sum+"\ncovers: ./src/\n")
+	if got := VerifyDrift(root); len(got) != 0 {
+		t.Errorf("./src/ flagged: %+v", got)
+	}
+	if runtime.GOOS == "windows" {
+		return // no backslash in a file name there
+	}
+	os.WriteFile(filepath.Join(root, "src", `b\c`), []byte("b\n"), 0o644)
+	if _, err := coverHash(root, []string{"src/"}); err == nil || !strings.Contains(err.Error(), "commit marker") {
+		t.Errorf("a backslash name was hashed: %v", err)
 	}
 }

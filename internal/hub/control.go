@@ -358,9 +358,8 @@ func reply(req *Mail, to *Pin, kind string, res any, err error) {
 	// By the asking host's ID, never its name, which the hub controls.
 	s, qerr := queueTo(req.FromHost, to.Name, &Letter{From: "user", To: "host", Type: kind + "-reply", ReplyTo: req.ID, Body: string(body)}, false)
 	if qerr != nil {
-		// It ran; only the answer is lost. Not "running", or the next start
-		// reports it as cut short.
-		_ = setStatus(req.ID, "done", nil)
+		// It stays "running", so the next start still answers the asker
+		// (as uncertain); the lost reply is on record.
 		connIssue("reply", fmt.Sprintf("the reply to %s %s could not be queued: %v", kind, req.ID, qerr))
 		return
 	}

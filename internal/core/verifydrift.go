@@ -58,7 +58,14 @@ func readVerifyRecord(path string) (verifyRecord, bool) {
 			r.sync = strings.Trim(strings.TrimSpace(v), "`")
 		} else if v, ok := strings.CutPrefix(l, "covers:"); ok {
 			for _, c := range strings.Fields(v) {
-				r.covers = append(r.covers, strings.Trim(c, "`,"))
+				// One spelling: src/a.go, never ./src/a.go.
+				c = strings.Trim(c, "`,")
+				for strings.HasPrefix(c, "./") {
+					c = c[2:]
+				}
+				if c != "" {
+					r.covers = append(r.covers, c)
+				}
 			}
 		}
 	}
@@ -199,6 +206,11 @@ func coverHash(root string, covers []string) (string, error) {
 			}
 		}
 		for _, f := range files {
+			// shasum prints such a name escaped, so the recipe and this
+			// hash would never agree.
+			if strings.ContainsAny(f, "\\\n\r") {
+				return "", fmt.Errorf("%s has a backslash or line break in its name, which a content hash cannot cover (use a commit marker)", strings.NewReplacer("\n", " ", "\r", " ").Replace(f))
+			}
 			b, err := os.ReadFile(filepath.Join(root, f))
 			if err != nil {
 				return "", fmt.Errorf("%s unreadable, so unknown", f)
