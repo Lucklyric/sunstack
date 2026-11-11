@@ -231,8 +231,8 @@ func TestVerifyDriftFolder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := exec.LookPath("shasum"); err == nil {
-		// The skill's recipe for a folder.
+	if _, err := exec.LookPath("shasum"); err == nil && runtime.GOOS != "windows" {
+		// The skill's recipe for a folder (a POSIX shell pipeline).
 		cmd := exec.Command("sh", "-c", "{ find src -type f | LC_ALL=C sort; echo other.go; } | tr '\\n' '\\0' | xargs -0 shasum -a 256 | shasum -a 256")
 		cmd.Dir = root
 		out, err := cmd.Output()
