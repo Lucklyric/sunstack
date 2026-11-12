@@ -68,8 +68,11 @@ resume it. `sunstack team` shows the same per agent.
      (`sunstack prompts`); tell the user in one line. A `sunstack: waiting at ...` line names
      the pane and the screen; tell the user to answer it there.
      When it suggests `sunstack prompts`, tell the user once, plainly: for Codex, "Trust all"
-     trusts every current hook of every plugin, not only Sunstack's; for Claude, it answers
-     "Yes, I trust this folder" only in a team folder. To choose, the user runs
+     trusts every current hook of every plugin, not only Sunstack's, and with on it is picked
+     in every Codex pane in tmux that shows the review, also ones Sunstack did not start
+     (the hub connector looks every few seconds; `sunstack prompts sweep` looks now and lists
+     the panes that wait); for Claude, it answers
+     "Yes, I trust this folder" only in a team folder, in sessions Sunstack starts. To choose, the user runs
      `sunstack prompts --codex-hooks <on|off>` or `--claude-folders <on|off>` in their own
      terminal (on: answer it from now on, off: never); it is refused from this session.
    - A `warning:` line means the CLI was not seen running a few seconds after launch: it may

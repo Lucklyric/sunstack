@@ -2,10 +2,12 @@ package core
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 )
@@ -250,4 +252,55 @@ func selectAnswer(socket, pane string, ts trustScreen) bool {
 		time.Sleep(200 * time.Millisecond)
 	}
 	return false
+}
+
+// SweepHookReviews looks at every tmux pane on the default server and the
+// caller's for Codex's hook review, whoever started the session and however
+// long ago (§46.4), and answers it when the user chose on. It reads the
+// screen exactly as the watch at launch does, and returns one line per pane
+// it answered or left waiting. Only one sweep runs at a time on a host.
+func SweepHookReviews() []string {
+	var ts trustScreen
+	for _, t := range trustScreens {
+		if t.setting == "codex" {
+			ts = t
+		}
+	}
+	var panes []paneInfo
+	for _, p := range tmuxPanes() {
+		// Codex runs as node or under its own name; every other pane is
+		// skipped without reading its screen.
+		if c := strings.ToLower(p.cmd); c == "node" || strings.Contains(c, "codex") {
+			panes = append(panes, p)
+		}
+	}
+	if len(panes) == 0 {
+		return nil
+	}
+	sort.Slice(panes, func(i, j int) bool { return panes[i].id < panes[j].id })
+	unlock, err := LockDir(filepath.Join(Home(), "locks", "prompts-sweep"), "the hook review sweep")
+	if err != nil {
+		return nil
+	}
+	defer unlock()
+	on := LoadPrompts().CodexHooks == "on"
+	var lines []string
+	for _, p := range panes {
+		screen := paneScreen(p.socket, p.id)
+		if !strings.Contains(screen, ts.title) || ReadyForInput(ts.tool, screen) || !paneRunsTool(p.socket, p.id, ts.tool) {
+			continue
+		}
+		where := fmt.Sprintf("pane %s (%s)", p.id, p.where)
+		switch _, known := parseMenu(screen, ts); {
+		case !known:
+			lines = append(lines, where+" waits at what looks like "+ts.mark+", but the screen is not the known one; answer it there")
+		case !on:
+			lines = append(lines, where+" waits at "+ts.mark+": answer it there, or let sunstack answer it: sunstack prompts "+ts.flag+" on")
+		case selectAnswer(p.socket, p.id, ts):
+			lines = append(lines, where+": answered "+ts.mark+": "+ts.options[ts.answer])
+		default:
+			lines = append(lines, where+" waits at "+ts.mark+": the screen changed while answering; answer it there")
+		}
+	}
+	return lines
 }

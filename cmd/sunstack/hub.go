@@ -219,6 +219,7 @@ func hubCommand(rest []string, stdin io.Reader, stdout, stderr io.Writer) error 
 		case a.has("uninstall"):
 			return hub.Uninstall(stdout)
 		}
+		go sweepHookReviews(stderr)
 		err = hub.Connect(stderr)
 		if errors.Is(err, hub.ErrRevoked) {
 			// The service manager would start it again every 10 seconds, to
@@ -547,4 +548,22 @@ func sentText(all bool, typ string) string {
 		b.WriteString(line + "\n")
 	}
 	return b.String()
+}
+
+// sweepHookReviews answers Codex's hook review in any tmux pane, every few
+// seconds for as long as the connector runs, connected or not, once the
+// user chose on (§46.4). It logs a pane's line when it changes, not on
+// every pass.
+func sweepHookReviews(logw io.Writer) {
+	last := ""
+	for range time.Tick(5 * time.Second) {
+		if core.LoadPrompts().CodexHooks != "on" {
+			continue
+		}
+		lines := strings.Join(core.SweepHookReviews(), "\n")
+		if lines != "" && lines != last {
+			fmt.Fprintf(logw, "%s %s\n", time.Now().UTC().Format(time.RFC3339), strings.ReplaceAll(lines, "\n", "; "))
+		}
+		last = lines
+	}
 }

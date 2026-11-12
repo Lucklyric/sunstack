@@ -511,7 +511,7 @@ func oneLine(s string) string {
 	return ""
 }
 
-type paneInfo struct{ id, where, socket, label string }
+type paneInfo struct{ id, where, socket, label, cmd string }
 
 // tmuxPanes maps terminal names (ttys001, pts/3) to panes, on the default
 // tmux server and the caller's.
@@ -550,7 +550,7 @@ func tmuxPanes() map[string]paneInfo {
 		sockets = append(sockets, strings.SplitN(t, ",", 2)[0])
 	}
 	for _, sock := range sockets {
-		cmd, done := quick("tmux", TmuxArgs(sock, "list-panes", "-a", "-F", "#{pane_tty}\t#{pane_id}\t#{session_name}:#{window_index}.#{pane_index}\t#{@sunstack_label}")...)
+		cmd, done := quick("tmux", TmuxArgs(sock, "list-panes", "-a", "-F", "#{pane_tty}\t#{pane_id}\t#{session_name}:#{window_index}.#{pane_index}\t#{@sunstack_label}\t#{pane_current_command}")...)
 		defer done()
 		if sock == "" {
 			// The default server: inside another server, $TMUX would
@@ -579,11 +579,11 @@ func tmuxPanes() map[string]paneInfo {
 			}
 		}
 		for _, l := range strings.Split(string(b), "\n") {
-			f := strings.SplitN(l, "\t", 4)
-			if len(f) == 4 {
+			f := strings.SplitN(l, "\t", 5)
+			if len(f) == 5 {
 				tty := strings.TrimPrefix(f[0], "/dev/")
 				if _, seen := out[tty]; !seen {
-					out[tty] = paneInfo{f[1], f[2], sock, f[3]}
+					out[tty] = paneInfo{f[1], f[2], sock, f[3], f[4]}
 				}
 			}
 		}

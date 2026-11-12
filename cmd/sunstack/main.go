@@ -162,9 +162,12 @@ Org (every team and Claude Code or Codex session on this host):
                                                   start a session on another host that allows it (org allow), in its team's
                                                   tmux session; it asks first (or --yes), since it starts a paid session
   sunstack prompts [--codex-hooks on|off|ask] [--claude-folders on|off|ask]
-                                                  whether a session spawn or reopen starts may pass Codex's hook review
-                                                  ("Trust all") and Claude Code's folder trust check in a team folder;
+                                                  whether Codex's hook review ("Trust all") is answered, in any tmux pane,
+                                                  and Claude Code's folder trust check in a team folder, at spawn or reopen;
                                                   ask (the default) leaves them for you and says which pane; you set it
+  sunstack prompts sweep                          answer Codex's hook review in every tmux pane that shows it now, whoever
+                                                  started the session (only with --codex-hooks on; else it lists the panes);
+                                                  the hub connector does this every few seconds
   sunstack spawn --free [--tool claude|codex] [--name LABEL] [--note "..."] [--dir DIR | --beside SESSION] [--place P] [--over-cap]
                                                   start a plain session that holds no agent, placed as spawn is, working in the team
                                                   root, in DIR, or in the folder of another session; sunstack kill LABEL closes it
@@ -908,10 +911,24 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 		// one-time choice, shown with no options and set only by the user.
 		a, err := parse(rest, "codex-hooks claude-folders", "")
 		if err == nil {
-			err = a.atMost(0, "prompts")
+			err = a.atMost(1, "prompts")
 		}
 		if err != nil {
 			return err
+		}
+		if len(a.pos) == 1 {
+			// Every Codex pane at the hook review, answered if the user chose on (§46.4).
+			if a.pos[0] != "sweep" || len(a.flags) > 0 {
+				return &core.Error{Code: core.ExitUsage, Reason: "usage", Msg: "usage: sunstack prompts [sweep] | [--codex-hooks on|off|ask] [--claude-folders on|off|ask]"}
+			}
+			lines := core.SweepHookReviews()
+			if len(lines) == 0 {
+				fmt.Fprintln(stdout, "sunstack: no Codex session waits at the hook review")
+			}
+			for _, l := range lines {
+				fmt.Fprintln(stdout, l)
+			}
+			return nil
 		}
 		pr := core.LoadPrompts()
 		set := false
@@ -933,7 +950,7 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 				return err
 			}
 		}
-		fmt.Fprintf(stdout, "codex hooks: %s (Codex's hook review; on picks \"Trust all and continue\", which trusts every current hook of every plugin)\nclaude folders: %s (Claude Code's folder trust check in a team folder; on answers \"Yes, I trust this folder\")\n", pr.CodexHooks, pr.ClaudeFolders)
+		fmt.Fprintf(stdout, "codex hooks: %s (Codex's hook review; on picks \"Trust all and continue\" in every Codex pane in tmux, which trusts every current hook of every plugin)\nclaude folders: %s (Claude Code's folder trust check in a team folder; on answers \"Yes, I trust this folder\")\n", pr.CodexHooks, pr.ClaudeFolders)
 		return nil
 
 	case "halt":

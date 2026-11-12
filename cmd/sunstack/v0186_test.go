@@ -101,3 +101,56 @@ func TestSpawnTitlesClaude(t *testing.T) {
 		t.Errorf("--name on %v, want reviewer_tests and review only", named)
 	}
 }
+
+// Codex's hook review is answered in any pane, also one sunstack did not
+// start and long after it started, and only on the exact known screen.
+func TestSweepHookReviews(t *testing.T) {
+	for _, c := range []struct {
+		mode  string
+		known bool
+	}{{"codexhooks", true}, {"unsafelabel", false}} {
+		t.Run(c.mode, func(t *testing.T) {
+			p := fixture(t)
+			s := privateTmux(t, p, isolatedEnv(t))
+			s.tmux(t, "send-keys", "-t", s.pane, "-l", "SUNSTACK_TEST_MODE="+c.mode+" codex")
+			s.tmux(t, "send-keys", "-t", s.pane, "Enter")
+			eventually(t, "the hook review", func() bool {
+				return strings.Contains(s.tmux(t, "capture-pane", "-p", "-t", s.pane), "enter confirm")
+			})
+			r := sh(t, p, s.env, "prompts", "sweep")
+			expect(t, r, 0, "sweep before consent")
+			if c.known {
+				requireContains(t, r.out, "pane "+s.pane, "waits at Codex's hook review", "sunstack prompts --codex-hooks on")
+			} else {
+				requireContains(t, r.out, "not the known one")
+			}
+			expect(t, sh(t, p, s.env, "prompts", "--codex-hooks", "on"), 0, "consent")
+			r = sh(t, p, s.env, "prompts", "sweep")
+			expect(t, r, 0, "sweep")
+			got := choices174(t, s.env)
+			if !c.known {
+				requireContains(t, r.out, "not the known one")
+				if len(got) != 0 {
+					t.Errorf("answered an unknown screen: %v", got)
+				}
+				return
+			}
+			requireContains(t, r.out, "answered Codex's hook review: Trust all and continue")
+			eventually(t, "the answer", func() bool { return len(choices174(t, s.env)) == 1 })
+			if got = choices174(t, s.env); got[0] != "Trust all and continue" {
+				t.Errorf("choices %v", got)
+			}
+			requireContains(t, sh(t, p, s.env, "prompts", "sweep").out, "no Codex session waits")
+		})
+	}
+	// A pane that only shows the words is left alone.
+	p := fixture(t)
+	s := privateTmux(t, p, isolatedEnv(t))
+	expect(t, sh(t, p, s.env, "prompts", "--codex-hooks", "on"), 0, "consent")
+	s.tmux(t, "send-keys", "-t", s.pane, "-l", "printf 'Hooks need review\\n'; exec cat")
+	s.tmux(t, "send-keys", "-t", s.pane, "Enter")
+	eventually(t, "the words", func() bool {
+		return strings.Contains(s.tmux(t, "capture-pane", "-p", "-t", s.pane), "\nHooks need review")
+	})
+	requireContains(t, sh(t, p, s.env, "prompts", "sweep").out, "no Codex session waits")
+}
