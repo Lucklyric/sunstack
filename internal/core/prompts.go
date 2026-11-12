@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -244,9 +243,11 @@ func selectAnswer(socket, pane string, ts trustScreen) bool {
 			if again, ok := parseMenu(paneScreen(socket, pane), ts); !ok || again != ts.answer {
 				return false
 			}
-			return exec.Command("tmux", TmuxArgs(socket, "send-keys", "-t", pane, "Enter")...).Run() == nil
+			// Bounded: a stuck tmux must not hold the sweep's lock (§46.4).
+			_, err := quickTmux(socket, "send-keys", "-t", pane, "Enter")
+			return err == nil
 		}
-		if exec.Command("tmux", TmuxArgs(socket, "send-keys", "-t", pane, "Down")...).Run() != nil {
+		if _, err := quickTmux(socket, "send-keys", "-t", pane, "Down"); err != nil {
 			return false
 		}
 		time.Sleep(200 * time.Millisecond)

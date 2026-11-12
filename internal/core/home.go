@@ -212,6 +212,11 @@ func FindAttach(p *Project, t string) (*AttachPlace, error) {
 	case p != nil && !IsSessionID(t) && !strings.HasPrefix(t, "%"):
 		id, c, err := p.target(t)
 		if err != nil {
+			// A session sunstack did not start, named with sunstack name (§46.1).
+			if named := panesByLabel(t); len(named) == 1 {
+				at.Socket, at.Pane = named[0].socket, named[0].id
+				break
+			}
 			return nil, err
 		}
 		if c.TmuxPane == "" || c.TmuxSocket == "" || paneGone(c) {

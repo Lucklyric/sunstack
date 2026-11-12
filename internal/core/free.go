@@ -146,18 +146,34 @@ func SpawnFree(o FreeOptions) (*FreeResult, error) {
 			return nil, err
 		}
 	}
+	// Names are given under one lock, shared with sunstack name (§46.1).
+	names, err := lockNames()
+	if err != nil {
+		unlock()
+		return nil, err
+	}
+	inner := unlock
+	unlock = func() { names(); inner() }
 	defer func() { unlock() }() // the current value: the success path releases early
 	taken := map[string]bool{}
-	ps, _ := freePanes()
+	ps, sock := freePanes()
 	for _, fp := range ps {
 		if fp.scope == scope {
 			taken[fp.label] = true
 		}
 	}
+	// A session sunstack did not start that was given a name holds it too.
+	if out, err := quickTmux(sock, "list-panes", "-a", "-F", "#{@sunstack_launch}\t#{@sunstack_label}"); err == nil {
+		for _, l := range strings.Split(string(out), "\n") {
+			if f := strings.Split(l, "\t"); len(f) == 2 && f[0] == "" && f[1] != "" {
+				taken[f[1]] = true
+			}
+		}
+	}
 	label := o.Name
 	switch {
 	case label != "" && taken[label]:
-		return nil, fail(ExitClaim, "label_taken", "a free session called %s is already open here; pick another --name", label)
+		return nil, fail(ExitClaim, "label_taken", "a session called %s is already open here; pick another --name", label)
 	case label == "":
 		for n := 1; label == "" || taken[label]; n++ {
 			label = fmt.Sprintf("%s-%d", o.Tool, n)

@@ -1,8 +1,27 @@
 package core
 
 import (
+	"path/filepath"
 	"strings"
 )
+
+// lockNames is the host lock under which a session name is checked and
+// given, by sunstack name and by spawn --free, so two never get the same.
+func lockNames() (func(), error) {
+	return LockDir(filepath.Join(Home(), "locks", "names"), "session names")
+}
+
+// panesByLabel are the panes whose @sunstack_label is label, on the default
+// tmux server and the caller's.
+func panesByLabel(label string) []paneInfo {
+	var out []paneInfo
+	for _, p := range tmuxPanes() {
+		if p.label == label {
+			out = append(out, p)
+		}
+	}
+	return out
+}
 
 // Naming a session (§46). Every session in a tmux pane can carry a Sunstack
 // name: an agent session's is <id>_<task>, any other session's is the pane's
@@ -66,6 +85,11 @@ func NameSession(p *Project, o NameOptions) (*NameResult, error) {
 	if !labelRe.MatchString(o.Name) {
 		return nil, fail(ExitUsage, "usage", "invalid name %q: lowercase letters, digits and -, 1 to 20 characters", o.Name)
 	}
+	unlock, err := lockNames()
+	if err != nil {
+		return nil, err
+	}
+	defer unlock()
 	out, err := quickTmux(socket, "list-panes", "-a", "-F", "#{pane_id}\t#{@sunstack}\t#{@sunstack_scope}\t#{@sunstack_label}")
 	if err != nil {
 		return nil, fail(ExitFail, "tmux", "could not read the tmux panes: %v", err)

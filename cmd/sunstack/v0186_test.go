@@ -33,6 +33,14 @@ func TestNamePlainSession(t *testing.T) {
 		t.Errorf("clean lists a session sunstack did not start: %s", out)
 	}
 
+	// The name finds the session in a team too, and a free session cannot take it.
+	expect(t, sh(t, p, s.env, "name", "auth", "login"), 0, "name by the session's name")
+	if got := opt(s.pane, "@sunstack_label"); got != "login" {
+		t.Errorf("label %q", got)
+	}
+	expect(t, sh(t, p, s.env, "name", "login", "auth"), 0, "and back")
+	expect(t, sh(t, p, s.env, "spawn", "--place", "here", "--free", "--tool", "codex", "--name", "auth"), 4, "a free session with a taken name")
+
 	// A free session, named from another pane; two sessions never share a name.
 	r = sh(t, p, s.env, "spawn", "--place", "here", "--free", "--tool", "codex", "--name", "review")
 	expect(t, r, 0, "free session")
