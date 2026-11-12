@@ -342,7 +342,7 @@ func TestDriveLostEnter(t *testing.T) {
 	old := time.Now()
 	r := sh(t, p, s.env, "drive", w, "hello")
 	expect(t, r, 5, "a lost Enter")
-	requireContains(t, r.stderr, "unconfirmed", "still in the input box", "do not drive the same prompt again")
+	requireContains(t, r.stderr, "unconfirmed", "shows in the input box", "may already have been sent", "before anything is sent again")
 	if time.Since(old) > 45*time.Second {
 		t.Errorf("took %s", time.Since(old))
 	}
@@ -366,5 +366,18 @@ func TestDriveKeepsShortDraft(t *testing.T) {
 		if tr, _ := os.ReadFile(b[0]); strings.Contains(string(tr), "task_started") {
 			t.Errorf("a turn began: %s", tr)
 		}
+	}
+}
+
+// The automatic /rename never types into a draft.
+func TestSpawnFreeRenameKeepsDraft(t *testing.T) {
+	p := fixture(t)
+	s := privateTmux(t, p, append(isolatedEnv(t), "SUNSTACK_TEST_DRIVE=1", "SUNSTACK_TEST_MODE=draft"))
+	r := sh(t, p, s.env, "spawn", "--place", "here", "--free", "--tool", "codex", "--name", "review")
+	expect(t, r, 0, "spawn")
+	pane := field(paneRe, r.out)
+	screen := s.tmux(t, "capture-pane", "-p", "-t", pane)
+	if !strings.Contains(screen, "› my unsent draft") || strings.Contains(screen, "· review") {
+		t.Errorf("the draft changed or the rename was typed into it: %q", screen)
 	}
 }

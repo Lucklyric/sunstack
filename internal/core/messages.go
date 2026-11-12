@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 )
 
 // Messages (design §5, §8): one file per message in _local/inbox/<id>/.
@@ -581,6 +582,86 @@ func ReadyForInput(tool, screen string) bool {
 	return ok
 }
 
+// boxEmpty reports whether the CLI's input box holds nothing typed. Both
+// CLIs show a hint there when it is empty ("Ask Codex to do anything", "Try
+// ..."), drawn dim; typed text is not. known is false when the screen could
+// not be read with its colors, or has no input box.
+func boxEmpty(socket, pane, tool string) (empty, known bool) {
+	cmd, done := quick("tmux", TmuxArgs(socket, "capture-pane", "-e", "-p", "-t", pane)...)
+	defer done()
+	out, err := cmd.Output()
+	if err != nil {
+		return false, false
+	}
+	mark := "›"
+	if tool == "claude" {
+		mark = "❯"
+	}
+	lines := strings.Split(strings.ReplaceAll(string(out), "\r", ""), "\n")
+	start := -1
+	for i := len(lines) - 1; i >= 0; i-- {
+		if strings.HasPrefix(strings.TrimSpace(sgrRe.ReplaceAllString(lines[i], "")), mark) {
+			start = i
+			break
+		}
+	}
+	if start < 0 {
+		return false, false
+	}
+	typed := ""
+	for i := start; i < len(lines); i++ {
+		plain := strings.TrimSpace(sgrRe.ReplaceAllString(lines[i], ""))
+		if i > start && (plain == "" || strings.HasPrefix(plain, "───") || strings.HasSuffix(plain, "───")) {
+			break // the end of the box
+		}
+		t := undimmed(lines[i])
+		if i == start {
+			t = strings.TrimPrefix(strings.TrimSpace(t), mark)
+		}
+		typed += t
+	}
+	return strings.TrimFunc(typed, func(r rune) bool { return unicode.IsSpace(r) || r == '\u00a0' }) == "", true
+}
+
+var sgrRe = regexp.MustCompile("\x1b\\[[0-9;:]*m")
+
+// undimmed is a line's text that is not drawn dim (SGR 2).
+func undimmed(line string) string {
+	var b strings.Builder
+	dim := false
+	for line != "" {
+		loc := sgrRe.FindStringIndex(line)
+		if loc == nil {
+			if !dim {
+				b.WriteString(line)
+			}
+			break
+		}
+		if !dim {
+			b.WriteString(line[:loc[0]])
+		}
+		params := strings.TrimSuffix(strings.TrimPrefix(line[loc[0]:loc[1]], "\x1b["), "m")
+		ps := strings.Split(strings.ReplaceAll(params, ":", ";"), ";")
+		for i := 0; i < len(ps); i++ {
+			switch ps[i] {
+			case "", "0", "22":
+				dim = false
+			case "2":
+				dim = true
+			case "38", "48", "58":
+				// A color's arguments: 5;n or 2;r;g;b, not attributes.
+				if i+1 < len(ps) && ps[i+1] == "5" {
+					i += 2
+				} else if i+1 < len(ps) && ps[i+1] == "2" {
+					i += 4
+				}
+			}
+		}
+		line = line[loc[1]:]
+	}
+	return b.String()
+}
+
 // paneTokenRe finds a claim token on a pane: a spawned session's first prompt
 // holds "--token <hex>".
 var paneTokenRe = regexp.MustCompile(`(--token[ =])[0-9A-Za-z]+`)
@@ -607,6 +688,10 @@ func typeInto(socket, pane, tool, text string) error {
 	if !ReadyForInput(tool, paneScreen(socket, pane)) {
 		return fmt.Errorf("the session is showing a prompt or menu")
 	}
+	// Typing into a draft is never done: what is there is the user's.
+	if empty, known := boxEmpty(socket, pane, tool); !empty || !known {
+		return fmt.Errorf("the input box holds a draft, or could not be read; it was left as it was")
+	}
 	if err := exec.Command("tmux", TmuxArgs(socket, "send-keys", "-t", pane, "-l", text)...).Run(); err != nil {
 		return err
 	}
@@ -617,9 +702,14 @@ func typeInto(socket, pane, tool, text string) error {
 		return fmt.Errorf("a prompt or menu appeared while typing; Enter was not pressed")
 	}
 	if got != text {
-		n := fmt.Sprint(len([]rune(text)))
-		exec.Command("tmux", TmuxArgs(socket, "send-keys", "-t", pane, "-N", n, "BSpace")...).Run()
-		return fmt.Errorf("the input box held a draft; it was left as it was")
+		// The box was empty: what is there now is a part of this text, and
+		// only that is taken back.
+		if strings.HasPrefix(text, got) {
+			n := fmt.Sprint(len([]rune(got)))
+			exec.Command("tmux", TmuxArgs(socket, "send-keys", "-t", pane, "-N", n, "BSpace")...).Run()
+			return fmt.Errorf("not all of the text arrived; it was taken back")
+		}
+		return fmt.Errorf("the input box holds other text; it was left as it is")
 	}
 	return exec.Command("tmux", TmuxArgs(socket, "send-keys", "-t", pane, "Enter")...).Run()
 }

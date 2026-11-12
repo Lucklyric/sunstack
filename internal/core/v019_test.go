@@ -2,6 +2,8 @@ package core
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -115,5 +117,57 @@ func TestLeadingSpace(t *testing.T) {
 	}
 	if !leadingSpace("claude", "───\n❯   hi\n───\n") || leadingSpace("claude", "───\n❯ hi\n───\n") {
 		t.Error("claude")
+	}
+}
+
+func TestTranscriptExactPrompt(t *testing.T) {
+	now := time.Now()
+	for _, tool := range []string{"codex", "claude"} {
+		tr := &transcript{tool: tool, since: now, expect: squash("delete foo"), pin: true}
+		if tool == "codex" {
+			rec(t, tr, now.Add(time.Second), codexEv("task_started", "a", nil))
+			rec(t, tr, now.Add(time.Second), codexUser("do not delete foo"))
+		} else {
+			rec(t, tr, now.Add(time.Second), claudeUser("do not delete foo"))
+		}
+		if tr.matched {
+			t.Errorf("%s: another prompt that holds it was taken as ours", tool)
+		}
+	}
+}
+
+// A turn that is not ours ends; ours comes after it and is still found.
+func TestTranscriptPastOtherTurn(t *testing.T) {
+	now := time.Now()
+	path := filepath.Join(t.TempDir(), "rollout.jsonl")
+	var lines []string
+	for _, m := range []map[string]any{
+		codexEv("task_started", "other", nil), codexUser("queued earlier"), codexEv("task_complete", "other", map[string]any{"last_agent_message": "not this"}),
+		codexEv("task_started", "ours", nil), codexUser("hello"), codexEv("task_complete", "ours", map[string]any{"last_agent_message": "the answer"}),
+	} {
+		m["timestamp"] = now.Add(time.Second).UTC().Format(time.RFC3339Nano)
+		b, _ := json.Marshal(m)
+		lines = append(lines, string(b))
+	}
+	if err := os.WriteFile(path, []byte(strings.Join(lines, "\n")+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	tr := &transcript{tool: "codex", path: path, since: now, expect: "hello", pin: true}
+	tr.poll()
+	if !tr.matched || !tr.ended || strings.Join(tr.reply, "") != "the answer" {
+		t.Fatalf("%+v", tr.turn)
+	}
+}
+
+func TestUndimmed(t *testing.T) {
+	for in, want := range map[string]string{
+		"\x1b[1m›\x1b[0m\x1b[48;2;30;30;30m \x1b[2mAsk Codex to do anything\x1b[0m\x1b[48;2;30;30;30m": "› ",
+		"\x1b[39m❯ \x1b[2mTry \"fix typecheck errors\"\x1b[0m":                                         "❯ ",
+		"\x1b[1m›\x1b[0m\x1b[48;2;30;30;30m xy":                                                        "› xy",
+		"\x1b[2mdim\x1b[22m plain":                                                                     " plain",
+	} {
+		if got := undimmed(in); got != want {
+			t.Errorf("undimmed(%q) = %q, want %q", in, got, want)
+		}
 	}
 }

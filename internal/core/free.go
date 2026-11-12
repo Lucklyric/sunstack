@@ -417,8 +417,8 @@ func renameCodex(socket, pane, label string) {
 	for end := time.Now().Add(10 * time.Second); time.Now().Before(end); time.Sleep(300 * time.Millisecond) {
 		screen := paneScreen(socket, pane)
 		if CLIReady("codex", screen) {
-			// typeInto leaves a draft alone and presses Enter only on
-			// exactly this line.
+			// typeInto types only into an empty box and presses Enter only
+			// on exactly this line.
 			typeInto(socket, pane, "codex", "/rename "+label)
 			return
 		}

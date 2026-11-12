@@ -202,7 +202,7 @@ func (t *transcript) poll() {
 		return
 	}
 	r := bufio.NewReaderSize(f, 1<<16)
-	for !(t.pin && t.ended) {
+	for !(t.pin && t.ended && t.matched) {
 		line, err := r.ReadBytes('\n')
 		if err != nil {
 			return // a line still being written is read at the next poll
@@ -259,7 +259,7 @@ func (t *transcript) record(line []byte) {
 		t.started, t.ended, t.matched, t.how, t.reply, t.turnID, t.msgID = true, false, t.expect == "", "", nil, "", ""
 	}
 	prompt := func(s string) {
-		if t.expect != "" && strings.Contains(squash(s), t.expect) {
+		if t.expect != "" && squash(s) == t.expect {
 			t.matched = true
 		}
 	}
@@ -677,6 +677,12 @@ func sendPrompt(socket, pane, tool, line, target string) (*transcript, string, e
 			return nil, note, fail(ExitClaim, "busy", "the session in pane %s is in a turn; wait for it (sunstack drive %s --wait) or stop it (--cancel)", pane, target)
 		}
 	}
+	// Only into an empty box: a draft is the user's (§47).
+	if empty, known := boxEmpty(socket, pane, tool); !known {
+		return nil, note, fail(ExitFail, "not_accepted", "could not read the input box of pane %s; nothing was sent", pane)
+	} else if !empty {
+		return nil, note, fail(ExitClaim, "draft", "the input box of pane %s holds a draft; it was left as it was and nothing was sent", pane)
+	}
 	// The line is typed, read back, and only then sent (as a nudge is).
 	want := squash(line)
 	if _, err := quickTmux(socket, "send-keys", "-t", pane, "-l", line); err != nil {
@@ -692,16 +698,17 @@ func sendPrompt(socket, pane, tool, line, target string) (*transcript, string, e
 	}
 	if !typed {
 		got, ok := inputText(tool, screen)
-		if ok && got != want && strings.HasSuffix(got, want) && boxReady(tool, screen) {
-			// The user's draft, then the line: only the line goes, the
-			// cursor being at its end.
+		if ok && got == want && boxReady(tool, screen) {
+			// Blank space was there before the line: the line is taken back.
 			quickTmux(socket, "send-keys", "-t", pane, "-N", fmt.Sprint(len([]rune(line))), "BSpace")
-			return nil, note, fail(ExitClaim, "draft", "the input box of pane %s held a draft; it was left as it was and nothing was sent", pane)
+			return nil, note, fail(ExitClaim, "draft", "the input box of pane %s held blank space, which may be a draft; it was left as it was and nothing was sent", pane)
 		}
-		if ok && got == want {
-			return nil, note, fail(ExitClaim, "draft", "the input box of pane %s held blank space before the prompt, so it may be a draft; nothing was sent and the box was left as it is", pane)
+		// The box was empty, so a part of the line in it is ours to take back.
+		if ok && got != "" && strings.HasPrefix(want, got) && boxReady(tool, screen) {
+			quickTmux(socket, "send-keys", "-t", pane, "-N", fmt.Sprint(len([]rune(line))), "BSpace")
+			return nil, note, fail(ExitFail, "not_accepted", "not all of the prompt arrived in the input box of pane %s; it was taken back and nothing was sent", pane)
 		}
-		return nil, note, fail(ExitFail, "not_accepted", "the input box of pane %s does not hold the prompt as typed (a menu or popup opened, or keys were lost); nothing was sent and the box was left as it is: sunstack peek %s shows the pane", pane, pane)
+		return nil, note, fail(ExitFail, "not_accepted", "the input box of pane %s does not hold the prompt as typed (a menu or popup opened, or the user typed too); nothing was sent and the box was left as it is: sunstack peek %s shows the pane", pane, pane)
 	}
 	// A menu that opened while typing would take the Enter.
 	if screen = paneScreen(socket, pane); !boxReady(tool, screen) {
@@ -742,7 +749,7 @@ func sendPrompt(socket, pane, tool, line, target string) (*transcript, string, e
 	}
 	// No proof either way: never reported as not sent, never sent again.
 	if got, ok := inputText(tool, paneScreen(socket, pane)); ok && got == want {
-		return nil, note, fail(ExitWait, "unconfirmed", "the prompt is still in the input box of pane %s and no turn began within %s; press Enter there or clear it, and do not drive the same prompt again: sunstack peek %s shows the pane", pane, driveAccept, pane)
+		return nil, note, fail(ExitWait, "unconfirmed", "no turn with the prompt was seen within %s and it shows in the input box of pane %s, but it may already have been sent; look at the session (sunstack peek %s) before anything is sent again", driveAccept, pane, pane)
 	}
 	if tr.path == "" {
 		return nil, note, fail(ExitWait, "unconfirmed", "the prompt left the input box of pane %s, but sunstack cannot find the session's transcript, so it cannot tell when the turn ends; it was probably sent, so do not send it again: sunstack peek %s shows the pane", pane, pane)

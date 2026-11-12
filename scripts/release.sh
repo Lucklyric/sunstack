@@ -40,10 +40,10 @@ step "nothing local in what goes out"
 # temp path, or a tool's session trailer. The patterns come from this
 # machine at run time, so the script itself names nothing.
 base=$(git rev-parse -q --verify refs/remotes/origin/main || git hash-object -t tree /dev/null)
-pat="$(printf '%s' "$HOME" | sed 's/[.[\*^$/]/\\&/g')|/private/""tmp/|/var/""folders/|/tmp/""claude-|Claude-""Session:|Co-Authored""-By:|Generated ""with"
+pat="$(printf '%s' "$HOME" | sed 's/[.[\*^$/]/\\&/g')|/private/""tmp/|/var/""folders/|/tmp/""|Claude-""Session:|Co-Authored""-By:|Generated ""with"
 host=$(hostname -s 2>/dev/null || true)
 [ ${#host} -ge 4 ] && pat="$pat|$host"
-outgoing=$(git diff "$base" HEAD && git log --format='%s%n%b' "$base..HEAD") || stop "could not read what would be pushed"
+outgoing=$(git diff "$base" HEAD | awk '/^[+]/ && !/^[+][+][+]/' && git log --format='%s%n%b' "$base..HEAD") || stop "could not read what would be pushed"
 # grep exits 1 for no match; anything else is a failed scan, which stops too.
 if leaks=$(printf '%s\n' "$outgoing" | grep -nE -- "$pat"); then
   printf '%s\n' "$leaks" | head -5 >&2 || true # head may close the pipe early
