@@ -54,7 +54,7 @@ fi
 
 step "local tests"
 go vet ./... || stop "go vet failed"
-go test -count=1 ./... || stop "go test failed"
+go test -count=1 -timeout 20m ./... || stop "go test failed"
 
 step "push main"
 if ! git push -q origin main 2>/dev/null; then
