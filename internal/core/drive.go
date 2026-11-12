@@ -12,6 +12,7 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"unicode"
 )
 
 // Driving a session (§47): hand a Claude Code or Codex session in a tmux
@@ -55,6 +56,9 @@ var (
 	driveSettle = 3 * time.Second
 	// driveMenu is how long a menu may show before a prompt is given up.
 	driveMenu = 10 * time.Second
+	// driveFooter is how long the input box may show without Codex's model
+	// footer before a custom status line is assumed.
+	driveFooter = 8 * time.Second
 )
 
 func driveDir() string { return filepath.Join(Home(), "drive") }
@@ -168,6 +172,8 @@ func onlyBlank(lines []string) bool {
 // turn is what a transcript says about its last turn.
 type turn struct {
 	started, ended bool
+	matched        bool   // the turn holds the prompt this drive sent
+	turnID, msgID  string // Codex's turn, Claude's last assistant message
 	how            string // done or interrupted, once ended
 	reply          []string
 	at             time.Time // when the last record was read
@@ -180,6 +186,8 @@ type transcript struct {
 	tool, path string
 	off        int64
 	since      time.Time // records before it are not this drive's
+	expect     string    // the typed line, spaces dropped: the prompt to find
+	pin        bool      // follow one turn: stop at its end, ignore later ones
 	turn
 }
 
@@ -194,7 +202,7 @@ func (t *transcript) poll() {
 		return
 	}
 	r := bufio.NewReaderSize(f, 1<<16)
-	for {
+	for !(t.pin && t.ended) {
 		line, err := r.ReadBytes('\n')
 		if err != nil {
 			return // a line still being written is read at the next poll
@@ -205,6 +213,12 @@ func (t *transcript) poll() {
 	}
 }
 
+// localRecord marks Claude Code user records that are no prompt: a local
+// command, its output, and notes the CLI adds.
+var localRecord = []string{"<command-name>", "<command-message>", "<command-args>", "<local-command-", "<bash-input>", "<bash-stdout>", "<bash-stderr>", "<task-notification>", "<system-reminder>"}
+
+func squash(s string) string { return strings.Join(strings.Fields(s), "") }
+
 func (t *transcript) record(line []byte) {
 	var e struct {
 		Type      string `json:"type"`
@@ -214,12 +228,15 @@ func (t *transcript) record(line []byte) {
 		Meta      bool   `json:"isMeta"`
 		Compact   bool   `json:"isCompactSummary"`
 		Message   struct {
+			ID      string          `json:"id"`
 			Role    string          `json:"role"`
 			Content json.RawMessage `json:"content"`
 		} `json:"message"`
 		Payload struct {
 			Type    string `json:"type"`
 			Role    string `json:"role"`
+			TurnID  string `json:"turn_id"`
+			Message string `json:"message"`
 			Last    string `json:"last_agent_message"`
 			Content []struct {
 				Type string `json:"type"`
@@ -237,7 +254,15 @@ func (t *transcript) record(line []byte) {
 	if !t.since.IsZero() && (terr != nil || at.Before(t.since)) {
 		return
 	}
-	begin := func() { t.started, t.ended, t.how, t.reply = true, false, "", nil }
+	held := t.pin && t.started && t.matched // a later prompt is not this turn
+	begin := func() {
+		t.started, t.ended, t.matched, t.how, t.reply, t.turnID, t.msgID = true, false, t.expect == "", "", nil, "", ""
+	}
+	prompt := func(s string) {
+		if t.expect != "" && strings.Contains(squash(s), t.expect) {
+			t.matched = true
+		}
+	}
 	end := func(how string) {
 		if t.started {
 			t.ended, t.how = true, how
@@ -249,17 +274,27 @@ func (t *transcript) record(line []byte) {
 		}
 	}
 	if t.tool == "codex" {
+		ours := e.Payload.TurnID == "" || t.turnID == "" || e.Payload.TurnID == t.turnID
 		switch {
 		case e.Type == "event_msg" && e.Payload.Type == "task_started":
-			begin()
-		case e.Type == "event_msg" && e.Payload.Type == "task_complete":
+			if !held {
+				begin()
+				t.turnID = e.Payload.TurnID
+			}
+		case e.Type == "event_msg" && e.Payload.Type == "user_message" && t.started && !held:
+			prompt(e.Payload.Message)
+		case e.Type == "response_item" && e.Payload.Type == "message" && e.Payload.Role == "user" && t.started && !held:
+			for _, c := range e.Payload.Content {
+				prompt(c.Text)
+			}
+		case e.Type == "event_msg" && e.Payload.Type == "task_complete" && ours:
 			if s := strings.TrimSpace(e.Payload.Last); s != "" {
 				t.reply = []string{s}
 			} else if n := len(t.reply); n > 1 {
 				t.reply = t.reply[n-1:] // the last message is the answer
 			}
 			end("done")
-		case e.Type == "event_msg" && e.Payload.Type == "turn_aborted":
+		case e.Type == "event_msg" && e.Payload.Type == "turn_aborted" && ours:
 			end("interrupted")
 		case e.Type == "response_item" && e.Payload.Type == "message" && e.Payload.Role == "assistant":
 			for _, c := range e.Payload.Content {
@@ -289,7 +324,7 @@ func (t *transcript) record(line []byte) {
 			}
 			if s == "" {
 				// A tool result: what Claude wrote before it was not the answer.
-				t.reply = nil
+				t.reply, t.msgID = nil, ""
 				return
 			}
 		}
@@ -299,10 +334,18 @@ func (t *transcript) record(line []byte) {
 		}
 		// A compaction summary, a local command and its output are user
 		// records too, and no turn follows them.
-		if e.Meta || e.Compact || strings.HasPrefix(strings.TrimSpace(s), "<") {
+		if e.Meta || e.Compact {
 			return
 		}
-		begin()
+		for _, l := range localRecord {
+			if strings.HasPrefix(strings.TrimSpace(s), l) {
+				return
+			}
+		}
+		if !held {
+			begin()
+			prompt(s)
+		}
 	case "assistant":
 		var parts []struct {
 			Type string `json:"type"`
@@ -310,9 +353,14 @@ func (t *transcript) record(line []byte) {
 		}
 		if json.Unmarshal(e.Message.Content, &parts) == nil {
 			for _, p := range parts {
-				if p.Type == "text" {
-					text(p.Text)
+				if p.Type != "text" {
+					continue
 				}
+				// The answer is the last message, not earlier commentary.
+				if e.Message.ID != t.msgID {
+					t.reply, t.msgID = nil, e.Message.ID
+				}
+				text(p.Text)
 			}
 		}
 	case "system":
@@ -478,6 +526,12 @@ func Drive(p *Project, o DriveOptions) (*DriveResult, error) {
 				res.Status = "idle"
 				return res, nil
 			}
+			// Esc at a menu or an approval prompt would answer it.
+			if screen := paneScreen(socket, pane); !ReadyForInput(tool, screen) && (hasDialog(screen) || hasMenu(screen)) {
+				e := fail(ExitWait, "blocked", "the session in pane %s waits at a menu or an approval prompt; answer it there", pane)
+				e.Stdout = maskTokens(strings.Join(screenTail(screen, 15), "\n")) + "\n"
+				return nil, e
+			}
 			if _, err := quickTmux(socket, "send-keys", "-t", pane, "Escape"); err != nil {
 				return nil, fail(ExitFail, "tmux", "could not reach pane %s: %v", pane, err)
 			}
@@ -491,6 +545,7 @@ func Drive(p *Project, o DriveOptions) (*DriveResult, error) {
 			res.Status, res.Reply = "idle", strings.Join(tr.reply, "\n\n")
 			return res, nil
 		}
+		tr.pin = true // this turn, not one started after it
 		return finish(res, tr, socket, pane, o.Target, timeout)
 	}
 
@@ -557,10 +612,11 @@ func lineStart(path string, off int64) int64 {
 func sendPrompt(socket, pane, tool, line, target string) (*transcript, string, error) {
 	note := ""
 	begin := time.Now()
-	var menu time.Time // since when a menu shows
+	var menu, ready time.Time // since when a menu, or the bare input box, shows
 	inTeam := false
 	if out, err := quickTmux(socket, "display-message", "-p", "-t", pane, "#{pane_current_path}"); err == nil {
-		inTeam = TeamOf(strings.TrimSpace(string(out)), IndexedProjects()) != nil
+		_, notTeam := FindProject(strings.TrimSpace(string(out))) // as spawn decides it
+		inTeam = notTeam == nil
 	}
 	for {
 		screen := paneScreen(socket, pane)
@@ -570,8 +626,18 @@ func sendPrompt(socket, pane, tool, line, target string) (*transcript, string, e
 			return nil, note, fail(ExitFail, "no_pane", "could not read tmux pane %s", pane)
 		case known && !runs && time.Since(begin) > 5*time.Second:
 			return nil, note, exitedErr(pane, tool)
+		case runs && CLIReady(tool, screen):
+		case runs && ReadyForInput(tool, screen) && !ready.IsZero() && time.Since(ready) > driveFooter:
+			// A status line set up without the model footer: go on.
 		case runs && ReadyForInput(tool, screen):
+			// Codex draws its input box before its hook review (§47.2).
+			if ready.IsZero() {
+				ready = time.Now()
+			}
+			time.Sleep(drivePoll)
+			continue
 		default:
+			ready = time.Time{}
 			if runs {
 				// A trust screen: answered when the user chose on (§37).
 				switch got := AnswerTrust(socket, pane, tool, inTeam, true); {
@@ -612,66 +678,141 @@ func sendPrompt(socket, pane, tool, line, target string) (*transcript, string, e
 		}
 	}
 	// The line is typed, read back, and only then sent (as a nudge is).
-	want := strings.Join(strings.Fields(line), "")
+	want := squash(line)
 	if _, err := quickTmux(socket, "send-keys", "-t", pane, "-l", line); err != nil {
 		return nil, note, fail(ExitFail, "tmux", "could not type into pane %s: %v", pane, err)
 	}
-	erase := func() {
-		quickTmux(socket, "send-keys", "-t", pane, "-N", fmt.Sprint(len([]rune(line))), "BSpace")
-	}
 	typed := false
+	var screen string
 	for i := 0; i < 10 && !typed; i++ {
 		time.Sleep(300 * time.Millisecond)
-		got, ok := inputText(tool, paneScreen(socket, pane))
-		typed = ok && got == want
+		screen = paneScreen(socket, pane)
+		got, ok := inputText(tool, screen)
+		typed = ok && got == want && !leadingSpace(tool, screen)
 	}
 	if !typed {
-		screen := paneScreen(socket, pane)
 		got, ok := inputText(tool, screen)
-		if ok && strings.HasSuffix(got, want) {
-			erase()
+		if ok && got != want && strings.HasSuffix(got, want) && boxReady(tool, screen) {
+			// The user's draft, then the line: only the line goes, the
+			// cursor being at its end.
+			quickTmux(socket, "send-keys", "-t", pane, "-N", fmt.Sprint(len([]rune(line))), "BSpace")
 			return nil, note, fail(ExitClaim, "draft", "the input box of pane %s held a draft; it was left as it was and nothing was sent", pane)
 		}
-		// Only what is surely ours is erased: a part of the line, alone.
-		if ok && got != "" && strings.HasPrefix(want, got) {
-			quickTmux(socket, "send-keys", "-t", pane, "-N", fmt.Sprint(len([]rune(line))), "BSpace")
-		} else if ok && got != "" {
-			return nil, note, fail(ExitFail, "not_accepted", "the input box of pane %s holds text sunstack did not type in full; it was left as it is and nothing was sent", pane)
+		if ok && got == want {
+			return nil, note, fail(ExitClaim, "draft", "the input box of pane %s held blank space before the prompt, so it may be a draft; nothing was sent and the box was left as it is", pane)
 		}
-		return nil, note, fail(ExitFail, "not_accepted", "the input box of pane %s did not take the prompt (a menu or popup opened, or keys were lost); nothing was sent", pane)
+		return nil, note, fail(ExitFail, "not_accepted", "the input box of pane %s does not hold the prompt as typed (a menu or popup opened, or keys were lost); nothing was sent and the box was left as it is: sunstack peek %s shows the pane", pane, pane)
 	}
-	since := time.Now().Add(-2 * time.Second)
+	// A menu that opened while typing would take the Enter.
+	if screen = paneScreen(socket, pane); !boxReady(tool, screen) {
+		e := fail(ExitWait, "blocked", "a menu or prompt opened in pane %s while typing; nothing was sent, and the prompt waits in the input box behind it", pane)
+		e.Stdout = maskTokens(strings.Join(screenTail(screen, 15), "\n")) + "\n"
+		return nil, note, e
+	}
+	// Only a turn that begins after Enter, and holds this prompt, counts.
+	tr.started, tr.ended, tr.matched, tr.how, tr.reply = false, false, false, "", nil
+	tr.since, tr.expect, tr.pin = time.Now(), want, true
 	if _, err := quickTmux(socket, "send-keys", "-t", pane, "Enter"); err != nil {
-		erase()
 		return nil, note, fail(ExitFail, "tmux", "could not press Enter in pane %s: %v", pane, err)
 	}
-	// Accepted: the transcript shows a turn that began after Enter.
-	tr.started, tr.ended, tr.how, tr.reply, tr.since = false, false, "", nil, since
-	again := false
 	for sent := time.Now(); time.Since(sent) < driveAccept; time.Sleep(drivePoll) {
+		// A trust screen that came up over the prompt: the prompt may wait
+		// behind it, so it is answered as the user chose, never resent.
+		if screen := paneScreen(socket, pane); trustTitle(tool, screen) {
+			got := AnswerTrust(socket, pane, tool, inTeam, true)
+			if !strings.HasPrefix(got, "answered") {
+				if got == "" {
+					got = "showing a trust screen"
+				}
+				e := fail(ExitWait, "blocked", "the session in pane %s is %s; the prompt may be waiting behind it, so do not send it again: once it is answered, sunstack drive %s --wait", pane, got, target)
+				e.Stdout = maskTokens(strings.Join(screenTail(screen, 15), "\n")) + "\n"
+				return nil, note, e
+			}
+			note, sent = got, time.Now()
+		}
 		if tr.path == "" {
 			// A new session's transcript starts with its first prompt.
 			tr.path = paneTranscript(socket, pane, tool)
 		}
 		if tr.path != "" {
-			if tr.poll(); tr.started {
+			if tr.poll(); tr.started && tr.matched {
 				return tr, note, nil
 			}
 		}
-		// Enter can be lost while the CLI is still loading: once more.
-		if got, ok := inputText(tool, paneScreen(socket, pane)); ok && got == want && !again && time.Since(sent) > 2*time.Second {
-			again = true
-			quickTmux(socket, "send-keys", "-t", pane, "Enter")
-		}
 	}
+	// No proof either way: never reported as not sent, never sent again.
 	if got, ok := inputText(tool, paneScreen(socket, pane)); ok && got == want {
-		erase()
-		return nil, note, fail(ExitFail, "not_accepted", "pane %s did not take Enter; the prompt was erased and nothing was sent", pane)
+		return nil, note, fail(ExitWait, "unconfirmed", "the prompt is still in the input box of pane %s and no turn began within %s; press Enter there or clear it, and do not drive the same prompt again: sunstack peek %s shows the pane", pane, driveAccept, pane)
 	}
 	if tr.path == "" {
 		return nil, note, fail(ExitWait, "unconfirmed", "the prompt left the input box of pane %s, but sunstack cannot find the session's transcript, so it cannot tell when the turn ends; it was probably sent, so do not send it again: sunstack peek %s shows the pane", pane, pane)
 	}
-	return nil, note, fail(ExitWait, "unconfirmed", "the prompt left the input box of pane %s, but its transcript shows no new turn after %s; it was probably sent, so do not send it again: sunstack peek %s shows the pane", pane, driveAccept, pane)
+	return nil, note, fail(ExitWait, "unconfirmed", "the prompt left the input box of pane %s, but its transcript shows no turn with it after %s; it was probably sent, so do not send it again: sunstack peek %s shows the pane", pane, driveAccept, pane)
+}
+
+// boxReady is ReadyForInput for an input box holding a line drive typed,
+// which may wrap: no menu or approval prompt, and the box is there.
+func boxReady(tool, screen string) bool {
+	if hasDialog(screen) || hasMenu(screen) {
+		return false
+	}
+	_, ok := inputText(tool, screen)
+	return ok
+}
+
+// leadingSpace reports blank space typed before the text in the input box:
+// a draft of spaces, which dropping spaces to compare would hide.
+func leadingSpace(tool, screen string) bool {
+	mark := "›"
+	if tool == "claude" {
+		mark = "❯"
+	}
+	for _, l := range screenTail(screen, 15) {
+		t := strings.TrimLeft(l, " ")
+		if !strings.HasPrefix(t, mark) {
+			continue
+		}
+		r := []rune(strings.TrimPrefix(t, mark))
+		return len(r) > 1 && unicode.IsSpace(r[0]) && unicode.IsSpace(r[1])
+	}
+	return false
+}
+
+// CLIReady reports whether the CLI shows its input box and is done
+// starting: for Codex, also its model footer ("<model> · <folder>"), which it
+// draws only after the hook review it may show at start (§47.2).
+func CLIReady(tool, screen string) bool {
+	if !ReadyForInput(tool, screen) {
+		return false
+	}
+	if tool != "codex" {
+		return true
+	}
+	tail := screenTail(screen, 15)
+	box := -1
+	for i, l := range tail {
+		if strings.HasPrefix(strings.TrimSpace(l), "›") {
+			box = i
+		}
+	}
+	for _, l := range tail[box+1:] {
+		if codexFooter.MatchString(l) {
+			return true
+		}
+	}
+	return false
+}
+
+var codexFooter = regexp.MustCompile(`^\s*[^\s·›].* · \S`)
+
+// trustTitle reports whether a known trust screen's title shows.
+func trustTitle(tool, screen string) bool {
+	for _, ts := range trustScreens {
+		if ts.tool == tool && strings.Contains(screen, ts.title) {
+			return true
+		}
+	}
+	return false
 }
 
 // follow reads the transcript until the turn ends. It gives up when the

@@ -241,6 +241,9 @@ func SpawnFree(o FreeOptions) (*FreeResult, error) {
 	}
 	_, notTeam := FindProject(cwd)
 	prompt := AnswerTrust(h.socket, h.pane, o.Tool, notTeam == nil, running)
+	if running && o.Tool == "codex" && o.Note == "" {
+		renameCodex(h.socket, h.pane, label)
+	}
 	return &FreeResult{Label: label, Tool: o.Tool, Pane: h.pane, Home: h.at, Cwd: cwd, Running: running, Window: window, Prompt: prompt}, nil
 }
 
@@ -390,7 +393,7 @@ func modelFlags(tool, model, effort string) string {
 	out := ""
 	if tool == "codex" {
 		if model != "" {
-			out += " -m " + model
+			out += " -m '" + model + "'"
 		}
 		if effort != "" {
 			out += " -c model_reasoning_effort=" + effort
@@ -398,10 +401,29 @@ func modelFlags(tool, model, effort string) string {
 		return out
 	}
 	if model != "" {
-		out += " --model " + model
+		out += " --model '" + model + "'"
 	}
 	if effort != "" {
 		out += " --effort " + effort
 	}
 	return out
+}
+
+// renameCodex titles a new Codex session with its label (§47): Codex has no
+// option for it at launch, and takes /rename before the first prompt. It
+// waits for Codex to finish starting, and gives up quietly: the title is a
+// convenience, and sunstack next says when one is missing.
+func renameCodex(socket, pane, label string) {
+	for end := time.Now().Add(10 * time.Second); time.Now().Before(end); time.Sleep(300 * time.Millisecond) {
+		screen := paneScreen(socket, pane)
+		if CLIReady("codex", screen) {
+			// typeInto leaves a draft alone and presses Enter only on
+			// exactly this line.
+			typeInto(socket, pane, "codex", "/rename "+label)
+			return
+		}
+		if !ReadyForInput("codex", screen) && (hasDialog(screen) || hasMenu(screen)) {
+			return // a screen for the user
+		}
+	}
 }

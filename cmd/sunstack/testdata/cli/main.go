@@ -202,6 +202,9 @@ type driver struct {
 	abort    chan struct{}
 	dropped  bool
 	turn     time.Duration
+	turns    int
+	starting bool   // Codex: the hook review is still to come
+	title    string // set by /rename
 }
 
 var driveFile = regexp.MustCompile(`(?:@|file )(/\S+\.md)`)
@@ -294,8 +297,12 @@ func (d *driver) submit(prompt string, redraw func()) {
 	}
 	d.busy, d.abort = true, make(chan struct{})
 	d.status("busy")
+	d.turns++
+	tid := fmt.Sprintf("turn-%d", d.turns)
 	if d.tool == "codex" {
-		d.emit(map[string]any{"type": "event_msg", "payload": map[string]any{"type": "task_started"}})
+		// As Codex writes it: the turn, then the prompt as a user message.
+		d.emit(map[string]any{"type": "event_msg", "payload": map[string]any{"type": "task_started", "turn_id": tid}})
+		d.emit(map[string]any{"type": "response_item", "payload": map[string]any{"type": "message", "role": "user", "content": []map[string]any{{"type": "input_text", "text": prompt}}}})
 	} else {
 		d.emit(map[string]any{"type": "user", "message": map[string]any{"role": "user", "content": prompt}})
 	}
@@ -305,7 +312,7 @@ func (d *driver) submit(prompt string, redraw func()) {
 		case <-abort:
 			d.mu.Lock()
 			if d.tool == "codex" {
-				d.emit(map[string]any{"type": "event_msg", "payload": map[string]any{"type": "turn_aborted"}})
+				d.emit(map[string]any{"type": "event_msg", "payload": map[string]any{"type": "turn_aborted", "turn_id": tid}})
 			} else {
 				d.emit(msg("user", "[Request interrupted by user]"))
 			}
@@ -322,7 +329,7 @@ func (d *driver) submit(prompt string, redraw func()) {
 				for _, t := range []string{"working on it", reply} {
 					d.emit(map[string]any{"type": "response_item", "payload": map[string]any{"type": "message", "role": "assistant", "content": []map[string]any{{"type": "output_text", "text": t}}}})
 				}
-				d.emit(map[string]any{"type": "event_msg", "payload": map[string]any{"type": "task_complete", "last_agent_message": reply}})
+				d.emit(map[string]any{"type": "event_msg", "payload": map[string]any{"type": "task_complete", "turn_id": tid, "last_agent_message": reply}})
 			} else {
 				d.emit(msg("assistant", "let me look"))
 				d.emit(map[string]any{"type": "user", "message": map[string]any{"role": "user", "content": []map[string]any{{"type": "tool_result", "content": "ok"}}}})
@@ -486,14 +493,32 @@ func interactive(tool string, args []string) {
 		}
 		if tool == "claude" {
 			fmt.Printf("Test Claude\r\n──────────────────────────────\r\n❯ %s\r\n──────────────────────────────\r\n  -- INSERT --", wrapped(string(draft)))
-		} else if wrap > 0 {
-			fmt.Printf("Test Codex\r\n› %s\r\n\r\n  test-model high · ~/x", wrapped(string(draft)))
+		} else if wrap > 0 || drv.tool != "" {
+			// As Codex draws it: the model footer only once it is done starting.
+			footer := "\r\n\r\n  test-model high · ~/x" + drv.title
+			if drv.starting {
+				footer = ""
+			}
+			fmt.Printf("Test Codex\r\n› %s%s", wrapped(string(draft)), footer)
 		} else {
 			if twist == "unsafeinput" {
 				fmt.Print("Hooks need review\r\n  2. Trust all and continue\r\n")
 			}
-			fmt.Printf("Test Codex\r\n› %s\r\n  ? for shortcuts", string(draft))
+			// The model footer, as Codex draws it once it is done starting.
+			fmt.Printf("Test Codex\r\n› %s\r\n\r\n  test-model high · ~/x\r\n  ? for shortcuts", string(draft))
 		}
+	}
+	// Codex draws its input box, then its hook review (§47.2).
+	if ms, err := strconv.Atoi(os.Getenv("SUNSTACK_TEST_LATEHOOKS")); err == nil && drv.tool == "codex" {
+		drv.starting = true
+		go func() {
+			time.Sleep(time.Duration(ms) * time.Millisecond)
+			drv.mu.Lock()
+			drv.starting = false
+			trust, mode = []string{"Review hooks", "Trust all and continue", "Continue without trusting (hooks won't run)"}, "codexhooks"
+			draw()
+			drv.mu.Unlock()
+		}()
 	}
 	draw()
 	if time.Now().Before(ready) {
@@ -522,6 +547,14 @@ func interactive(tool string, args []string) {
 		if drv.tool != "" && (ch == '\r' || ch == '\n') && trust == nil {
 			if drv.twist == "dropenter" && !drv.dropped {
 				drv.dropped = true
+				drv.mu.Unlock()
+				continue
+			}
+			if strings.HasPrefix(string(draft), "/rename ") {
+				json.NewEncoder(log).Encode(struct{ Line string }{string(draft)})
+				drv.title = " · " + strings.TrimPrefix(string(draft), "/rename ")
+				draft = nil
+				draw()
 				drv.mu.Unlock()
 				continue
 			}

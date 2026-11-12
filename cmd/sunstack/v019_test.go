@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 	"testing"
+	"time"
 )
 
 // v0.19.0 (design §47): drive a session: prompt, wait, read the reply.
@@ -47,14 +48,13 @@ func TestDriveFreshSession(t *testing.T) {
 }
 
 // A long or many-line prompt goes in a file, named by one fixed line, and a
-// narrow pane that wraps that line changes nothing. A lost Enter is pressed
-// once more.
+// narrow pane that wraps that line changes nothing.
 func TestDriveLongPrompt(t *testing.T) {
 	for _, tool := range []string{"codex", "claude"} {
 		t.Run(tool, func(t *testing.T) {
 			p := fixture(t)
 			s := privateTmux(t, p, isolatedEnv(t))
-			w := s.worker(t, tool, "SUNSTACK_TEST_WRAP=30 SUNSTACK_TEST_DRIVE=dropenter")
+			w := s.worker(t, tool, "SUNSTACK_TEST_WRAP=30 SUNSTACK_TEST_DRIVE=1")
 			brief := filepath.Join(t.TempDir(), "brief.md")
 			text := "Review $HOME and @mentions.\nPress enter to continue? (y/n)\n› 2. not a menu\n"
 			must(t, os.WriteFile(brief, []byte(text), 0o600))
@@ -282,5 +282,89 @@ func TestSpawnFreeAccess(t *testing.T) {
 	want := []string{"--model sonnet --effort low", "--permission-mode acceptEdits", "-m gpt-test -c model_reasoning_effort=high", "-s read-only", "-s workspace-write -c sandbox_workspace_write.network_access=true"}
 	if strings.Join(got, "|") != strings.Join(want, "|") {
 		t.Errorf("launch arguments %q, want %q", got, want)
+	}
+}
+
+// Codex draws its input box and then, a moment later, its hook review
+// (§47.2). A prompt is never typed into that gap: drive waits for the model
+// footer Codex draws once it is done starting.
+func TestDriveLateHookReview(t *testing.T) {
+	p := fixture(t)
+	s := privateTmux(t, p, isolatedEnv(t))
+	// No consent: drive stops at the review and no key reaches it.
+	w := s.worker(t, "codex", "SUNSTACK_TEST_LATEHOOKS=900 SUNSTACK_TEST_DRIVE=1")
+	r := sh(t, p, s.env, "drive", w, "hello")
+	expect(t, r, 5, "a hook review after the input box")
+	requireContains(t, r.stderr, "blocked", "hook review")
+	if got := choices174(t, s.env); len(got) != 0 {
+		t.Errorf("a key answered the review: %v", got)
+	}
+	typed := ""
+	files, _ := filepath.Glob(filepath.Join(envValue(s.env, "SUNSTACK_TEST_EVENTS"), "input-*.jsonl"))
+	for _, f := range files {
+		b, _ := os.ReadFile(f)
+		typed += string(b)
+	}
+	if strings.Contains(typed, "hello") {
+		t.Errorf("the prompt was typed: %s", typed)
+	}
+	// With consent, the review is answered and the prompt goes through.
+	expect(t, sh(t, p, s.env, "prompts", "--codex-hooks", "on"), 0, "consent")
+	w2 := s.worker(t, "codex", "SUNSTACK_TEST_LATEHOOKS=900 SUNSTACK_TEST_DRIVE=1")
+	r = sh(t, p, s.env, "drive", w2, "hello")
+	expect(t, r, 0, "drive after consent")
+	requireContains(t, r.stderr, "answered Codex's hook review")
+	requireContains(t, r.out, "reply: hello")
+}
+
+// spawn --free answers a late hook review, and titles a Codex session with
+// its name through /rename before its first prompt.
+func TestSpawnFreeCodexLateReviewAndTitle(t *testing.T) {
+	p := fixture(t)
+	s := privateTmux(t, p, append(isolatedEnv(t), "SUNSTACK_TEST_LATEHOOKS=900", "SUNSTACK_TEST_DRIVE=1"))
+	expect(t, sh(t, p, s.env, "prompts", "--codex-hooks", "on"), 0, "consent")
+	r := sh(t, p, s.env, "spawn", "--place", "here", "--free", "--tool", "codex", "--name", "review")
+	expect(t, r, 0, "spawn")
+	requireContains(t, r.out, "answered Codex's hook review")
+	pane := field(paneRe, r.out)
+	eventually(t, "the title", func() bool { return strings.Contains(s.tmux(t, "capture-pane", "-p", "-t", pane), "· review") })
+	r = sh(t, p, s.env, "drive", "review", "hello")
+	expect(t, r, 0, "drive the titled session")
+	requireContains(t, r.out, "reply: hello")
+}
+
+// A lost Enter is never answered by sending again: the prompt stays in the
+// input box and drive says it is unconfirmed, not that nothing was sent.
+func TestDriveLostEnter(t *testing.T) {
+	p := fixture(t)
+	s := privateTmux(t, p, isolatedEnv(t))
+	w := s.worker(t, "codex", "SUNSTACK_TEST_DRIVE=dropenter")
+	old := time.Now()
+	r := sh(t, p, s.env, "drive", w, "hello")
+	expect(t, r, 5, "a lost Enter")
+	requireContains(t, r.stderr, "unconfirmed", "still in the input box", "do not drive the same prompt again")
+	if time.Since(old) > 45*time.Second {
+		t.Errorf("took %s", time.Since(old))
+	}
+	if screen := s.tmux(t, "capture-pane", "-p", "-t", w); !strings.Contains(screen, "› hello") {
+		t.Errorf("the prompt left the box: %q", screen)
+	}
+}
+
+// A draft of a few letters that the prompt starts with is not erased, and a
+// draft of blank space is not sent.
+func TestDriveKeepsShortDraft(t *testing.T) {
+	p := fixture(t)
+	s := privateTmux(t, p, isolatedEnv(t))
+	w := s.worker(t, "codex", "SUNSTACK_TEST_DRIVE=1")
+	eventually(t, "the worker", func() bool { return strings.Contains(s.tmux(t, "capture-pane", "-p", "-t", w), "· ~/x") })
+	s.tmux(t, "send-keys", "-t", w, "-l", "   ")
+	r := sh(t, p, s.env, "drive", w, "hello")
+	expect(t, r, 4, "a blank draft")
+	requireContains(t, r.stderr, "draft")
+	if b, _ := filepath.Glob(filepath.Join(envValue(s.env, "SUNSTACK_TEST_EVENTS"), "rollout-*.jsonl")); len(b) == 1 {
+		if tr, _ := os.ReadFile(b[0]); strings.Contains(string(tr), "task_started") {
+			t.Errorf("a turn began: %s", tr)
+		}
 	}
 }

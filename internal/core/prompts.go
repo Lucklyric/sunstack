@@ -183,7 +183,7 @@ func AnswerTrust(socket, pane, tool string, inTeam, running bool) string {
 		if screen == "" || !paneRunsTool(socket, pane, tool) {
 			return "" // gone, or tmux cannot say: nothing to answer
 		}
-		if ReadyForInput(tool, screen) {
+		if CLIReady(tool, screen) {
 			return ""
 		}
 		for _, ts := range trustScreens {

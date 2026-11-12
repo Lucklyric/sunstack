@@ -71,11 +71,11 @@ Write the prompt as a brief the other session can act on alone: the goal, the fi
 
 - **0**: the reply is on stdout. `sunstack drive <name> --reply` prints the last reply again.
 - **5 `timeout`**: the turn is still running. Wait again with `sunstack drive <name> --wait`, or look at its pane with `sunstack peek <name>`.
-- **5 `blocked`**: the session waits at a menu or an approval prompt; the screen's last lines are on stdout. Tell the user what it asks; they answer it in that pane. Then `sunstack drive <name> --wait`.
+- **5 `blocked`**: the session waits at a menu, an approval prompt or a trust screen; the screen's last lines are on stdout. Tell the user what it asks; they answer it in that pane. If the message says the prompt may be waiting behind it, do not send it again: `sunstack drive <name> --wait` once it is answered. Otherwise nothing was sent: send the prompt once it is answered.
 - **5 `interrupted`**: someone stopped the turn. Ask the user before sending the prompt again.
 - **4 `busy`**: the session is in a turn. Wait for it (`--wait`) or, if the user wants it stopped, `sunstack drive <name> --cancel`.
-- **4 `draft`**: the user has text in that session's input box. Nothing was sent and their text is as it was. Tell them.
-- **5 `unconfirmed`**: the prompt left the input box, but Sunstack could not confirm a turn began. It was probably sent: never send it again. Look with `sunstack peek <name> --lines 80`, then `sunstack drive <name> --wait`.
+- **4 `draft`**: the user has text (or blank space) in that session's input box. Nothing was sent and their text is as it was. Tell them.
+- **5 `unconfirmed`**: Sunstack could not confirm that the session took the prompt. Never send it again. Look with `sunstack peek <name> --lines 80`: if it is still in the input box, tell the user (they press Enter there, or clear it); if it is running, `sunstack drive <name> --wait`.
 - **1 `not_accepted`**: the session did not take the prompt, and nothing was sent. Look with `sunstack peek <name>`, then try once more.
 - **1 `exited`**: the CLI in that pane has exited. Start a new co-worker (step 1).
 - **1 `no_transcript`** (with `--wait`, `--reply`, `--cancel`): the session has had no prompt yet, or Sunstack cannot find its transcript. Read the pane with `sunstack peek <name> --lines 80`.
