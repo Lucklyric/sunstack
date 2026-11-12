@@ -177,7 +177,7 @@ func TestUndimmed(t *testing.T) {
 // The input box's edges come from what the CLI draws, not from a blank row a
 // draft may hold, and a dim hint stays dim on the rows it wraps onto.
 func TestComposerRows(t *testing.T) {
-	codexDraft := []string{"Test Codex", "› ", "", "secret draft", "", "  test-model high · ~/x", "  ? for shortcuts"}
+	codexDraft := []string{"Test Codex", "› ", "", "secret draft", "", "  test-model high · ~/x", "  ← for agents · ? for shortcuts"}
 	if s, e, ok := composerRows("codex", codexDraft); !ok || s != 1 || e != 4 {
 		t.Errorf("codex box %d..%d %v", s, e, ok)
 	}

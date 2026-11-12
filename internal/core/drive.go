@@ -162,7 +162,9 @@ func composerRows(tool string, lines []string) (start, end int, ok bool) {
 			if !strings.HasPrefix(t, "›") {
 				continue
 			}
-			for j := len(lines) - 1; j > i; j-- {
+			// The first footer-like row below the box: the hint row under
+			// the model footer carries " · " too.
+			for j := i + 1; j < len(lines); j++ {
 				if codexFooter.MatchString(lines[j]) {
 					end := j
 					for end > i+1 && strings.TrimSpace(lines[end-1]) == "" {

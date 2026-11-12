@@ -495,7 +495,7 @@ func interactive(tool string, args []string) {
 			fmt.Printf("Test Claude\r\n──────────────────────────────\r\n❯ %s\r\n──────────────────────────────\r\n  -- INSERT --", wrapped(string(draft)))
 		} else if wrap > 0 || drv.tool != "" {
 			// As Codex draws it: the model footer only once it is done starting.
-			footer := "\r\n\r\n  test-model high · ~/x" + drv.title
+			footer := "\r\n\r\n  test-model high · ~/x" + drv.title + "\r\n  ← for agents · ? for shortcuts"
 			if drv.starting {
 				footer = ""
 			}
@@ -505,7 +505,7 @@ func interactive(tool string, args []string) {
 				fmt.Print("Hooks need review\r\n  2. Trust all and continue\r\n")
 			}
 			// The model footer, as Codex draws it once it is done starting.
-			fmt.Printf("Test Codex\r\n› %s\r\n\r\n  test-model high · ~/x\r\n  ? for shortcuts", string(draft))
+			fmt.Printf("Test Codex\r\n› %s\r\n\r\n  test-model high · ~/x\r\n  ← for agents · ? for shortcuts", string(draft))
 		}
 	}
 	// Codex draws its input box, then its hook review (§47.2).
