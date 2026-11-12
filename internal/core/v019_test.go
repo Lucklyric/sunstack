@@ -86,7 +86,7 @@ func TestTranscriptTurns(t *testing.T) {
 		}
 	})
 	t.Run("an XML-like prompt is a prompt", func(t *testing.T) {
-		tr := &transcript{tool: "claude", since: now, expect: squash("<request>Review this</request>"), pin: true}
+		tr := &transcript{tool: "claude", since: now, expect: "<request>Review this</request>", pin: true}
 		rec(t, tr, now.Add(time.Second), claudeUser("<request>Review this</request>"))
 		if !tr.started || !tr.matched {
 			t.Fatal("the prompt was not taken as one")
@@ -123,12 +123,14 @@ func TestLeadingSpace(t *testing.T) {
 func TestTranscriptExactPrompt(t *testing.T) {
 	now := time.Now()
 	for _, tool := range []string{"codex", "claude"} {
-		tr := &transcript{tool: tool, since: now, expect: squash("delete foo"), pin: true}
+		tr := &transcript{tool: tool, since: now, expect: "delete foo", pin: true}
 		if tool == "codex" {
 			rec(t, tr, now.Add(time.Second), codexEv("task_started", "a", nil))
 			rec(t, tr, now.Add(time.Second), codexUser("do not delete foo"))
+			rec(t, tr, now.Add(time.Second), codexUser("deletefoo"))
 		} else {
 			rec(t, tr, now.Add(time.Second), claudeUser("do not delete foo"))
+			rec(t, tr, now.Add(time.Second), claudeUser("deletefoo"))
 		}
 		if tr.matched {
 			t.Errorf("%s: another prompt that holds it was taken as ours", tool)
@@ -169,5 +171,24 @@ func TestUndimmed(t *testing.T) {
 		if got := undimmed(in); got != want {
 			t.Errorf("undimmed(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+// The input box's edges come from what the CLI draws, not from a blank row a
+// draft may hold, and a dim hint stays dim on the rows it wraps onto.
+func TestComposerRows(t *testing.T) {
+	codexDraft := []string{"Test Codex", "› ", "", "secret draft", "", "  test-model high · ~/x", "  ? for shortcuts"}
+	if s, e, ok := composerRows("codex", codexDraft); !ok || s != 1 || e != 4 {
+		t.Errorf("codex box %d..%d %v", s, e, ok)
+	}
+	claude := []string{"───", "❯ a", "", "b", "───", "  -- INSERT --"}
+	if s, e, ok := composerRows("claude", claude); !ok || s != 1 || e != 4 {
+		t.Errorf("claude box %d..%d %v", s, e, ok)
+	}
+	if v, dim := undimmedFrom("› \x1b[2mThis placeholder wraps", false); v != "› " || !dim {
+		t.Errorf("first row %q %v", v, dim)
+	}
+	if v, _ := undimmedFrom(" onto a second row\x1b[0m", true); v != "" {
+		t.Errorf("second row %q", v)
 	}
 }

@@ -40,7 +40,7 @@ step "nothing local in what goes out"
 # temp path, or a tool's session trailer. The patterns come from this
 # machine at run time, so the script itself names nothing.
 base=$(git rev-parse -q --verify refs/remotes/origin/main || git hash-object -t tree /dev/null)
-pat="$(printf '%s' "$HOME" | sed 's/[.[\*^$/]/\\&/g')|/private/""tmp/|/var/""folders/|/tmp/""|Claude-""Session:|Co-Authored""-By:|Generated ""with"
+pat="$(printf '%s' "$HOME" | sed 's/[.[\*^$/]/\\&/g')|/private/""tmp/|/var/""folders/|/tm""p/|Claude-""Session:|Co-Authored""-By:|Generated ""with"
 host=$(hostname -s 2>/dev/null || true)
 [ ${#host} -ge 4 ] && pat="$pat|$host"
 outgoing=$(git diff "$base" HEAD | awk '/^[+]/ && !/^[+][+][+]/' && git log --format='%s%n%b' "$base..HEAD") || stop "could not read what would be pushed"

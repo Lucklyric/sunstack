@@ -122,11 +122,29 @@ func driveLine(tool, text string) (string, error) {
 // with what was typed however it wraps. ok is false with no input box.
 func inputText(tool, screen string) (string, bool) {
 	lines := strings.Split(strings.ReplaceAll(screen, "\r", ""), "\n")
+	start, end, ok := composerRows(tool, lines)
+	if !ok {
+		return "", false
+	}
+	mark := "›"
+	if tool == "claude" {
+		mark = "❯"
+	}
+	parts := []string{strings.TrimPrefix(strings.TrimSpace(lines[start]), mark)}
+	parts = append(parts, lines[start+1:end]...)
+	return strings.Join(strings.Fields(strings.Join(parts, " ")), ""), true
+}
+
+// composerRows finds the CLI's input box on a screen of plain text: from its
+// prompt mark to its end, as each CLI draws it, never by a blank row, which
+// a draft may hold. Claude Code: between two rules. Codex: down to the blank
+// row above its model footer; with no footer (a custom status line), down to
+// the first blank row.
+func composerRows(tool string, lines []string) (start, end int, ok bool) {
 	rule := func(l string) bool {
 		t := strings.TrimSpace(l)
 		return strings.HasPrefix(t, "───") || strings.HasSuffix(t, "───")
 	}
-	squash := func(parts []string) string { return strings.Join(strings.Fields(strings.Join(parts, " ")), "") }
 	for i := len(lines) - 1; i >= 0; i-- {
 		t := strings.TrimSpace(lines[i])
 		switch tool {
@@ -134,30 +152,33 @@ func inputText(tool, screen string) (string, bool) {
 			if !strings.HasPrefix(t, "❯") || i == 0 || !rule(lines[i-1]) {
 				continue
 			}
-			parts := []string{strings.TrimPrefix(t, "❯")}
 			for j := i + 1; j < len(lines); j++ {
 				if rule(lines[j]) {
-					return squash(parts), true
+					return i, j, true
 				}
-				parts = append(parts, lines[j])
 			}
+			return 0, 0, false
 		case "codex":
 			if !strings.HasPrefix(t, "›") {
 				continue
 			}
-			parts := []string{strings.TrimPrefix(t, "›")}
-			// Wrapped lines follow, indented, up to the blank line above
-			// the footer.
-			for j := i + 1; j < len(lines) && strings.TrimSpace(lines[j]) != ""; j++ {
-				if j == len(lines)-1 || strings.TrimSpace(lines[j+1]) == "" && onlyBlank(lines[j+2:]) {
-					break // the footer is the last line of the block
+			for j := len(lines) - 1; j > i; j-- {
+				if codexFooter.MatchString(lines[j]) {
+					end := j
+					for end > i+1 && strings.TrimSpace(lines[end-1]) == "" {
+						end--
+					}
+					return i, end, true
 				}
-				parts = append(parts, lines[j])
 			}
-			return squash(parts), true
+			end := i + 1
+			for end < len(lines) && strings.TrimSpace(lines[end]) != "" {
+				end++
+			}
+			return i, end, true
 		}
 	}
-	return "", false
+	return 0, 0, false
 }
 
 func onlyBlank(lines []string) bool {
@@ -186,7 +207,7 @@ type transcript struct {
 	tool, path string
 	off        int64
 	since      time.Time // records before it are not this drive's
-	expect     string    // the typed line, spaces dropped: the prompt to find
+	expect     string    // the typed line: the prompt to find, as typed
 	pin        bool      // follow one turn: stop at its end, ignore later ones
 	turn
 }
@@ -259,7 +280,7 @@ func (t *transcript) record(line []byte) {
 		t.started, t.ended, t.matched, t.how, t.reply, t.turnID, t.msgID = true, false, t.expect == "", "", nil, "", ""
 	}
 	prompt := func(s string) {
-		if t.expect != "" && squash(s) == t.expect {
+		if t.expect != "" && strings.TrimSpace(s) == t.expect {
 			t.matched = true
 		}
 	}
@@ -718,7 +739,7 @@ func sendPrompt(socket, pane, tool, line, target string) (*transcript, string, e
 	}
 	// Only a turn that begins after Enter, and holds this prompt, counts.
 	tr.started, tr.ended, tr.matched, tr.how, tr.reply = false, false, false, "", nil
-	tr.since, tr.expect, tr.pin = time.Now(), want, true
+	tr.since, tr.expect, tr.pin = time.Now(), strings.TrimSpace(line), true
 	if _, err := quickTmux(socket, "send-keys", "-t", pane, "Enter"); err != nil {
 		return nil, note, fail(ExitFail, "tmux", "could not press Enter in pane %s: %v", pane, err)
 	}

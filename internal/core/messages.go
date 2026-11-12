@@ -597,28 +597,23 @@ func boxEmpty(socket, pane, tool string) (empty, known bool) {
 	if tool == "claude" {
 		mark = "❯"
 	}
-	lines := strings.Split(strings.ReplaceAll(string(out), "\r", ""), "\n")
-	start := -1
-	for i := len(lines) - 1; i >= 0; i-- {
-		if strings.HasPrefix(strings.TrimSpace(sgrRe.ReplaceAllString(lines[i], "")), mark) {
-			start = i
-			break
-		}
+	// Colors carry over from row to row, so the whole screen is read in
+	// order, and the box's rows are cut from it after.
+	raw := strings.Split(strings.ReplaceAll(string(out), "\r", ""), "\n")
+	plain := make([]string, len(raw))
+	visible := make([]string, len(raw))
+	dim := false
+	for i, l := range raw {
+		plain[i] = sgrRe.ReplaceAllString(l, "")
+		visible[i], dim = undimmedFrom(l, dim)
 	}
-	if start < 0 {
+	start, end, ok := composerRows(tool, plain)
+	if !ok {
 		return false, false
 	}
-	typed := ""
-	for i := start; i < len(lines); i++ {
-		plain := strings.TrimSpace(sgrRe.ReplaceAllString(lines[i], ""))
-		if i > start && (plain == "" || strings.HasPrefix(plain, "───") || strings.HasSuffix(plain, "───")) {
-			break // the end of the box
-		}
-		t := undimmed(lines[i])
-		if i == start {
-			t = strings.TrimPrefix(strings.TrimSpace(t), mark)
-		}
-		typed += t
+	typed := strings.TrimPrefix(strings.TrimSpace(visible[start]), mark)
+	for _, v := range visible[start+1 : end] {
+		typed += v
 	}
 	return strings.TrimFunc(typed, func(r rune) bool { return unicode.IsSpace(r) || r == '\u00a0' }) == "", true
 }
@@ -627,15 +622,21 @@ var sgrRe = regexp.MustCompile("\x1b\\[[0-9;:]*m")
 
 // undimmed is a line's text that is not drawn dim (SGR 2).
 func undimmed(line string) string {
+	s, _ := undimmedFrom(line, false)
+	return s
+}
+
+// undimmedFrom is undimmed for a row that starts dim or not, with the state
+// it ends in.
+func undimmedFrom(line string, dim bool) (string, bool) {
 	var b strings.Builder
-	dim := false
 	for line != "" {
 		loc := sgrRe.FindStringIndex(line)
 		if loc == nil {
 			if !dim {
 				b.WriteString(line)
 			}
-			break
+			return b.String(), dim
 		}
 		if !dim {
 			b.WriteString(line[:loc[0]])
@@ -659,7 +660,7 @@ func undimmed(line string) string {
 		}
 		line = line[loc[1]:]
 	}
-	return b.String()
+	return b.String(), dim
 }
 
 // paneTokenRe finds a claim token on a pane: a spawned session's first prompt
