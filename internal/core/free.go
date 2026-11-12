@@ -190,7 +190,7 @@ func SpawnFree(o FreeOptions) (*FreeResult, error) {
 		tm("set-option", "-p", "-t", h.pane, k, v)
 	}
 	tm("select-pane", "-t", h.pane, "-T", label)
-	cmd := o.Tool
+	cmd := o.Tool + titleFlag(o.Tool, label)
 	if o.Note != "" {
 		cmd += " '" + o.Note + "'"
 	}

@@ -1,11 +1,11 @@
 ---
 name: spawn
-description: Start a Claude Code or Codex session as a Sunstack agent, or a free session, beside this pane or in a new tmux window; list this project's live sessions; dismiss or kill one. Use for "sunstack spawn", "/sunstack:spawn", "start a session for builder.alice", "sunstack team --sessions", "close the session for builder.alice", or a message waiting for an agent with no live session.
+description: Start a Claude Code or Codex session as a Sunstack agent, or a free session, beside this pane or in a new tmux window; list this project's live sessions; name, dismiss or kill one. Use for "sunstack spawn", "sunstack name", "rename this session", "give this session a name", "/sunstack:spawn", "start a session for builder.alice", "sunstack team --sessions", "close the session for builder.alice", or a message waiting for an agent with no live session.
 ---
 
 # Sunstack: spawn
 
-Command: `sunstack spawn` (also `team --sessions`, `dismiss`, `kill`). Closing everything idle at once is the clean skill. Skill: `/sunstack:spawn` in Claude Code, `$sunstack:spawn` in Codex.
+Command: `sunstack spawn` (also `team --sessions`, `name`, `dismiss`, `kill`). Closing everything idle at once is the clean skill. Skill: `/sunstack:spawn` in Claude Code, `$sunstack:spawn` in Codex.
 
 ## Rules
 
@@ -105,6 +105,22 @@ or in the folder of the session named by `--beside`. Started from a tmux server 
 default one, it always opens in the team's home, where free sessions are found and counted. Its label (`--name`, else `<tool>-<n>`)
 names it in the org view, in `sunstack attach` and in `sunstack kill`. It counts toward
 `max_sessions` like any session. Confirm with the user first: it starts a paid session.
+
+## Name a session
+
+```sh
+sunstack name "<name>"                # this session
+sunstack name "<session>" "<name>"    # another one: its label or session ID
+```
+
+It works for any session in a tmux pane, in a team or not, also one Sunstack did not start.
+Pick a short name for what the session works on. An agent session's name is `<id>_<label>`,
+so the name is its task label (up to 10 characters) and only that session changes it; any
+other session takes a label of up to 20 characters. Lowercase letters, digits and `-`. The
+tmux pane title follows, and the org view, `sunstack attach` and `sunstack kill` use the new
+name. The title Claude Code or Codex shows is the user's: when the command prints a `do:`
+line (`/rename <name>`), pass it on. A Claude Code session Sunstack starts is titled with its
+name from the start.
 
 ## Ask a session to finish
 

@@ -211,7 +211,7 @@ func (p *Project) Spawn(o SpawnOptions) (*SpawnResult, error) {
 	}
 	first := fmt.Sprintf("%s %s --token %s%s (you were started by sunstack spawn; this claim is yours), %s", skill, id, l.Token, task, note)
 	// Single quotes: the shell must not expand $sunstack in the Codex prompt.
-	cmd := fmt.Sprintf("%s '%s'", o.Tool, first)
+	cmd := fmt.Sprintf("%s%s '%s'", o.Tool, titleFlag(o.Tool, name), first)
 	if err = exec.Command("tmux", TmuxArgs(o.Socket, "send-keys", "-t", pane, "-l", cmd)...).Run(); err == nil {
 		err = exec.Command("tmux", TmuxArgs(o.Socket, "send-keys", "-t", pane, "Enter")...).Run()
 	}
@@ -479,4 +479,19 @@ func frontmatterValue(path, key string) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+// titleFlag is the option that starts a Claude Code session already titled
+// with its Sunstack name (§46), so the user need not /rename it. Empty for
+// Codex, which has no such option, and for a Claude Code that lacks it.
+func titleFlag(tool, name string) string {
+	if tool != "claude" || name == "" {
+		return ""
+	}
+	cmd, done := quick("claude", "--help")
+	defer done()
+	if out, _ := cmd.Output(); !strings.Contains(string(out), "--name <") {
+		return ""
+	}
+	return " --name '" + name + "'"
 }

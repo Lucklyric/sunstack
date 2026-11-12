@@ -169,6 +169,8 @@ Org (every team and Claude Code or Codex session on this host):
                                                   start a plain session that holds no agent, placed as spawn is, working in the team
                                                   root, in DIR, or in the folder of another session; sunstack kill LABEL closes it
   sunstack doing <id> "<line>" --token T [--root DIR]  one line on what this session is doing now ("" clears)
+  sunstack name [<session>] <name>                give this session, or another one in a tmux pane, a new name: the task
+                                                  label of an agent session (<id>_<name>), else a label; the pane title follows
   sunstack reopen <session-id> [--place P]        resume a closed session in a tmux pane (beside this one, else a new window;
                                                   outside tmux its team's tmux session), so messages wake it at once (exit it where it ran first)
   sunstack attach <session>                       go to a session's tmux pane: an agent session's name or any session's ID or label
@@ -1567,6 +1569,47 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 			return err
 		}
 		fmt.Fprintf(stdout, "sunstack: doing set for %s\n", a.pos[0])
+		return nil
+
+	case "name":
+		a, err := parse(rest, "root", "")
+		if err == nil {
+			err = a.atMost(2, "name")
+		}
+		if err != nil {
+			return err
+		}
+		if len(a.pos) < 1 {
+			return missing("the new name (or a session, then the new name)")
+		}
+		o := core.NameOptions{Name: a.pos[len(a.pos)-1], Pane: os.Getenv("TMUX_PANE"), Socket: tmuxSocket()}
+		_, o.Session = detectTool()
+		if len(a.pos) == 2 {
+			o.Target = a.pos[0]
+		}
+		p, _ := core.FindProject(a.flags["root"])
+		r, err := core.NameSession(p, o)
+		if err != nil {
+			return err
+		}
+		who := "this session"
+		if o.Target != "" && r.Pane != o.Pane {
+			who = "the session in pane " + r.Pane
+		}
+		switch {
+		case r.Old == r.Name:
+			fmt.Fprintf(stdout, "sunstack: %s is already called %s\n", who, r.Name)
+		case r.Old == "":
+			fmt.Fprintf(stdout, "sunstack: %s is now called %s\n", who, r.Name)
+		default:
+			fmt.Fprintf(stdout, "sunstack: %s is now called %s (was %s)\n", who, r.Name, r.Old)
+		}
+		if who == "this session" {
+			// The title Claude Code or Codex shows is the user's to change (§38).
+			if is, ok := renameIssue(p); ok {
+				fmt.Fprintf(stdout, "%s\n   do: %s\n", is.Text, is.Do)
+			}
+		}
 		return nil
 
 	case "peek":

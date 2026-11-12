@@ -157,6 +157,13 @@ func main() {
 			fmt.Println("[]")
 			return
 		}
+		if len(args) > 0 && args[0] == "--help" {
+			// spawn asks whether Claude Code takes --name (§46).
+			if os.Getenv("SUNSTACK_TEST_CLI_NAME") != "" {
+				fmt.Println("  -n, --name <name>  Set a display name for this session")
+			}
+			return
+		}
 		if os.Getenv("SUNSTACK_TEST_MODE") == "exit" {
 			return
 		}
