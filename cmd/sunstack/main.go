@@ -43,6 +43,7 @@ const shortUsage = `sunstack — agent-team layer for Claude Code and Codex
   sunstack attach <session>             go to a session's tmux pane
   sunstack tmux panel|popup|install     the dashboard as a side panel that follows you, or a popup
   sunstack peek <session> [--lines N]   the end of a session's pane, read only
+  sunstack drive <session> "<prompt>"    give a session with no agent a prompt, wait, print its reply
   sunstack direct "<text>"              add a directive for the team
   sunstack answer <id> Q<n> "<answer>"  answer an agent's ask
   sunstack hire <title> <name>          add an agent (sunstack library lists the titles)
@@ -52,7 +53,7 @@ const shortUsage = `sunstack — agent-team layer for Claude Code and Codex
   sunstack update                       update this binary and the plugin
 
 Skills have the command's name: /sunstack:<name> in Claude Code, $sunstack:<name> in Codex
-(as, board, check, clean, direct, fire, health, hire, hr, issues, next, org, release, send, spawn; save,
+(as, board, check, clean, direct, drive, fire, health, hire, hr, issues, next, org, release, send, spawn; save,
 verify and formal-verify are skills only). Every command and flag: sunstack help all
 `
 
@@ -154,7 +155,7 @@ Org (every team and Claude Code or Codex session on this host):
                                                   --by agent: people,
                                                   --by host: every session including free ones; other hosts
                                                   of the org follow (--refresh fetches them from the hub first)
-  sunstack peek <id_task|pane-id> [--lines N]     the end of a session's tmux pane, e.g. %12 (read only)
+  sunstack peek <id_task|label|pane-id> [--lines N]  the end of a session's tmux pane: an agent session, a free session's label, or %12 (read only)
   sunstack peek <host>:<team>/<agent>[_task]|<host>:<session-id> [--lines N]
                                                   the same on another host that allows it (org allow), at most 50 lines
   sunstack spawn <host>:<team>/<agent> [--tool T] [--task L] [--note "..."] [--brief FILE] [--yes]
@@ -169,11 +170,21 @@ Org (every team and Claude Code or Codex session on this host):
                                                   started the session (only with --codex-hooks on; else it lists the panes);
                                                   the hub connector does this every few seconds
   sunstack spawn --free [--tool claude|codex] [--name LABEL] [--note "..."] [--dir DIR | --beside SESSION] [--place P] [--over-cap]
+        [--read-only | --full-auto] [--model M] [--effort low|medium|high|xhigh|max]
                                                   start a plain session that holds no agent, placed as spawn is, working in the team
-                                                  root, in DIR, or in the folder of another session; sunstack kill LABEL closes it
+                                                  root, in DIR, or in the folder of another session; sunstack kill LABEL closes it.
+                                                  --read-only: Codex may not write files; --full-auto: Codex writes in its folder
+                                                  and Claude Code accepts edits, without asking; neither: the user's own settings.
+                                                  --model and --effort pick the model and its reasoning effort for that session
   sunstack doing <id> "<line>" --token T [--root DIR]  one line on what this session is doing now ("" clears)
   sunstack name [<session>] <name>                give this session, or another one in a tmux pane, a new name: the task
                                                   label of an agent session (<id>_<name>), else a label; the pane title follows
+  sunstack drive <session> "<prompt>" | --file F  give a session that works as no agent a prompt, wait for its turn to end and
+                                                  print the reply (from its transcript); --file - reads the prompt from stdin
+      [--no-wait] [--timeout SECONDS]             --no-wait returns once the session took the prompt; the wait is 600 s by default
+  sunstack drive <session> --wait|--reply|--cancel  wait for the running turn and print its reply; print the last reply again;
+                                                  stop the running turn. Exit 5: the turn has not ended (timeout, blocked at a
+                                                  menu, interrupted); exit 4: the session is in a turn, or holds a draft
   sunstack reopen <session-id> [--place P]        resume a closed session in a tmux pane (beside this one, else a new window;
                                                   outside tmux its team's tmux session), so messages wake it at once (exit it where it ran first)
   sunstack attach <session>                       go to a session's tmux pane: an agent session's name or any session's ID or label
@@ -436,7 +447,8 @@ func run(argv []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	}
 	// A bare as or hire answers with the list to choose from: that is how
 	// the skills ask for it, not a mistake to count.
-	if ce == nil || ce.Reason != "missing_arguments" || strings.Count(ce.Stdout, "\n") < 2 {
+	// A turn that has not ended yet is no failure of sunstack (§47).
+	if (ce == nil || ce.Reason != "missing_arguments" || strings.Count(ce.Stdout, "\n") < 2) && (ce == nil || ce.Code != core.ExitWait) {
 		core.RecordIssue(is)
 	}
 	if ce != nil {
@@ -1299,7 +1311,7 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 		return nil
 
 	case "spawn":
-		a, err := parse(rest, "root tool task note brief place name beside dir team", "window over-cap free yes")
+		a, err := parse(rest, "root tool task note brief place name beside dir team model effort", "window over-cap free yes read-only full-auto")
 		if err == nil {
 			err = a.atMost(1, "spawn")
 		}
@@ -1321,6 +1333,15 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 			if len(a.pos) > 0 || a.has("task") || a.has("brief") {
 				return &core.Error{Code: core.ExitUsage, Reason: "usage", Msg: "spawn --free takes no agent, --task or --brief; use --name for its label"}
 			}
+			access := ""
+			switch {
+			case a.has("read-only") && a.has("full-auto"):
+				return &core.Error{Code: core.ExitUsage, Reason: "usage", Msg: "use --read-only or --full-auto, not both"}
+			case a.has("read-only"):
+				access = "read-only"
+			case a.has("full-auto"):
+				access = "full-auto"
+			}
 			place := a.flags["place"]
 			if a.has("window") {
 				place = "window"
@@ -1331,7 +1352,7 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 			}
 			callerTool, _ := detectTool()
 			r, err := core.SpawnFree(core.FreeOptions{Tool: a.flags["tool"], DefaultTool: callerTool, Name: a.flags["name"], Note: a.flags["note"],
-				Beside: a.flags["beside"], Dir: a.flags["dir"], Root: root, OverCap: a.has("over-cap"),
+				Beside: a.flags["beside"], Dir: a.flags["dir"], Root: root, OverCap: a.has("over-cap"), Access: access, Model: a.flags["model"], Effort: a.flags["effort"],
 				Place: place, Socket: tmuxSocket(), Caller: os.Getenv("TMUX_PANE")})
 			if err != nil {
 				return err
@@ -1349,6 +1370,9 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 				fmt.Fprintf(stdout, "warning: %s is not running in pane %s yet; it may be at a login or trust prompt, or have exited; sunstack kill %s closes it\n", r.Tool, r.Pane, r.Label)
 			}
 			return nil
+		}
+		if a.has("read-only") || a.has("full-auto") || a.has("model") || a.has("effort") {
+			return &core.Error{Code: core.ExitUsage, Reason: "usage", Msg: "--read-only, --full-auto, --model and --effort are for spawn --free; an agent session starts with the user's own settings"}
 		}
 		if len(a.pos) < 1 {
 			return missing("id")
@@ -1586,6 +1610,84 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 			return err
 		}
 		fmt.Fprintf(stdout, "sunstack: doing set for %s\n", a.pos[0])
+		return nil
+
+	case "drive":
+		a, err := parse(rest, "root file timeout", "no-wait wait reply cancel")
+		if err != nil {
+			return err
+		}
+		if len(a.pos) < 1 {
+			return missing("the session (a label, a session ID or a tmux pane)")
+		}
+		o := core.DriveOptions{Target: a.pos[0], NoWait: a.has("no-wait"), Wait: a.has("wait"), Reply: a.has("reply"), Cancel: a.has("cancel"),
+			Pane: os.Getenv("TMUX_PANE"), Socket: tmuxSocket()}
+		usage := func(msg string) error { return &core.Error{Code: core.ExitUsage, Reason: "usage", Msg: msg} }
+		o.Text = strings.Join(a.pos[1:], " ")
+		if f, ok := a.flags["file"]; ok {
+			if o.Text != "" {
+				return usage("give the prompt as text or with --file, not both")
+			}
+			var b []byte
+			if f == "-" {
+				b, err = io.ReadAll(io.LimitReader(stdin, 4<<20))
+			} else {
+				b, err = os.ReadFile(f)
+			}
+			if err != nil {
+				return &core.Error{Code: core.ExitFail, Reason: "fs", Msg: err.Error()}
+			}
+			o.Text = string(b)
+		}
+		o.Text = strings.TrimSpace(o.Text)
+		modes := 0
+		for _, m := range []bool{o.Wait, o.Reply, o.Cancel} {
+			if m {
+				modes++
+			}
+		}
+		switch {
+		case modes > 1:
+			return usage("--wait, --reply and --cancel are one at a time")
+		case modes == 1 && (o.Text != "" || o.NoWait):
+			return usage("--wait, --reply and --cancel send no prompt")
+		case modes == 0 && o.Text == "":
+			return missing("the prompt (text, or --file F)")
+		}
+		if v, ok := a.flags["timeout"]; ok {
+			n, err := strconv.Atoi(v)
+			if err != nil || n < 1 || n > 86400 {
+				return usage("--timeout is 1 to 86400 seconds")
+			}
+			o.Timeout = time.Duration(n) * time.Second
+		}
+		p, _ := core.FindProject(a.flags["root"])
+		r, err := core.Drive(p, o)
+		if r != nil && r.Note != "" {
+			fmt.Fprintf(stderr, "sunstack: %s\n", r.Note)
+		}
+		if err != nil {
+			return err
+		}
+		switch r.Status {
+		case "sent":
+			fmt.Fprintf(stdout, "sunstack: the session in pane %s took the prompt; its reply: sunstack drive %s --wait\n", r.Pane, o.Target)
+		case "cancelled":
+			fmt.Fprintf(stdout, "sunstack: stopped the turn in pane %s\n", r.Pane)
+		case "idle":
+			if o.Cancel {
+				fmt.Fprintf(stdout, "sunstack: no turn is running in pane %s\n", r.Pane)
+				break
+			}
+			fmt.Fprintf(stderr, "sunstack: no turn is running in pane %s; its last reply:\n", r.Pane)
+			fallthrough
+		default:
+			if r.Reply == "" {
+				fmt.Fprintf(stderr, "sunstack: the turn in pane %s ended with no text reply\n", r.Pane)
+			} else {
+				fmt.Fprintln(stdout, r.Reply)
+			}
+		}
 		return nil
 
 	case "name":
@@ -1843,17 +1945,19 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 			Cwd       string `json:"cwd"`
 			Event     string `json:"hook_event_name"`
 			Source    string `json:"source"`
+			Prompt    string `json:"prompt"`
 		}
 		_ = json.NewDecoder(stdin).Decode(&in)
+		drive := core.DriveNudge(in.Prompt) // a prompt that names a co-worker (§47)
 		p, err := core.FindProject(in.Cwd)
 		if err != nil {
 			// Outside a team, only the host inbox can hold something.
 			if in.Event != "SessionStart" {
 				name := sessionNameLine(nil, in.SessionID)
 				if lines := hostWaitingLines(in.SessionID); len(lines) > 0 {
-					hookContext(stdout, name+"[sunstack] "+strings.Join(lines, "; ")+". Use the Sunstack check skill (sunstack check --session) when it fits the current work.")
-				} else if name != "" {
-					hookContext(stdout, strings.TrimSpace(name))
+					hookContext(stdout, name+"[sunstack] "+strings.Join(lines, "; ")+". Use the Sunstack check skill (sunstack check --session) when it fits the current work."+drive)
+				} else if name != "" || drive != "" {
+					hookContext(stdout, strings.TrimSpace(name+drive))
 				}
 			}
 			return nil
@@ -1880,10 +1984,10 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 		}
 		name := sessionNameLine(p, in.SessionID) // which session this is (§36)
 		if len(lines) == 0 {
-			hookContext(stdout, strings.TrimSpace(name+halt))
+			hookContext(stdout, strings.TrimSpace(name+halt+drive))
 			return nil
 		}
-		hookContext(stdout, name+halt+"[sunstack] "+strings.Join(lines, "; ")+". Use the Sunstack check skill to handle them when it fits the current work.")
+		hookContext(stdout, name+halt+"[sunstack] "+strings.Join(lines, "; ")+". Use the Sunstack check skill to handle them when it fits the current work."+drive)
 		return nil
 
 	case "tui":

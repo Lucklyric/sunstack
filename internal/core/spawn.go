@@ -279,11 +279,18 @@ func taskTaken(id, label string) error {
 }
 
 // Peek returns the last n lines of a session's tmux pane: a session name
-// (<id> or <id>_<task>) in this project, or a pane ID like %12 on the
+// (<id> or <id>_<task>) in this project, a free session's label, or a pane ID like %12 on the
 // caller's or the default tmux server. Read only.
 func (p *Project) Peek(t, socket string, n int) (string, error) {
 	pane := t
-	if !strings.HasPrefix(t, "%") {
+	scope := ""
+	if p != nil {
+		scope = p.HomeScope()
+	}
+	if fp, sock, _, err := FindFree(t, scope); err == nil && !strings.HasPrefix(t, "%") {
+		// A free session by its label, in a team or not (§47).
+		pane, socket = fp, sock
+	} else if !strings.HasPrefix(t, "%") {
 		if p == nil {
 			return "", fail(ExitFail, "no_root", "name a pane (%%N), or run inside a Sunstack project to name a session")
 		}

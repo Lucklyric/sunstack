@@ -26,6 +26,7 @@ const (
 	ExitUsage    = 2 // usage error, or missing_arguments
 	ExitMismatch = 3 // snapshot mismatch
 	ExitClaim    = 4 // busy | token | occupied | occupied_same_pane | active | taken | task_taken
+	ExitWait     = 5 // drive: timeout | blocked | interrupted | running (the turn has not ended)
 )
 
 // Error carries an exit code, a machine-readable reason and a message.

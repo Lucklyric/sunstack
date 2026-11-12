@@ -8,8 +8,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 
 	"golang.org/x/term"
 )
@@ -147,6 +150,13 @@ func main() {
 		if os.Getenv("SUNSTACK_TEST_LSOF_FAIL") != "" {
 			os.Exit(1)
 		}
+		if len(args) == 3 && args[0] == "-p" && args[2] == "-Fftn" {
+			// A drive stand-in (§47) holds its own rollout open.
+			if r := filepath.Join(os.Getenv("SUNSTACK_TEST_EVENTS"), "rollout-"+args[1]+".jsonl"); fileExists(r) {
+				fmt.Printf("fcwd\nn/\nf3\nn%s\n", r)
+				return
+			}
+		}
 		if len(args) != 3 || args[0] != "-p" || args[1] != os.Getenv("SUNSTACK_TEST_SCAN_PID") || args[2] != "-Fftn" {
 			os.Exit(1)
 		}
@@ -171,6 +181,162 @@ func main() {
 	default:
 		panic("unknown test executable: " + name)
 	}
+}
+
+func fileExists(p string) bool { _, err := os.Stat(p); return err == nil }
+
+// driver plays the parts of a real CLI that sunstack drive reads (§47): a
+// transcript with one record per event, a turn that takes time, and the
+// ways a prompt gets lost. SUNSTACK_TEST_DRIVE turns it on; its value picks
+// a twist: late (no transcript before the first prompt), approval (the turn
+// stops at a menu), dropenter (the first Enter is lost), notranscript,
+// noduration (Claude Code ends a turn with no turn_duration record).
+type driver struct {
+	mu       sync.Mutex
+	tool     string
+	twist    string
+	path     string
+	f        *os.File
+	busy     bool
+	approval bool
+	abort    chan struct{}
+	dropped  bool
+	turn     time.Duration
+}
+
+var driveFile = regexp.MustCompile(`(?:@|file )(/\S+\.md)`)
+
+func newDriver(tool, dir string) *driver {
+	tw := os.Getenv("SUNSTACK_TEST_DRIVE")
+	if tw == "" {
+		return nil
+	}
+	d := &driver{tool: tool, twist: tw, turn: 300 * time.Millisecond}
+	if ms, err := strconv.Atoi(os.Getenv("SUNSTACK_TEST_TURN_MS")); err == nil {
+		d.turn = time.Duration(ms) * time.Millisecond
+	}
+	pid := os.Getpid()
+	sid := fmt.Sprintf("00000000-0000-4000-8000-%012d", pid)
+	if tool == "codex" {
+		d.path = filepath.Join(dir, "rollout-"+strconv.Itoa(pid)+".jsonl")
+	} else {
+		home, _ := os.UserHomeDir()
+		d.path = filepath.Join(home, ".claude", "projects", "test", sid+".jsonl")
+		os.MkdirAll(filepath.Dir(d.path), 0o755)
+		// Claude Code lists the session before its first prompt.
+		if agents := os.Getenv("SUNSTACK_CLAUDE_AGENTS"); agents != "" {
+			var list []map[string]any
+			b, _ := os.ReadFile(agents)
+			json.Unmarshal(b, &list)
+			cwd, _ := os.Getwd()
+			list = append(list, map[string]any{"pid": pid, "sessionId": sid, "cwd": cwd, "kind": "interactive", "status": "idle"})
+			b, _ = json.Marshal(list)
+			os.WriteFile(agents, b, 0o600)
+		}
+	}
+	if tw != "late" && tw != "notranscript" && tool == "codex" {
+		d.emit(map[string]any{"type": "session_meta", "payload": map[string]any{"id": sid}})
+	}
+	return d
+}
+
+// status rewrites this session's line in the list `claude agents` prints.
+func (d *driver) status(st string) {
+	agents := os.Getenv("SUNSTACK_CLAUDE_AGENTS")
+	if d.tool != "claude" || agents == "" {
+		return
+	}
+	var list []map[string]any
+	b, _ := os.ReadFile(agents)
+	json.Unmarshal(b, &list)
+	for _, e := range list {
+		if pid, _ := e["pid"].(float64); int(pid) == os.Getpid() {
+			e["status"] = st
+		}
+	}
+	b, _ = json.Marshal(list)
+	os.WriteFile(agents+".tmp", b, 0o600)
+	os.Rename(agents+".tmp", agents)
+}
+
+func (d *driver) emit(rec map[string]any) {
+	if d.twist == "notranscript" {
+		return
+	}
+	if d.f == nil {
+		f, err := os.OpenFile(d.path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+		if err != nil {
+			panic(err)
+		}
+		d.f = f
+		if d.tool == "codex" && (d.twist == "late") {
+			b, _ := json.Marshal(map[string]any{"type": "session_meta", "timestamp": time.Now().UTC().Format(time.RFC3339Nano), "payload": map[string]any{"id": "late"}})
+			d.f.Write(append(b, '\n'))
+		}
+	}
+	rec["timestamp"] = time.Now().UTC().Format(time.RFC3339Nano)
+	b, _ := json.Marshal(rec)
+	d.f.Write(append(b, '\n'))
+}
+
+func msg(typ string, text string) map[string]any {
+	return map[string]any{"type": typ, "message": map[string]any{"role": typ, "content": []map[string]any{{"type": "text", "text": text}}}}
+}
+
+// submit starts a turn for a prompt; redraw runs when the screen changes.
+// Call with d.mu held.
+func (d *driver) submit(prompt string, redraw func()) {
+	body := prompt
+	if m := driveFile.FindStringSubmatch(prompt); m != nil {
+		if b, err := os.ReadFile(m[1]); err == nil {
+			body = strings.TrimSpace(string(b))
+		}
+	}
+	d.busy, d.abort = true, make(chan struct{})
+	d.status("busy")
+	if d.tool == "codex" {
+		d.emit(map[string]any{"type": "event_msg", "payload": map[string]any{"type": "task_started"}})
+	} else {
+		d.emit(map[string]any{"type": "user", "message": map[string]any{"role": "user", "content": prompt}})
+	}
+	abort := d.abort
+	go func() {
+		select {
+		case <-abort:
+			d.mu.Lock()
+			if d.tool == "codex" {
+				d.emit(map[string]any{"type": "event_msg", "payload": map[string]any{"type": "turn_aborted"}})
+			} else {
+				d.emit(msg("user", "[Request interrupted by user]"))
+			}
+		case <-time.After(d.turn):
+			d.mu.Lock()
+			if d.twist == "approval" {
+				d.approval = true
+				redraw()
+				d.mu.Unlock()
+				return
+			}
+			reply := "reply: " + body
+			if d.tool == "codex" {
+				for _, t := range []string{"working on it", reply} {
+					d.emit(map[string]any{"type": "response_item", "payload": map[string]any{"type": "message", "role": "assistant", "content": []map[string]any{{"type": "output_text", "text": t}}}})
+				}
+				d.emit(map[string]any{"type": "event_msg", "payload": map[string]any{"type": "task_complete", "last_agent_message": reply}})
+			} else {
+				d.emit(msg("assistant", "let me look"))
+				d.emit(map[string]any{"type": "user", "message": map[string]any{"role": "user", "content": []map[string]any{{"type": "tool_result", "content": "ok"}}}})
+				d.emit(msg("assistant", reply))
+				if d.twist != "noduration" {
+					d.emit(map[string]any{"type": "system", "subtype": "turn_duration"})
+				}
+			}
+		}
+		d.busy = false
+		d.status("idle")
+		redraw()
+		d.mu.Unlock()
+	}()
 }
 
 func interactive(tool string, args []string) {
@@ -203,6 +369,27 @@ func interactive(tool string, args []string) {
 	}
 	defer term.Restore(int(os.Stdin.Fd()), old)
 	mode := os.Getenv("SUNSTACK_TEST_MODE")
+	drv := newDriver(tool, dir)
+	if drv == nil {
+		drv = &driver{} // its lock only
+	}
+	// A CLI that is still loading reads no keys: what is typed then is lost.
+	ready := time.Now()
+	if ms, err := strconv.Atoi(os.Getenv("SUNSTACK_TEST_SLOW_MS")); err == nil {
+		ready = ready.Add(time.Duration(ms) * time.Millisecond)
+	}
+	wrap, _ := strconv.Atoi(os.Getenv("SUNSTACK_TEST_WRAP"))
+	wrapped := func(text string) string {
+		r := []rune(text)
+		if wrap <= 0 || len(r) <= wrap {
+			return text
+		}
+		var parts []string
+		for len(r) > wrap {
+			parts, r = append(parts, string(r[:wrap])), r[wrap:]
+		}
+		return strings.Join(append(parts, string(r)), "\r\n  ")
+	}
 	// Adversarial screens for §37: a changed answer label, a conversation
 	// that quotes the screen above the input box, and a menu that turns into
 	// the input box after the first key.
@@ -286,8 +473,21 @@ func interactive(tool string, args []string) {
 			fmt.Print("Trust this folder?\r\n› 1. Yes\r\n  2. No\r\nEnter to confirm · Esc to cancel\r\n")
 			return
 		}
+		if time.Now().Before(ready) {
+			fmt.Print("Starting, loading plugins ...\r\n")
+			return
+		}
+		if drv.approval {
+			fmt.Print("Run the command?\r\nDo you want to proceed?\r\n› 1. Yes\r\n  2. No\r\n")
+			return
+		}
+		if drv.busy {
+			fmt.Print("Working (esc to interrupt)\r\n")
+		}
 		if tool == "claude" {
-			fmt.Printf("Test Claude\r\n──────────────────────────────\r\n❯ %s\r\n──────────────────────────────\r\n  -- INSERT --", string(draft))
+			fmt.Printf("Test Claude\r\n──────────────────────────────\r\n❯ %s\r\n──────────────────────────────\r\n  -- INSERT --", wrapped(string(draft)))
+		} else if wrap > 0 {
+			fmt.Printf("Test Codex\r\n› %s\r\n\r\n  test-model high · ~/x", wrapped(string(draft)))
 		} else {
 			if twist == "unsafeinput" {
 				fmt.Print("Hooks need review\r\n  2. Trust all and continue\r\n")
@@ -296,12 +496,45 @@ func interactive(tool string, args []string) {
 		}
 	}
 	draw()
+	if time.Now().Before(ready) {
+		go func() {
+			time.Sleep(time.Until(ready))
+			drv.mu.Lock()
+			draw()
+			drv.mu.Unlock()
+		}()
+	}
 	rd := bufio.NewReader(os.Stdin)
 	for {
 		ch, _, err := rd.ReadRune()
 		if err != nil {
 			return
 		}
+		if time.Now().Before(ready) {
+			continue
+		}
+		drv.mu.Lock()
+		if drv.busy && ch == '\x1b' && drv.tool != "" {
+			close(drv.abort)
+			drv.mu.Unlock()
+			continue
+		}
+		if drv.tool != "" && (ch == '\r' || ch == '\n') && trust == nil {
+			if drv.twist == "dropenter" && !drv.dropped {
+				drv.dropped = true
+				drv.mu.Unlock()
+				continue
+			}
+			if len(draft) > 0 && !drv.busy {
+				json.NewEncoder(log).Encode(struct{ Line string }{string(draft)})
+				drv.submit(string(draft), draw)
+				draft = nil
+				draw()
+			}
+			drv.mu.Unlock()
+			continue
+		}
+		drv.mu.Unlock()
 		if _, err := fmt.Fprint(keys, string(ch)); err != nil {
 			panic(err)
 		}
@@ -330,6 +563,7 @@ func interactive(tool string, args []string) {
 			draw()
 			continue
 		}
+		drv.mu.Lock()
 		switch ch {
 		case '\r', '\n':
 			if err := json.NewEncoder(log).Encode(struct{ Line string }{string(draft)}); err != nil {
@@ -344,6 +578,7 @@ func interactive(tool string, args []string) {
 			draft = append(draft, ch)
 		}
 		draw()
+		drv.mu.Unlock()
 	}
 }
 

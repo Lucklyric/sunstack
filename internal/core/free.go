@@ -28,6 +28,10 @@ type FreeOptions struct {
 	Dir         string // a folder; relative to the team root in a team, else to the working directory
 	Root        string // the caller's team root, if any
 	OverCap     bool
+	// Access: read-only or full-auto; empty is the user's own settings (§47).
+	Access string
+	// Model and Effort for this session; empty is the CLI's own setting.
+	Model, Effort string
 	// Remote: another host asked (§20.4); Dir must then stay inside Root.
 	Remote  bool
 	Request string // that request's ID, marked on the pane
@@ -89,6 +93,14 @@ func SpawnFree(o FreeOptions) (*FreeResult, error) {
 	}
 	if o.Name != "" && !labelRe.MatchString(o.Name) {
 		return nil, fail(ExitUsage, "usage", "invalid --name %q: lowercase letters, digits and -, at most 20 characters", o.Name)
+	}
+	if o.Model != "" && !modelRe.MatchString(o.Model) {
+		return nil, fail(ExitUsage, "usage", "invalid --model %q: a model name or alias, like sonnet or gpt-5", o.Model)
+	}
+	switch o.Effort {
+	case "", "low", "medium", "high", "xhigh", "max":
+	default:
+		return nil, fail(ExitUsage, "usage", "--effort is low, medium, high, xhigh or max")
 	}
 	if !noteOK(o.Note) || strings.HasPrefix(o.Note, "-") {
 		return nil, fail(ExitUsage, "usage", "keep single quotes, line breaks and other control characters out of the note, and do not start it with -")
@@ -206,7 +218,7 @@ func SpawnFree(o FreeOptions) (*FreeResult, error) {
 		tm("set-option", "-p", "-t", h.pane, k, v)
 	}
 	tm("select-pane", "-t", h.pane, "-T", label)
-	cmd := o.Tool + titleFlag(o.Tool, label)
+	cmd := o.Tool + titleFlag(o.Tool, label) + accessFlags(o.Tool, o.Access) + modelFlags(o.Tool, o.Model, o.Effort)
 	if o.Note != "" {
 		cmd += " '" + o.Note + "'"
 	}
@@ -352,4 +364,44 @@ func FreeByPane(pane string) (label, socket string, ok bool) {
 		}
 	}
 	return "", "", false
+}
+
+// accessFlags are the CLI options for what a free session may do without
+// asking (§47). read-only: Codex cannot write files (Claude Code already
+// asks before each edit). full-auto: Codex writes inside its folder and
+// reaches the network, Claude Code accepts edits. Empty: the user's settings.
+func accessFlags(tool, access string) string {
+	switch {
+	case access == "read-only" && tool == "codex":
+		return " -s read-only"
+	case access == "full-auto" && tool == "codex":
+		return " -s workspace-write -c sandbox_workspace_write.network_access=true"
+	case access == "full-auto" && tool == "claude":
+		return " --permission-mode acceptEdits"
+	}
+	return ""
+}
+
+// modelRe is a model name or alias: it goes on a command line unquoted.
+var modelRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:\[\]-]{0,63}$`)
+
+// modelFlags are the CLI options for a session's model and reasoning effort.
+func modelFlags(tool, model, effort string) string {
+	out := ""
+	if tool == "codex" {
+		if model != "" {
+			out += " -m " + model
+		}
+		if effort != "" {
+			out += " -c model_reasoning_effort=" + effort
+		}
+		return out
+	}
+	if model != "" {
+		out += " --model " + model
+	}
+	if effort != "" {
+		out += " --effort " + effort
+	}
+	return out
 }
