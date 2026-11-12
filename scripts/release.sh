@@ -3,7 +3,8 @@
 #
 # The only way to release Sunstack:
 #   1. checks: on main, clean tree, the plugin manifests say X.Y.Z, the tag is new
-#   2. go vet and go test locally
+#   2. nothing local (home folder, host name, session trailer) is in what
+#      goes out; then go vet and go test locally
 #   3. pushes main and waits for CI; stops unless all three OS jobs pass
 #      (scripts/ci-green.sh)
 #   4. tags and pushes vX.Y.Z, and waits for the release build to succeed
@@ -31,6 +32,20 @@ for f in plugins/sunstack/.claude-plugin/plugin.json .claude-plugin/marketplace.
 done
 if git rev-parse -q --verify "refs/tags/$tag" >/dev/null || git ls-remote --tags origin "$tag" | grep -q .; then
   stop "tag $tag already exists"
+fi
+
+step "nothing local in what goes out"
+# The repo is public. What is about to be pushed (added lines and commit
+# messages) must not name this machine: its home folder, its host name, a
+# temp path, or a tool's session trailer. The patterns come from this
+# machine at run time, so the script itself names nothing.
+base=$(git rev-parse -q --verify refs/remotes/origin/main || git hash-object -t tree /dev/null)
+pat="$(printf '%s' "$HOME" | sed 's/[.[\*^$/]/\\&/g')|/private/""tmp/|/var/""folders/|Claude-""Session:|Co-Authored""-By:|Generated ""with"
+host=$(hostname -s 2>/dev/null || true)
+[ ${#host} -ge 4 ] && pat="$pat|$host"
+if leaks=$( { git diff "$base" HEAD | grep '^+' | grep -v '^+++'; git log --format='%s%n%b' "$base..HEAD" 2>/dev/null; } | grep -nE -- "$pat" | head -5) && [ -n "$leaks" ]; then
+  printf '%s\n' "$leaks" >&2
+  stop "local paths, a host name or a session trailer are in what would be pushed"
 fi
 
 step "local tests"
