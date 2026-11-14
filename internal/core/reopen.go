@@ -158,7 +158,7 @@ func finishReopen(o ReopenOptions, res *ReopenResult, tool, cmd, pane string) (*
 				}
 				c.TmuxPane, c.TmuxSocket, c.TmuxServer, c.CLIPID = pane, o.Socket, o.Server, 0
 				_ = p.writeLive(id, c)
-				exec.Command("tmux", TmuxArgs(o.Socket, "select-pane", "-t", pane, "-T", c.Label(id))...).Run()
+				exec.Command("tmux", TmuxArgs(o.Socket, "select-pane", "-t", pane, "-T", c.Title(p, id))...).Run()
 				p.LogEvent("reopen", c.Label(id), "pane="+pane)
 			}
 			unlock()

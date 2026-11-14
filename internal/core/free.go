@@ -23,6 +23,7 @@ type FreeOptions struct {
 	Tool        string // claude or codex; empty: DefaultTool, else claude
 	DefaultTool string
 	Name        string // the label; empty: <tool>-<n>
+	Title       string // the user's own title; empty: <project>/<label> (§48)
 	Note        string // the first prompt
 	Beside      string // a session (ID, label or name) whose folder to use
 	Dir         string // a folder; relative to the team root in a team, else to the working directory
@@ -43,9 +44,9 @@ type FreeOptions struct {
 
 // FreeResult is a started free session.
 type FreeResult struct {
-	Label, Tool, Pane, Home, Cwd string // Home: the home it opened in, if any
-	Running, Window              bool   // Window: a new window, not beside the caller
-	Prompt                       string // a trust screen answered, or waiting (§37)
+	Label, Title, Tool, Pane, Home, Cwd string // Home: the home it opened in, if any
+	Running, Window                     bool   // Window: a new window, not beside the caller
+	Prompt                              string // a trust screen answered, or waiting (§37)
 }
 
 var labelRe = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,19}$`)
@@ -94,6 +95,9 @@ func SpawnFree(o FreeOptions) (*FreeResult, error) {
 	if o.Name != "" && !labelRe.MatchString(o.Name) {
 		return nil, fail(ExitUsage, "usage", "invalid --name %q: lowercase letters, digits and -, at most 20 characters", o.Name)
 	}
+	if o.Title != "" && !ValidTitle(o.Title) {
+		return nil, fail(ExitUsage, "usage", "invalid --title %q: one line, at most 80 characters, no single quote", o.Title)
+	}
 	if o.Model != "" && !modelRe.MatchString(o.Model) {
 		return nil, fail(ExitUsage, "usage", "invalid --model %q: a model name or alias, like sonnet or gpt-5", o.Model)
 	}
@@ -130,7 +134,7 @@ func SpawnFree(o FreeOptions) (*FreeResult, error) {
 		return nil, err
 	}
 	// The scope is the team holding the folder, else its group (§20.1).
-	var home, scope string
+	var home, scope, project string
 	team, terr := FindProject(cwd)
 	var unlock func()
 	if terr == nil {
@@ -153,6 +157,7 @@ func SpawnFree(o FreeOptions) (*FreeResult, error) {
 			g = cwd
 		}
 		scope = "group:" + g
+		project = filepath.Base(g)
 		home = HomeName(strings.TrimSuffix(filepath.Base(g), ".git"), "", g)
 		if unlock, err = LockDir(filepath.Join(Home(), "locks", "free"), "free sessions"); err != nil {
 			return nil, err
@@ -191,6 +196,15 @@ func SpawnFree(o FreeOptions) (*FreeResult, error) {
 			label = fmt.Sprintf("%s-%d", o.Tool, n)
 		}
 	}
+	// The title says the project (§48), unless the user gave one.
+	title := o.Title
+	if title == "" {
+		slug := Slug(strings.TrimSuffix(project, ".git"))
+		if terr == nil {
+			slug = team.Slug()
+		}
+		title = Title(slug, label, "")
+	}
 	var h *homePane
 	window := false
 	if place == "team" {
@@ -210,15 +224,15 @@ func SpawnFree(o FreeOptions) (*FreeResult, error) {
 	}
 	launch := make([]byte, 8)
 	rand.Read(launch)
-	marks := map[string]string{"@sunstack_launch": hex.EncodeToString(launch), "@sunstack_scope": scope, "@sunstack_label": label, "@sunstack_tool": o.Tool, "@sunstack_root": cwd}
+	marks := map[string]string{"@sunstack_launch": hex.EncodeToString(launch), "@sunstack_scope": scope, "@sunstack_label": label, "@sunstack_tool": o.Tool, "@sunstack_root": cwd, "@sunstack_title": title}
 	if o.Request != "" {
 		marks["@sunstack_request"] = o.Request
 	}
 	for k, v := range marks {
 		tm("set-option", "-p", "-t", h.pane, k, v)
 	}
-	tm("select-pane", "-t", h.pane, "-T", label)
-	cmd := o.Tool + titleFlag(o.Tool, label) + accessFlags(o.Tool, o.Access) + modelFlags(o.Tool, o.Model, o.Effort)
+	tm("select-pane", "-t", h.pane, "-T", title)
+	cmd := o.Tool + titleFlag(o.Tool, title) + accessFlags(o.Tool, o.Access) + modelFlags(o.Tool, o.Model, o.Effort)
 	if o.Note != "" {
 		cmd += " '" + o.Note + "'"
 	}
@@ -242,9 +256,9 @@ func SpawnFree(o FreeOptions) (*FreeResult, error) {
 	_, notTeam := FindProject(cwd)
 	prompt := AnswerTrust(h.socket, h.pane, o.Tool, notTeam == nil, running)
 	if running && o.Tool == "codex" && o.Note == "" {
-		renameCodex(h.socket, h.pane, label)
+		renameCodex(h.socket, h.pane, title)
 	}
-	return &FreeResult{Label: label, Tool: o.Tool, Pane: h.pane, Home: h.at, Cwd: cwd, Running: running, Window: window, Prompt: prompt}, nil
+	return &FreeResult{Label: label, Title: title, Tool: o.Tool, Pane: h.pane, Home: h.at, Cwd: cwd, Running: running, Window: window, Prompt: prompt}, nil
 }
 
 // freeFolder resolves where a free session opens: beside a session, a
@@ -409,17 +423,17 @@ func modelFlags(tool, model, effort string) string {
 	return out
 }
 
-// renameCodex titles a new Codex session with its label (§47): Codex has no
+// renameCodex titles a new Codex session (§47, §48): Codex has no
 // option for it at launch, and takes /rename before the first prompt. It
 // waits for Codex to finish starting, and gives up quietly: the title is a
 // convenience, and sunstack next says when one is missing.
-func renameCodex(socket, pane, label string) {
+func renameCodex(socket, pane, title string) {
 	for end := time.Now().Add(10 * time.Second); time.Now().Before(end); time.Sleep(300 * time.Millisecond) {
 		screen := paneScreen(socket, pane)
 		if CLIReady("codex", screen) {
 			// typeInto types only into an empty box and presses Enter only
 			// on exactly this line.
-			typeInto(socket, pane, "codex", "/rename "+label)
+			typeInto(socket, pane, "codex", "/rename "+title)
 			return
 		}
 		if !ReadyForInput("codex", screen) && (hasDialog(screen) || hasMenu(screen)) {

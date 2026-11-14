@@ -57,7 +57,7 @@ func (p *Project) Spawn(o SpawnOptions) (*SpawnResult, error) {
 		return nil, fail(ExitFail, "halted", "the team is halted since %s: %s; nothing new starts until the user runs sunstack halt --off", date, reason)
 	}
 	if o.Task != "" && !ValidTask(o.Task) {
-		return nil, fail(ExitUsage, "usage", "invalid task %q: lowercase letters, digits and -, at most 10 characters", o.Task)
+		return nil, fail(ExitUsage, "usage", "invalid task %q: lowercase letters, digits and -, at most 20 characters", o.Task)
 	}
 	if !noteOK(o.Note) {
 		return nil, fail(ExitUsage, "usage", "keep single quotes, line breaks and other control characters out of the note")
@@ -195,7 +195,8 @@ func (p *Project) Spawn(o SpawnOptions) (*SpawnResult, error) {
 			return nil, fail(ExitFail, "brief", "could not deliver the brief to %s: %v", name, err)
 		}
 	}
-	quickTmux(o.Socket, "select-pane", "-t", pane, "-T", name)
+	title := l.Title(p, id)
+	quickTmux(o.Socket, "select-pane", "-t", pane, "-T", title)
 
 	note := o.Note
 	if note == "" {
@@ -211,7 +212,7 @@ func (p *Project) Spawn(o SpawnOptions) (*SpawnResult, error) {
 	}
 	first := fmt.Sprintf("%s %s --token %s%s (you were started by sunstack spawn; this claim is yours), %s", skill, id, l.Token, task, note)
 	// Single quotes: the shell must not expand $sunstack in the Codex prompt.
-	cmd := fmt.Sprintf("%s%s '%s'", o.Tool, titleFlag(o.Tool, name), first)
+	cmd := fmt.Sprintf("%s%s '%s'", o.Tool, titleFlag(o.Tool, title), first)
 	if err = exec.Command("tmux", TmuxArgs(o.Socket, "send-keys", "-t", pane, "-l", cmd)...).Run(); err == nil {
 		err = exec.Command("tmux", TmuxArgs(o.Socket, "send-keys", "-t", pane, "Enter")...).Run()
 	}
@@ -489,7 +490,7 @@ func frontmatterValue(path, key string) (string, bool) {
 }
 
 // titleFlag is the option that starts a Claude Code session already titled
-// with its Sunstack name (§46), so the user need not /rename it. Empty for
+// with its Sunstack title (§48), so the user need not /rename it. Empty for
 // Codex, which has no such option, and for a Claude Code that lacks it.
 func titleFlag(tool, name string) string {
 	if tool != "claude" || name == "" {

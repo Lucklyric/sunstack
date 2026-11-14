@@ -22,7 +22,7 @@ func TestNamePlainSession(t *testing.T) {
 	r := sh(t, p, s.env, "name", "fix-login")
 	expect(t, r, 0, "name")
 	requireContains(t, r.out, "this session is now called fix-login")
-	if got := opt(s.pane, "@sunstack_label") + " " + opt(s.pane, "pane_title") + " [" + opt(s.pane, "@sunstack_launch") + "]"; got != "fix-login fix-login []" {
+	if got := opt(s.pane, "@sunstack_label") + " " + opt(s.pane, "pane_title") + " [" + opt(s.pane, "@sunstack_launch") + "]"; got != "fix-login "+wantTitle(t, p, "fix-login", "")+" []" {
 		t.Errorf("marks %q", got)
 	}
 	r = sh(t, p, s.env, "name", "auth")
@@ -49,7 +49,7 @@ func TestNamePlainSession(t *testing.T) {
 	r = sh(t, p, s.env, "name", "review", "audit")
 	expect(t, r, 0, "name a free session")
 	requireContains(t, r.out, "the session in pane "+free+" is now called audit (was review)")
-	if got := opt(free, "@sunstack_label") + " " + opt(free, "pane_title"); got != "audit audit" {
+	if got := opt(free, "@sunstack_label") + " " + opt(free, "pane_title"); got != "audit "+wantTitle(t, p, "audit", "") {
 		t.Errorf("free marks %q", got)
 	}
 	expect(t, sh(t, p, s.env, "name", "audit"), 4, "the free session's name is taken")
@@ -66,11 +66,11 @@ func TestNameAgentSession(t *testing.T) {
 	expect(t, claim, 0, "claim")
 	tok := field(tokenRe, claim.out)
 
-	expect(t, sh(t, p, s.env, "name", "a-label-too-long"), 2, "task label too long")
+	expect(t, sh(t, p, s.env, "name", "a-label-far-too-long-now"), 2, "task label too long")
 	r := sh(t, p, s.env, "name", "tests")
 	expect(t, r, 0, "name")
-	requireContains(t, r.out, "this session is now called reviewer_tests (was reviewer)")
-	if got := s.tmux(t, "display-message", "-p", "-t", s.pane, "#{pane_title}"); got != "reviewer_tests" {
+	requireContains(t, r.out, "this session is now called reviewer_tests (was reviewer), titled "+wantTitle(t, p, "reviewer", "tests"))
+	if got := s.tmux(t, "display-message", "-p", "-t", s.pane, "#{pane_title}"); got != wantTitle(t, p, "reviewer", "tests") {
 		t.Errorf("pane title %q", got)
 	}
 	requireContains(t, sh(t, p, s.env, "team").out, "reviewer_tests")
@@ -105,8 +105,8 @@ func TestSpawnTitlesClaude(t *testing.T) {
 			}
 		}
 	}
-	if got := strings.Join(named, " "); len(named) != 2 || !strings.Contains(got, "reviewer_tests") || !strings.Contains(got, "review") {
-		t.Errorf("--name on %v, want reviewer_tests and review only", named)
+	if got := strings.Join(named, " "); len(named) != 2 || !strings.Contains(got, wantTitle(t, p, "reviewer", "tests")) || !strings.Contains(got, "review") {
+		t.Errorf("--name on %v, want the agent's title and review only", named)
 	}
 }
 

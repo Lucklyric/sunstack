@@ -327,7 +327,9 @@ func TestSpawnFreeCodexLateReviewAndTitle(t *testing.T) {
 	expect(t, r, 0, "spawn")
 	requireContains(t, r.out, "answered Codex's hook review")
 	pane := field(paneRe, r.out)
-	eventually(t, "the title", func() bool { return strings.Contains(s.tmux(t, "capture-pane", "-p", "-t", pane), "· review") })
+	eventually(t, "the title", func() bool {
+		return strings.Contains(s.tmux(t, "capture-pane", "-p", "-t", pane), "· "+wantTitle(t, p, "review", ""))
+	})
 	r = sh(t, p, s.env, "drive", "review", "hello")
 	expect(t, r, 0, "drive the titled session")
 	requireContains(t, r.out, "reply: hello")

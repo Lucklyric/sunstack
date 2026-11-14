@@ -38,7 +38,7 @@ resume it. `sunstack team` shows the same per agent.
 ## Start a session
 
 1. Choose the agent (rank as in the as skill's "Pick the agent"), the tool (default: the
-   agent's `tool:` in its `AGENT.md`, else the one this session runs), a task label (up to 10 characters), and a one-line first
+   agent's `tool:` in its `AGENT.md`, else the one this session runs), a task label (up to 20 characters), and a one-line first
    instruction (no single quotes), for example "handle message <id>" or "work on KR2".
 2. Choose where: by default a pane beside this one, or a new window in this tmux session when
    this pane is too small to split. Offer another place only with a reason, and say it in the
@@ -99,7 +99,7 @@ To give it work, send a message (send skill) to the new session name.
 A plain Claude or Codex session that holds no agent, for work outside the team's roles:
 
 ```sh
-sunstack spawn --free --tool <claude|codex> [--name <label>] [--note "<first prompt>"] [--dir <folder> | --beside <session>]
+sunstack spawn --free --tool <claude|codex> [--name <label>] [--title "<title>"] [--note "<first prompt>"] [--dir <folder> | --beside <session>]
 ```
 
 It opens where an agent session would (beside this pane by default; `--place window` or
@@ -118,12 +118,14 @@ sunstack name "<session>" "<name>"    # another one: its label or session ID
 
 It works for any session in a tmux pane, in a team or not, also one Sunstack did not start.
 Pick a short name for what the session works on. An agent session's name is `<id>_<label>`,
-so the name is its task label (up to 10 characters) and only that session changes it; any
+so the name is its task label (up to 20 characters) and only that session changes it; any
 other session takes a label of up to 20 characters. Lowercase letters, digits and `-`. The
-tmux pane title follows, and the org view, `sunstack attach` and `sunstack kill` use the new
-name. The title Claude Code or Codex shows is the user's: when the command prints a `do:`
-line (`/rename <name>`), pass it on. A Claude Code session Sunstack starts is titled with its
-name from the start.
+org view, `sunstack attach` and `sunstack kill` use the new name. The title (tmux pane,
+Claude Code, Codex) says the project: `<project>/<id>:<task>` for an agent session,
+`<project>/<label>` for any other session. Only when the user asks for a title of their own,
+pass it with `--title "<title>"` (on `spawn --free` or `sunstack name`); it is kept as given. The
+title Claude Code or Codex shows is the user's: when the command prints a `do:` line
+(`/rename <title>`), pass it on. A session Sunstack starts is titled from the start.
 
 ## Ask a session to finish
 

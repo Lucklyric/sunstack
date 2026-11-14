@@ -23,7 +23,7 @@ type Live struct {
 	Session     string `json:"session,omitempty"`
 	TmuxPane    string `json:"tmux_pane,omitempty"`
 	TmuxSocket  string `json:"tmux_socket,omitempty"`
-	Task        string `json:"task,omitempty"`        // what this session works on, up to 10 characters
+	Task        string `json:"task,omitempty"`        // what this session works on, up to 20 characters
 	PaneTitle   string `json:"pane_title,omitempty"`  // the tmux pane title before as, restored on release
 	Spawned     bool   `json:"spawned,omitempty"`     // the pane was opened by sunstack spawn
 	TmuxServer  string `json:"tmux_server,omitempty"` // tmux server PID when claimed; pane IDs restart with a new server
@@ -42,9 +42,9 @@ func (l *Live) Label(id string) string {
 	return id + "_" + l.Task
 }
 
-var taskRe = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,9}$`)
+var taskRe = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,19}$`)
 
-// ValidTask checks a session task label: lowercase, digits and -, 1 to 10 characters.
+// ValidTask checks a session task label: lowercase, digits and -, 1 to 20 characters.
 func ValidTask(s string) bool { return taskRe.MatchString(s) }
 
 func (p *Project) claimDir(id string) string { return p.local("live", id) }
@@ -272,7 +272,7 @@ func samePane(l *Live, pane, socket string) bool {
 // As claims, resumes or takes over an agent ID (design §6, §7).
 func (p *Project) As(o AsOptions) (*AsResult, error) {
 	if o.Task != "" && !ValidTask(o.Task) {
-		return nil, fail(ExitUsage, "usage", "invalid task %q: lowercase letters, digits and -, at most 10 characters", o.Task)
+		return nil, fail(ExitUsage, "usage", "invalid task %q: lowercase letters, digits and -, at most 20 characters", o.Task)
 	}
 	id, err := p.resolve(o.Arg)
 	if err != nil {
@@ -395,7 +395,7 @@ func (p *Project) As(o AsOptions) (*AsResult, error) {
 		// Name the pane after the session so tmux shows who works there; only
 		// when we know which tmux server the pane lives on.
 		if l.TmuxSocket != "" {
-			quickTmux(l.TmuxSocket, "select-pane", "-t", l.TmuxPane, "-T", l.Label(id))
+			quickTmux(l.TmuxSocket, "select-pane", "-t", l.TmuxPane, "-T", l.Title(p, id))
 		}
 	}
 	p.LogEvent(map[string]string{"claimed": "claim", "joined": "join", "resumed": "resume", "taken_over": "takeover"}[res.Mode], id, fields...)

@@ -65,7 +65,7 @@ $sunstack:<name> in Codex; save, verify and formal-verify are skills only.
 Agent identity (used by the plugin's skills):
   sunstack as <id|title> [--task LABEL] [--join] [--token T] [--takeover --expect CLAIM] [--tool claude|codex] [--root DIR]
                                                   several sessions may work as one agent: --join adds this one;
-                                                  --task (up to 10 characters) names it <id>_<task>
+                                                  --task (up to 20 characters) names it <id>_<task>
   sunstack snapshot <id> <context.md|board.md|threads/<topic>.md|archive/<YYYY-MM>.md> --token T [--root DIR]
   sunstack snapshot <id> <pillars.md|AGENT.md> [--root DIR]      rule files, no token needed
   sunstack snapshot --team [BOARD.md] [--root DIR]                team PILLARS.md (default) or BOARD.md
@@ -169,16 +169,18 @@ Org (every team and Claude Code or Codex session on this host):
   sunstack prompts sweep                          answer Codex's hook review in every tmux pane that shows it now, whoever
                                                   started the session (only with --codex-hooks on; else it lists the panes);
                                                   the hub connector does this every few seconds
-  sunstack spawn --free [--tool claude|codex] [--name LABEL] [--note "..."] [--dir DIR | --beside SESSION] [--place P] [--over-cap]
+  sunstack spawn --free [--tool claude|codex] [--name LABEL] [--title T] [--note "..."] [--dir DIR | --beside SESSION] [--place P] [--over-cap]
         [--read-only | --full-auto] [--model M] [--effort low|medium|high|xhigh|max]
                                                   start a plain session that holds no agent, placed as spawn is, working in the team
                                                   root, in DIR, or in the folder of another session; sunstack kill LABEL closes it.
                                                   --read-only: Codex may not write files; --full-auto: Codex writes in its folder
                                                   and Claude Code accepts edits, without asking; neither: the user's own settings.
-                                                  --model and --effort pick the model and its reasoning effort for that session
+                                                  --model and --effort pick the model and its reasoning effort for that session;
+                                                  it is titled <project>/<label>, or --title as given
   sunstack doing <id> "<line>" --token T [--root DIR]  one line on what this session is doing now ("" clears)
-  sunstack name [<session>] <name>                give this session, or another one in a tmux pane, a new name: the task
-                                                  label of an agent session (<id>_<name>), else a label; the pane title follows
+  sunstack name [<session>] <name> [--title T]    give this session, or another one in a tmux pane, a new name: the task
+                                                  label of an agent session (<id>_<name>, titled <project>/<id>:<name>), else a
+                                                  label (titled <project>/<name>, or --title as given); the pane title follows
   sunstack drive <session> "<prompt>" | --file F  give a session that works as no agent a prompt, wait for its turn to end and
                                                   print the reply (from its transcript); --file - reads the prompt from stdin
       [--no-wait] [--timeout SECONDS]             --no-wait returns once the session took the prompt; the wait is 600 s by default
@@ -1311,7 +1313,7 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 		return nil
 
 	case "spawn":
-		a, err := parse(rest, "root tool task note brief place name beside dir team model effort", "window over-cap free yes read-only full-auto")
+		a, err := parse(rest, "root tool task note brief place name title beside dir team model effort", "window over-cap free yes read-only full-auto")
 		if err == nil {
 			err = a.atMost(1, "spawn")
 		}
@@ -1351,7 +1353,7 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 				root = p.Root
 			}
 			callerTool, _ := detectTool()
-			r, err := core.SpawnFree(core.FreeOptions{Tool: a.flags["tool"], DefaultTool: callerTool, Name: a.flags["name"], Note: a.flags["note"],
+			r, err := core.SpawnFree(core.FreeOptions{Tool: a.flags["tool"], DefaultTool: callerTool, Name: a.flags["name"], Title: a.flags["title"], Note: a.flags["note"],
 				Beside: a.flags["beside"], Dir: a.flags["dir"], Root: root, OverCap: a.has("over-cap"), Access: access, Model: a.flags["model"], Effort: a.flags["effort"],
 				Place: place, Socket: tmuxSocket(), Caller: os.Getenv("TMUX_PANE")})
 			if err != nil {
@@ -1364,12 +1366,15 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 			case r.Window:
 				where = "a new tmux window"
 			}
-			fmt.Fprintf(stdout, "sunstack: started free session %s (%s) in %s, in %s, pane %s (sunstack attach %s)\n", r.Label, r.Tool, r.Cwd, where, r.Pane, r.Label)
+			fmt.Fprintf(stdout, "sunstack: started free session %s (%s), titled %s, in %s, in %s, pane %s (sunstack attach %s)\n", r.Label, r.Tool, r.Title, r.Cwd, where, r.Pane, r.Label)
 			printPrompt(stdout, r.Prompt)
 			if !r.Running {
 				fmt.Fprintf(stdout, "warning: %s is not running in pane %s yet; it may be at a login or trust prompt, or have exited; sunstack kill %s closes it\n", r.Tool, r.Pane, r.Label)
 			}
 			return nil
+		}
+		if a.has("title") {
+			return &core.Error{Code: core.ExitUsage, Reason: "usage", Msg: "--title is for spawn --free; an agent session is titled <project>/<id>:<task>"}
 		}
 		if a.has("read-only") || a.has("full-auto") || a.has("model") || a.has("effort") {
 			return &core.Error{Code: core.ExitUsage, Reason: "usage", Msg: "--read-only, --full-auto, --model and --effort are for spawn --free; an agent session starts with the user's own settings"}
@@ -1691,7 +1696,7 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 		return nil
 
 	case "name":
-		a, err := parse(rest, "root", "")
+		a, err := parse(rest, "root title", "")
 		if err == nil {
 			err = a.atMost(2, "name")
 		}
@@ -1701,7 +1706,7 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 		if len(a.pos) < 1 {
 			return missing("the new name (or a session, then the new name)")
 		}
-		o := core.NameOptions{Name: a.pos[len(a.pos)-1], Pane: os.Getenv("TMUX_PANE"), Socket: tmuxSocket()}
+		o := core.NameOptions{Name: a.pos[len(a.pos)-1], Title: a.flags["title"], Pane: os.Getenv("TMUX_PANE"), Socket: tmuxSocket()}
 		_, o.Session = detectTool()
 		if len(a.pos) == 2 {
 			o.Target = a.pos[0]
@@ -1715,14 +1720,17 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 		if o.Target != "" && r.Pane != o.Pane {
 			who = "the session in pane " + r.Pane
 		}
+		line := fmt.Sprintf("sunstack: %s is now called %s", who, r.Name)
 		switch {
 		case r.Old == r.Name:
-			fmt.Fprintf(stdout, "sunstack: %s is already called %s\n", who, r.Name)
-		case r.Old == "":
-			fmt.Fprintf(stdout, "sunstack: %s is now called %s\n", who, r.Name)
-		default:
-			fmt.Fprintf(stdout, "sunstack: %s is now called %s (was %s)\n", who, r.Name, r.Old)
+			line = fmt.Sprintf("sunstack: %s is already called %s", who, r.Name)
+		case r.Old != "":
+			line += " (was " + r.Old + ")"
 		}
+		if r.Title != "" && r.Title != r.Name {
+			line += ", titled " + r.Title
+		}
+		fmt.Fprintln(stdout, line)
 		if who == "this session" {
 			// The title Claude Code or Codex shows is the user's to change (§38).
 			if is, ok := renameIssue(p); ok {
@@ -2846,16 +2854,44 @@ func claimNames(p *core.Project, sid string) []string {
 	return names
 }
 
+// claimTitles are the titles (§48) of this session's claims in the team,
+// found as claimNames finds them.
+func claimTitles(p *core.Project, sid string) []string {
+	pane := os.Getenv("TMUX_PANE")
+	var titles []string
+	for _, id := range p.Agents() {
+		claims, _ := p.Claims(id)
+		for _, c := range claims {
+			if (sid != "" && c.Session == sid) || (c.Session == "" && pane != "" && c.TmuxPane == pane && c.TmuxSocket == tmuxSocket()) {
+				titles = append(titles, c.Title(p, id))
+			}
+		}
+	}
+	return titles
+}
+
+// paneTitle is the title sunstack gave this pane's free session (§48),
+// else its label, for one named before titles existed.
+func paneTitle() string {
+	if t := paneOption("@sunstack_title"); t != "" {
+		return t
+	}
+	return paneLabel()
+}
+
 // paneLabel is the label sunstack gave this pane's free session, read under
 // a hard one-second bound so a stalled tmux never holds anything up.
-func paneLabel() string {
+func paneLabel() string { return paneOption("@sunstack_label") }
+
+// paneOption reads one of this pane's options under the same bound.
+func paneOption(option string) string {
 	pane := os.Getenv("TMUX_PANE")
 	if pane == "" {
 		return ""
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "tmux", core.TmuxArgs(tmuxSocket(), "show-options", "-p", "-v", "-t", pane, "@sunstack_label")...)
+	cmd := exec.CommandContext(ctx, "tmux", core.TmuxArgs(tmuxSocket(), "show-options", "-p", "-v", "-t", pane, option)...)
 	cmd.WaitDelay = 200 * time.Millisecond // never wait on a stalled tmux's pipes
 	if out, err := cmd.Output(); err == nil {
 		return strings.TrimSpace(string(out))
@@ -2869,12 +2905,12 @@ func renameIssue(p *core.Project) (core.Issue, bool) {
 	tool, sid := detectTool()
 	name := ""
 	if p != nil {
-		if names := claimNames(p, sid); len(names) > 0 {
-			name = names[0]
+		if titles := claimTitles(p, sid); len(titles) > 0 {
+			name = titles[0]
 		}
 	}
 	if name == "" {
-		name = paneLabel()
+		name = paneTitle()
 	}
 	if name == "" || tool == "" {
 		return core.Issue{}, false

@@ -43,8 +43,9 @@ This is a question, not a decision: end your turn and wait for the choice.
 ## Pick a task label
 
 Give this session a short label for what it will work on: lowercase letters, digits and `-`,
-at most 10 characters (`auth`, `kr2-tests`, `docs`). Take it from the user's request; if
-there is nothing to go on, leave it out. The session is then named `<id>_<task>`.
+at most 20 characters (`auth`, `kr2-tests`, `docs`). Take it from the user's request; if
+there is nothing to go on, leave it out. The session is then named `<id>_<task>`, and titled
+`<project>/<id>:<task>` so it reads the same in any list.
 
 ## Run
 

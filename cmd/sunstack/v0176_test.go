@@ -40,18 +40,18 @@ func TestNextSuggestsRename(t *testing.T) {
 	expect(t, sh(t, p, cenv, "as", "reviewer", "--task", "web"), 0, "claim")
 
 	// Never renamed: the item.
-	requireContains(t, next(), "has no title", "/rename reviewer_web")
+	requireContains(t, next(), "has no title", "/rename "+wantTitle(t, p, "reviewer", "web"))
 
 	// A title record only inside a tool result line still counts as none.
-	quoted, _ := json.Marshal(map[string]any{"type": "user", "message": map[string]any{"content": titleLine176(sid, "reviewer_web")}})
+	quoted, _ := json.Marshal(map[string]any{"type": "user", "message": map[string]any{"content": titleLine176(sid, wantTitle(t, p, "reviewer", "web"))}})
 	big := `{"type":"assistant","message":{"content":"` + strings.Repeat("x", 9<<20) + `"}}`
 	claudeTitle176(t, env, sid, string(quoted), big)
-	requireContains(t, next(), "/rename reviewer_web")
+	requireContains(t, next(), "/rename "+wantTitle(t, p, "reviewer", "web"))
 
 	// Another title, then the matching one after a 9 MB line.
 	claudeTitle176(t, env, sid, titleLine176(sid, "old-name"))
-	requireContains(t, next(), `titled "old-name"`, "/rename reviewer_web")
-	claudeTitle176(t, env, sid, titleLine176(sid, "old-name"), big, titleLine176(sid, "reviewer_web"))
+	requireContains(t, next(), `titled "old-name"`, "/rename "+wantTitle(t, p, "reviewer", "web"))
+	claudeTitle176(t, env, sid, titleLine176(sid, "old-name"), big, titleLine176(sid, wantTitle(t, p, "reviewer", "web")))
 	if out := next(); strings.Contains(out, "/rename") {
 		t.Errorf("a session with the right title got a rename item: %s", out)
 	}
@@ -77,7 +77,7 @@ func TestNextSuggestsRenameCodex(t *testing.T) {
 			b, _ := json.Marshal(map[string]string{"id": sid, "thread_name": n})
 			lines = append(lines, string(b))
 		}
-		other, _ := json.Marshal(map[string]string{"id": "019a0000-0000-7000-8000-000000000999", "thread_name": "reviewer_web"})
+		other, _ := json.Marshal(map[string]string{"id": "019a0000-0000-7000-8000-000000000999", "thread_name": wantTitle(t, p, "reviewer", "web")})
 		must(t, os.WriteFile(index, []byte(strings.Join(append(lines, string(other)), "\n")+"\n"), 0o600))
 	}
 	// An index with no entry for this thread: its title is unknown, no item.
@@ -88,8 +88,8 @@ func TestNextSuggestsRenameCodex(t *testing.T) {
 	write("Read the protocol")
 	r := sh(t, p, xenv, "next", "--all")
 	expect(t, r, 0, "next")
-	requireContains(t, r.out, `titled "Read the protocol"`, "rename it to reviewer_web in Codex's agents list")
-	write("Read the protocol", "reviewer_web")
+	requireContains(t, r.out, `titled "Read the protocol"`, "rename it to "+wantTitle(t, p, "reviewer", "web")+" in Codex's agents list")
+	write("Read the protocol", wantTitle(t, p, "reviewer", "web"))
 	if r := sh(t, p, xenv, "next", "--all"); strings.Contains(r.out, "rename it") {
 		t.Errorf("a Codex thread with the right name got a rename item: %s", r.out)
 	}

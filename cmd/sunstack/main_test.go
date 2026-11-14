@@ -673,7 +673,7 @@ func TestMultiSession(t *testing.T) {
 	if !strings.Contains(r.out, "session_name: builder.alice_auth") {
 		t.Errorf("session name missing: %s", r.out)
 	}
-	expect(t, sh(t, p, nil, "as", "builder.alice", "--task", "this-is-too-long"), 2, "task over 10 characters")
+	expect(t, sh(t, p, nil, "as", "builder.alice", "--task", "this-task-is-far-too-long"), 2, "task over 20 characters")
 	r = sh(t, p, nil, "as", "builder.alice")
 	expect(t, r, 4, "second session needs --join")
 	if !strings.Contains(r.stderr, "active") || !strings.Contains(r.out, "task=auth") {

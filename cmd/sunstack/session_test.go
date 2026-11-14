@@ -502,7 +502,7 @@ func TestReopenPrivatePane(t *testing.T) {
 			if c.CLIPID != event.PID {
 				t.Errorf("claim cli_pid %d, want the resumed process %d", c.CLIPID, event.PID)
 			}
-			if got := home.tmux(t, "display-message", "-p", "-t", pane, "#{pane_title}\t#{window_name}"); got != "reviewer\treviewer" {
+			if got := home.tmux(t, "display-message", "-p", "-t", pane, "#{pane_title}\t#{window_name}"); got != wantTitle(t, p, "reviewer", "")+"\treviewer" {
 				t.Errorf("pane title and window %q", got)
 			}
 			if n := len(strings.Fields(caller.tmux(t, "list-panes", "-a", "-F", "#{pane_id}"))); n != 1 {
@@ -975,7 +975,7 @@ func TestSpawnFree(t *testing.T) {
 	expect(t, r, 0, "free codex")
 	requireContains(t, r.out, "codex-1", "ss-alpha-a1b2:free")
 	first := field(paneRe, r.out)
-	if got := opt(first, "@sunstack_label") + " " + opt(first, "window_name") + " " + opt(first, "pane_title"); got != "codex-1 free codex-1" {
+	if got := opt(first, "@sunstack_label") + " " + opt(first, "window_name") + " " + opt(first, "pane_title"); got != "codex-1 free alpha/codex-1" {
 		t.Errorf("marks %q", got)
 	}
 

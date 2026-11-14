@@ -47,8 +47,8 @@ It prints the top five for the scope above, ranked, each with a `do:` line:
   message waiting in this session's inbox (`sunstack check --session`)
 
 After the list, a `This session:` line appears when this session has a Sunstack name (its
-agent's `<id>_<task>`, or a free session's label) and its title differs. Its `do:` is for the
-user: `/rename <name>` in Claude Code, or rename it in Codex's agents list. You cannot rename
+agent's `<project>/<id>:<task>`, or a free session's title) and its title differs. Its `do:`
+is for the user: `/rename <title>` in Claude Code, or rename it in Codex's agents list. You cannot rename
 the session yourself.
 
 ## 2. Report
