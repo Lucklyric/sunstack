@@ -82,8 +82,9 @@ and ones this session has already taken.
    - `task`: unless you decline it (below), add a Now entry with the next free `KR<n>`, its
      `[O<n>]`, the Goal as its text, the Done when criteria and `(by: <session_name>@<host>)`.
      Commit `board.md` right away (save skill steps 3 to 5 for `board.md` only, with its error
-     handling), so other sessions of this agent see it and its key. Then do it inside its
-     Scope. Stop at its Timebox if one is set, and report what is done so far. Reply
+     handling), so other sessions of this agent see it and its key. If the task is not what
+     this session's task label says, rename it for the task (`sunstack name <label>`, the as
+     skill). Then do it inside its Scope. Stop at its Timebox if one is set, and report what is done so far. Reply
      `done --reply-to <message id>` with what Report asks for and a `verified:` line naming
      the checks you actually ran (`verified: none, <reason>` when there was nothing to run).
      In a git project the line ends with `@ <short commit>` you checked, so the sender sees

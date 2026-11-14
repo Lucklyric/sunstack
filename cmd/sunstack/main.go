@@ -1731,6 +1731,12 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 			line += ", titled " + r.Title
 		}
 		fmt.Fprintln(stdout, line)
+		switch {
+		case r.CLITitled:
+			fmt.Fprintf(stdout, "sunstack: retitled it in its CLI: /rename %s\n", r.Title)
+		case r.CLINote != "":
+			fmt.Fprintf(stdout, "sunstack: its CLI title is unchanged (%s); /rename %s in that pane once it is idle\n", r.CLINote, r.Title)
+		}
 		if who == "this session" {
 			// The title Claude Code or Codex shows is the user's to change (§38).
 			if is, ok := renameIssue(p); ok {

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/Lucklyric/sunstack/internal/core"
@@ -58,4 +59,31 @@ func TestSessionTitles(t *testing.T) {
 	}
 	expect(t, sh(t, p, s.env, "spawn", "--place", "here", "--free", "--tool", "codex", "--title", "it's"), 2, "a quote in a title")
 	expect(t, sh(t, p, s.env, "spawn", "reviewer", "--place", "here", "--title", "x"), 2, "--title on an agent session")
+}
+
+// A co-worker reused for other work takes its new title in the CLI too.
+func TestNameRetitlesCoworker(t *testing.T) {
+	p := fixture(t)
+	s := privateTmux(t, p, append(isolatedEnv(t), "SUNSTACK_TEST_DRIVE=1"))
+	r := sh(t, p, s.env, "spawn", "--place", "here", "--free", "--tool", "codex", "--name", "review")
+	expect(t, r, 0, "spawn")
+	pane := field(paneRe, r.out)
+	eventually(t, "the first title", func() bool {
+		return strings.Contains(s.tmux(t, "capture-pane", "-p", "-t", pane), "· "+wantTitle(t, p, "review", ""))
+	})
+	r = sh(t, p, s.env, "name", "review", "fix-auth")
+	expect(t, r, 0, "rename the co-worker")
+	requireContains(t, r.out, "retitled it in its CLI: /rename "+wantTitle(t, p, "fix-auth", ""))
+	eventually(t, "the new title", func() bool {
+		return strings.Contains(s.tmux(t, "capture-pane", "-p", "-t", pane), "· "+wantTitle(t, p, "fix-auth", ""))
+	})
+	// The same name again types nothing.
+	r = sh(t, p, s.env, "name", "fix-auth", "fix-auth")
+	expect(t, r, 0, "same name")
+	if strings.Contains(r.out, "retitled") {
+		t.Errorf("the same name typed /rename again: %s", r.out)
+	}
+	r = sh(t, p, s.env, "drive", "fix-auth", "hello")
+	expect(t, r, 0, "drive under the new name")
+	requireContains(t, r.out, "reply: hello")
 }

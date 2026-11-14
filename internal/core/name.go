@@ -42,7 +42,11 @@ type NameOptions struct {
 type NameResult struct {
 	Old, Name, Pane string
 	Title           string // the title it now shows (§48)
-	Agent           string // the agent, when the session works as one
+	// CLITitled: the new title was typed into the CLI as /rename (§49);
+	// CLINote says why not, for a session Sunstack started.
+	CLITitled bool
+	CLINote   string
+	Agent     string // the agent, when the session works as one
 }
 
 // NameSession gives a session a new Sunstack name and puts it on its pane's
@@ -97,21 +101,21 @@ func NameSession(p *Project, o NameOptions) (*NameResult, error) {
 		return nil, err
 	}
 	defer unlock()
-	out, err := quickTmux(socket, "list-panes", "-a", "-F", "#{pane_id}\t#{@sunstack}\t#{@sunstack_scope}\t#{@sunstack_label}\t#{pane_current_path}")
+	out, err := quickTmux(socket, "list-panes", "-a", "-F", "#{pane_id}\t#{@sunstack}\t#{@sunstack_scope}\t#{@sunstack_label}\t#{pane_current_path}\t#{@sunstack_launch}\t#{@sunstack_tool}")
 	if err != nil {
 		return nil, fail(ExitFail, "tmux", "could not read the tmux panes: %v", err)
 	}
-	var scope, old, dir string
+	var scope, old, dir, launch, tool string
 	found := false
 	rows := strings.Split(strings.TrimRight(string(out), "\n"), "\n")
 	for _, l := range rows {
-		if f := strings.Split(l, "\t"); len(f) == 5 && f[0] == pane {
+		if f := strings.Split(l, "\t"); len(f) == 7 && f[0] == pane {
 			if f[1] != "" {
 				// The pane is marked for an agent whose claim is not in this
 				// team (or is gone): its name is not ours to change here.
 				return nil, fail(ExitUsage, "agent_session", "pane %s belongs to an agent session (%s); run sunstack name in its team", pane, f[1])
 			}
-			scope, old, dir, found = f[2], f[3], f[4], true
+			scope, old, dir, launch, tool, found = f[2], f[3], f[4], f[5], f[6], true
 		}
 	}
 	if !found {
@@ -120,7 +124,7 @@ func NameSession(p *Project, o NameOptions) (*NameResult, error) {
 	// Names are unique where one can be mistaken for another: among the
 	// sessions of one scope, and against every session that has no scope.
 	for _, l := range rows {
-		if f := strings.Split(l, "\t"); len(f) == 5 && f[0] != pane && f[3] == o.Name && (f[2] == scope || f[2] == "" || scope == "") {
+		if f := strings.Split(l, "\t"); len(f) == 7 && f[0] != pane && f[3] == o.Name && (f[2] == scope || f[2] == "" || scope == "") {
 			return nil, fail(ExitClaim, "name_taken", "the session in pane %s is already called %s; pick another name", f[0], o.Name)
 		}
 	}
@@ -134,7 +138,18 @@ func NameSession(p *Project, o NameOptions) (*NameResult, error) {
 	}
 	quickTmux(socket, "set-option", "-p", "-t", pane, "@sunstack_title", title)
 	quickTmux(socket, "select-pane", "-t", pane, "-T", title)
-	return &NameResult{Old: old, Name: o.Name, Pane: pane, Title: title}, nil
+	res := &NameResult{Old: old, Name: o.Name, Pane: pane, Title: title}
+	// A session Sunstack started for the caller, reused for other work, gets
+	// the new title in its CLI too (§49). The caller's own session is busy
+	// running this command, so its title stays the user's to change.
+	if !own && launch != "" && (tool == "claude" || tool == "codex") && (old != o.Name || o.Title != "") {
+		if err := typeInto(socket, pane, tool, "/rename "+title); err != nil {
+			res.CLINote = err.Error()
+		} else {
+			res.CLITitled = true
+		}
+	}
+	return res, nil
 }
 
 // nameSlug is the project part of a named session's title: the caller's

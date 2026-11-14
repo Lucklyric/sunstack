@@ -21,7 +21,15 @@ The other session is a co-worker in a pane beside this one: the user sees it wor
 
 ## 1. Find or start the co-worker
 
-Reuse the co-worker you started earlier in this conversation: you know its name. If there is none, tell the user in one line where it will open, then:
+Reuse the co-worker you started earlier in this conversation: you know its name. When you reuse it for work its name no longer fits (it was `review`, now it fixes the login), rename it first and use the new name from then on:
+
+```sh
+sunstack name <old name> <new name>
+```
+
+The pane and the CLI's own title follow (`<project>/<new name>`). If it prints that the CLI title is unchanged, the session was busy or held a draft: go on, it is only the title. Keep the name when the new work is a follow-up of the same task.
+
+If there is none, tell the user in one line where it will open, then:
 
 ```sh
 sunstack spawn --free --tool <codex|claude> --name <name> --dir "$PWD" [--read-only | --full-auto] [--model <model>] [--effort <low|medium|high|xhigh|max>]
@@ -44,7 +52,7 @@ Which model, and how hard it thinks:
 
 Access, model and effort are fixed for the life of that session: for other ones, start another co-worker.
 
-It opens a pane beside this one, working in this folder. Pick a short name for the work (`review`, `tests`; lowercase letters, digits and `-`), not the tool's name: other sessions have co-workers too. The name is how every later command finds it.
+It opens a pane beside this one, working in this folder. Pick a short name for the work (`review`, `fix-auth`; lowercase letters, digits and `-`, up to 20 characters), not the tool's name: other sessions have co-workers too. The name is how every later command finds it, and the session is titled `<project>/<name>` in tmux, Claude Code and Codex. Pass `--title "<title>"` only when the user asked for a title of their own.
 
 - **4, "a session called ... is already open here"**: the name is taken. If you started that session, reuse it. If not, pick another name.
 - A `sunstack: answered ...` line: a trust screen was answered as the user chose. Say so in one line.

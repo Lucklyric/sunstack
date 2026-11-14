@@ -47,6 +47,11 @@ at most 20 characters (`auth`, `kr2-tests`, `docs`). Take it from the user's req
 there is nothing to go on, leave it out. The session is then named `<id>_<task>`, and titled
 `<project>/<id>:<task>` so it reads the same in any list.
 
+When the session later moves to different work (a new task taken from the inbox, the user
+switching topic), give it a label for that work: `sunstack name <new-label>`. Pass the
+`/rename <title>` step it prints on to the user, in one line; only they can retitle this
+session in its CLI.
+
 ## Run
 
 ```sh
