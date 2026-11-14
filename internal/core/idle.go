@@ -57,7 +57,7 @@ func (p *Project) idleAgents(sessions []*HostSession, now time.Time) []IdleSessi
 		for _, c := range claims {
 			name := c.Label(id)
 			s := byLabel[name+"@"+host]
-			if s == nil || s.Status != "idle" || c.TmuxPane == "" || !sameServer(c) || os.Getenv("TMUX_PANE") == c.TmuxPane || dup[s.SessionID] != nil {
+			if s == nil || s.Status != "idle" || c.TmuxPane == "" || !sameServer(c) || selfPane() == c.TmuxPane || dup[s.SessionID] != nil {
 				continue
 			}
 			if len(listNames(p.local("inbox", id, ".taken", c.Token), ".md")) > 0 {
@@ -82,7 +82,7 @@ func (p *Project) idleFree(sessions []*HostSession, now time.Time) []IdleSession
 	dup := DuplicateSessions(sessions)
 	var out []IdleSession
 	for _, fp := range ps {
-		if fp.scope != scope || os.Getenv("TMUX_PANE") == fp.pane {
+		if fp.scope != scope || selfPane() == fp.pane {
 			continue
 		}
 		for _, s := range sessions {
@@ -110,7 +110,7 @@ func (p *Project) exitedPanes() []IdleSession {
 	for _, id := range p.Agents() {
 		claims, _ := p.Claims(id)
 		for _, c := range claims {
-			if !c.Spawned || c.TmuxPane == "" || c.TmuxSocket == "" || !sameServer(c) || os.Getenv("TMUX_PANE") == c.TmuxPane {
+			if !c.Spawned || c.TmuxPane == "" || c.TmuxSocket == "" || !sameServer(c) || selfPane() == c.TmuxPane {
 				continue
 			}
 			mark, _ := exec.Command("tmux", TmuxArgs(c.TmuxSocket, "show-options", "-p", "-v", "-t", c.TmuxPane, "@sunstack")...).Output()
@@ -133,7 +133,7 @@ func (p *Project) exitedPanes() []IdleSession {
 	scope := p.HomeScope()
 	for _, l := range strings.Split(strings.TrimSpace(string(list)), "\n") {
 		f := strings.Split(l, "\t")
-		if len(f) != 6 || seen[f[0]] || os.Getenv("TMUX_PANE") == f[0] {
+		if len(f) != 6 || seen[f[0]] || selfPane() == f[0] {
 			continue
 		}
 		pane, mark, launch, fscope, label, tool := f[0], f[1], f[2], f[3], f[4], f[5]

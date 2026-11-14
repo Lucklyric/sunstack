@@ -64,3 +64,18 @@ func (l *Live) Title(p *Project, id string) string {
 func ValidTitle(t string) bool {
 	return t != "" && len(t) <= 80 && !strings.ContainsAny(t, "'\n\r\t")
 }
+
+// CLIName is the CLI an agent ID's name part is named after ("claude",
+// "codex"), or "". Agents are not tied to a CLI, so hire points it out.
+func CLIName(id string) string {
+	_, name, ok := strings.Cut(id, ".")
+	if !ok {
+		return ""
+	}
+	for _, part := range strings.FieldsFunc(name, func(r rune) bool { return r == '-' || (r >= '0' && r <= '9') }) {
+		if part == "claude" || part == "codex" {
+			return part
+		}
+	}
+	return ""
+}

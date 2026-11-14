@@ -126,6 +126,32 @@ func main() {
 			}
 			os.Exit(1)
 		}
+		// A parent's terminal (CallerPane): only one with no terminal, or a
+		// terminal of our private server.
+		if len(args) == 4 && args[0] == "-o" && args[1] == "ppid=,tty=" && args[2] == "-p" {
+			out, err := exec.Command(os.Getenv("SUNSTACK_TEST_REAL_PS"), args...).Output()
+			f := strings.Fields(string(out))
+			if err != nil || len(f) != 2 {
+				os.Exit(1)
+			}
+			if f[1] == "?" || f[1] == "??" {
+				fmt.Print(string(out))
+				return
+			}
+			for _, sock := range []string{os.Getenv("SUNSTACK_TEST_DEFAULT_SOCKET"), os.Getenv("SUNSTACK_TMUX_SOCKET")} {
+				if !privateSocket(sock) {
+					continue
+				}
+				ttys, _ := exec.Command(os.Getenv("SUNSTACK_TEST_REAL_TMUX"), "-S", sock, "list-panes", "-a", "-F", "#{pane_tty}").Output()
+				for _, tty := range strings.Fields(string(ttys)) {
+					if strings.TrimPrefix(tty, "/dev/") == f[1] {
+						fmt.Print(string(out))
+						return
+					}
+				}
+			}
+			os.Exit(1)
+		}
 		// Only inspect foreground processes on a terminal of our private server.
 		if len(args) == 4 && args[0] == "-o" && (args[1] == "stat=,comm=" || args[1] == "stat=,pid=,lstart=,comm=") && args[2] == "-t" {
 			sockets := []string{strings.Split(os.Getenv("TMUX"), ",")[0], os.Getenv("SUNSTACK_TEST_DEFAULT_SOCKET"), os.Getenv("SUNSTACK_TMUX_SOCKET")}

@@ -49,6 +49,10 @@ resume it. `sunstack team` shows the same per agent.
    If the new session is for a piece of work with a result, write a task brief (the send
    skill's template: Goal, Scope, Done when, Verify, Report) to a file and pass it with
    `--brief`; the session finds it in its inbox as its first task.
+   When another live session of the same agent edits the same git checkout, decide from the
+   tasks: if their files may overlap, put the new session's work in its own git worktree and
+   say so in the brief's Scope (the folder and branch). Sessions that only read, or touch
+   separate files, share the checkout.
 3. Show the plan (agent, tool, task, first instruction, brief, place) and ask:
    start / edit / cancel.
 4. On yes:

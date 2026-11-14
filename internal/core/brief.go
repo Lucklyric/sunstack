@@ -15,8 +15,12 @@ var BriefLabels = []string{"Goal", "Scope", "Done when", "Verify", "Report"}
 // briefLabelRe matches any brief label, required or optional, at a line start.
 var briefLabelRe = regexp.MustCompile(`(?i)^(goal|scope|done when|verify|report|context|timebox|not):(.*)$`)
 
+// briefItemRe matches a list item: "- x", "* x", "• x" or "1. x".
+var briefItemRe = regexp.MustCompile(`^([-*•]|[0-9]+[.)])\s+\S`)
+
 // MissingBrief lists the required labels a brief lacks. A label counts only
-// with text after it, on its own line or on the indented lines below it.
+// with text after it, on its own line, or on the indented lines or list
+// items below it.
 func MissingBrief(body string) []string {
 	have := map[string]bool{}
 	cur := ""
@@ -28,7 +32,10 @@ func MissingBrief(body string) []string {
 			}
 			continue
 		}
-		if cur != "" && (strings.HasPrefix(l, " ") || strings.HasPrefix(l, "\t")) && strings.TrimSpace(l) != "" {
+		if cur != "" && strings.TrimSpace(l) == "" {
+			continue // a blank line between a label and its block
+		}
+		if cur != "" && (strings.HasPrefix(l, " ") || strings.HasPrefix(l, "\t") || briefItemRe.MatchString(l)) {
 			have[cur] = true
 			continue
 		}

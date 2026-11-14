@@ -172,7 +172,7 @@ func finishReopen(o ReopenOptions, res *ReopenResult, tool, cmd, pane string) (*
 		}
 	}
 	_, notTeam := FindProject(res.Cwd)
-	res.Prompt = AnswerTrust(o.Socket, pane, tool, notTeam == nil, ok)
+	res.Prompt = StartPrompt(o.Socket, pane, tool, notTeam == nil, ok)
 	if ok {
 		for _, p := range IndexedProjects() {
 			for _, id := range p.Agents() {

@@ -206,7 +206,7 @@ func AnswerTrust(socket, pane, tool string, inTeam, running bool) string {
 				}
 				why := "answer it there"
 				if setting == "ask" {
-					why += ", or let sunstack answer it from now on: sunstack prompts " + ts.flag + " on"
+					why += ", or have the user run sunstack prompts " + ts.flag + " on in a terminal (only the user may), so sunstack answers it from now on"
 				}
 				if ts.setting == "claude" && !inTeam {
 					why = "answer it there; sunstack answers it only in a team folder"
@@ -224,6 +224,18 @@ func AnswerTrust(socket, pane, tool string, inTeam, running bool) string {
 		time.Sleep(300 * time.Millisecond)
 	}
 	return looks
+}
+
+// StartPrompt is AnswerTrust for a session just started by spawn, free
+// spawn or reopen. Codex can show its hook review after the watch ends, so
+// while the user has not chosen (ask) and Codex is not ready yet, it says
+// how that screen is answered.
+func StartPrompt(socket, pane, tool string, inTeam, running bool) string {
+	got := AnswerTrust(socket, pane, tool, inTeam, running)
+	if got == "" && running && tool == "codex" && LoadPrompts().CodexHooks == "ask" && !CLIReady(tool, paneScreen(socket, pane)) {
+		return "Codex may stop at its hook review in pane " + pane + ": answer it there, or have the user run sunstack prompts --codex-hooks on in a terminal (only the user may), so sunstack answers it from now on"
+	}
+	return got
 }
 
 // trustAppear is how long the watch waits for a trust screen to show at all.

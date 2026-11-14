@@ -78,6 +78,9 @@ Take what the user already said; ask only for what is missing or too vague to wr
 - Ask at most three questions per round, each with 2 to 4 concrete suggestions drawn from the
   project and the team (the user can always type their own). Suggest names that say what sets
   this agent apart (`macro`, `equities`, `swing`), not people's names unless the user wants.
+  Never suggest a CLI name (`codex`, `claude`): any agent can run in either CLI. If the user
+  picks one, say so once and offer a name for its work instead; `sunstack hire` prints the
+  same note.
 - If the description is one vague line ("a researcher"), start with the role and its focus.
 - Do not ask about things with a sensible default; put the default in the draft instead.
 - Stop asking as soon as you can write a specific draft.

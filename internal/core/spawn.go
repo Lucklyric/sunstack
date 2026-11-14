@@ -227,7 +227,7 @@ func (p *Project) Spawn(o SpawnOptions) (*SpawnResult, error) {
 		time.Sleep(250 * time.Millisecond)
 		running = paneRunsTool(o.Socket, pane, o.Tool)
 	}
-	prompt := AnswerTrust(o.Socket, pane, o.Tool, true, running)
+	prompt := StartPrompt(o.Socket, pane, o.Tool, true, running)
 	// The claim names the CLI it started, so a later CLI in this pane is
 	// not taken for it (§34.10).
 	if pid, _, ok := paneToolProc(o.Socket, pane, o.Tool); running && ok {
@@ -390,7 +390,7 @@ func (p *Project) Kill(t string) (msg string, err error) {
 	if c.TmuxPane == "" || c.TmuxSocket == "" {
 		return "", fail(ExitFail, "no_pane", "%s is not in a tmux pane sunstack knows; close it yourself", name)
 	}
-	if os.Getenv("TMUX_PANE") == c.TmuxPane && sameServer(c) {
+	if selfPane() == c.TmuxPane && sameServer(c) {
 		return "", fail(ExitUsage, "self", "%s is this pane; kill closes another session, so ask the user to close this one", name)
 	}
 	if !sameServer(c) {

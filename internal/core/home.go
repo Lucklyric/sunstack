@@ -82,11 +82,15 @@ func (p *Project) home(id string) (*homePane, error) {
 	return openHome(name, owner, p.Root, id)
 }
 
+// The smallest pane a session is split into beside its caller.
+const minPaneCols, minPaneRows = 80, 20
+
 // openNear opens a pane in folder cwd near the caller's pane: beside it
-// (side by side when it is at least 160 columns wide, else stacked), or a
-// new window after the caller's when place is window, there is no caller
-// pane, or the pane is too small to split. It reports whether it opened a
-// window; name, if set, names that window.
+// (side by side when both halves keep minPaneCols, else stacked when both
+// keep minPaneRows), or a new window after the caller's when place is
+// window, there is no caller pane, or the pane is too small to split. It
+// reports whether it opened a window; name, if set, names that window.
+
 func openNear(socket, caller, place, cwd, name string) (string, bool, error) {
 	tm := func(args ...string) string {
 		out, err := exec.Command("tmux", TmuxArgs(socket, args...)...).Output()
@@ -97,12 +101,24 @@ func openNear(socket, caller, place, cwd, name string) (string, bool, error) {
 	}
 	common := []string{"-d", "-P", "-F", "#{pane_id}", "-c", cwd, "-e", "PATH=" + os.Getenv("PATH")}
 	if place == "here" && caller != "" {
-		split := "-v"
-		if atoiOr(tm("display-message", "-p", "-t", caller, "#{pane_width}"), 0) >= 160 {
-			split = "-h"
+		// A split halves the caller's pane; both halves must stay large
+		// enough for a CLI to draw (minPaneCols x minPaneRows), or the
+		// session gets a window of its own.
+		var w, h int
+		if size := strings.Fields(tm("display-message", "-p", "-t", caller, "#{pane_width} #{pane_height}")); len(size) == 2 {
+			w, h = atoiOr(size[0], 0), atoiOr(size[1], 0)
 		}
-		if pane := tm(append([]string{"split-window", split, "-t", caller}, common...)...); pane != "" {
-			return pane, false, nil
+		split := ""
+		switch {
+		case w >= 2*minPaneCols && h >= minPaneRows:
+			split = "-h"
+		case w >= minPaneCols && h >= 2*minPaneRows+1:
+			split = "-v"
+		}
+		if split != "" {
+			if pane := tm(append([]string{"split-window", split, "-t", caller}, common...)...); pane != "" {
+				return pane, false, nil
+			}
 		}
 	}
 	args := append([]string{"new-window"}, common...)

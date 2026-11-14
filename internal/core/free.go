@@ -254,7 +254,7 @@ func SpawnFree(o FreeOptions) (*FreeResult, error) {
 		running = paneRunsTool(h.socket, h.pane, o.Tool)
 	}
 	_, notTeam := FindProject(cwd)
-	prompt := AnswerTrust(h.socket, h.pane, o.Tool, notTeam == nil, running)
+	prompt := StartPrompt(h.socket, h.pane, o.Tool, notTeam == nil, running)
 	if running && o.Tool == "codex" && o.Note == "" {
 		renameCodex(h.socket, h.pane, title)
 	}
@@ -360,7 +360,7 @@ func FindFree(t, scope string) (pane, socket, label string, err error) {
 
 // KillFree closes a free session's pane.
 func KillFree(pane, socket, label string) (string, error) {
-	if os.Getenv("TMUX_PANE") == pane {
+	if selfPane() == pane {
 		return "", fail(ExitUsage, "self", "%s is this pane; close it yourself", label)
 	}
 	if err := exec.Command("tmux", "-S", socket, "kill-pane", "-t", pane).Run(); err != nil {

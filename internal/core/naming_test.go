@@ -21,3 +21,14 @@ func TestSlugAndTitle(t *testing.T) {
 		t.Errorf("free title %q", got)
 	}
 }
+
+func TestCLIName(t *testing.T) {
+	for id, want := range map[string]string{
+		"builder.codex": "codex", "builder.codex-2": "codex", "reviewer.claude": "claude",
+		"builder.core": "", "builder.codexlike": "", "codex": "", "builder.alice": "",
+	} {
+		if got := CLIName(id); got != want {
+			t.Errorf("CLIName(%q) = %q, want %q", id, got, want)
+		}
+	}
+}

@@ -316,6 +316,12 @@ func (p *Project) As(o AsOptions) (*AsResult, error) {
 		if o.Task == "" {
 			o.Task = mine.Task
 		}
+		// A CLI whose shell drops the tmux variables (Codex with
+		// shell_environment_policy inherit = "core") keeps the pane its
+		// claim already names, unless that pane is gone.
+		if o.Pane == "" && mine.TmuxPane != "" && !paneGone(mine) {
+			o.Pane, o.Socket, o.Server = mine.TmuxPane, mine.TmuxSocket, mine.TmuxServer
+		}
 	case o.Takeover:
 		if o.Expect == "" {
 			return nil, fail(ExitUsage, "usage", "--takeover needs --expect <claim shown in the refusal>")

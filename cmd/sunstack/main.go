@@ -346,7 +346,16 @@ func tmuxSocket() string {
 	if t := os.Getenv("TMUX"); t != "" {
 		return strings.SplitN(t, ",", 2)[0]
 	}
-	return ""
+	return core.CodexCaller().Socket
+}
+
+// tmuxPane is the caller's pane: $TMUX_PANE, or for a Codex session whose
+// shell drops the tmux variables, the pane its terminal is in.
+func tmuxPane() string {
+	if p := os.Getenv("TMUX_PANE"); p != "" {
+		return p
+	}
+	return core.CodexCaller().Pane
 }
 
 // tmuxServer is the tmux server's process ID, the second field of $TMUX. It
@@ -356,7 +365,7 @@ func tmuxServer() string {
 	if f := strings.Split(os.Getenv("TMUX"), ","); len(f) >= 2 {
 		return f[1]
 	}
-	return ""
+	return core.CodexCaller().Server
 }
 
 // skillOnly names the plugin's skills that have no command of their own.
@@ -525,7 +534,7 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 		}
 		r, err := p.As(core.AsOptions{
 			Arg: arg, Tool: tool, Token: a.flags["token"], Takeover: a.has("takeover"),
-			Expect: a.flags["expect"], Pane: os.Getenv("TMUX_PANE"), Socket: tmuxSocket(), Server: tmuxServer(), Session: session,
+			Expect: a.flags["expect"], Pane: tmuxPane(), Socket: tmuxSocket(), Server: tmuxServer(), Session: session,
 			Join: a.has("join"), Task: a.flags["task"],
 		})
 		if err != nil {
@@ -722,6 +731,9 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 			return err
 		}
 		fmt.Fprintf(stdout, "sunstack: hired %s (sunstack/%s/)\n", id, id)
+		if cli := core.CLIName(id); cli != "" {
+			fmt.Fprintf(stdout, "note: %s is named after the %s CLI, but any agent can run in Claude Code or Codex; a name for its role or work reads better (sunstack rename %s <title>.<name>)\n", id, cli, id)
+		}
 		return nil
 
 	case "fire":
@@ -1024,7 +1036,7 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 		tool, session := detectTool()
 		body := fmt.Sprintf("%s: %s\n\nThe ask was: %s\n", ask.Key, a.pos[2], ask.Text)
 		r, err := p.Send(core.SendOptions{To: a.pos[0], Body: body, Type: "answer", FromAnswer: true, NoNudge: a.has("no-nudge"), FromSession: session,
-			Via: p.CallerLabel(tool, session, os.Getenv("TMUX_PANE"), tmuxSocket())})
+			Via: p.CallerLabel(tool, session, tmuxPane(), tmuxSocket())})
 		if err != nil {
 			return err
 		}
@@ -1058,7 +1070,7 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 			}
 		}
 		tool, session := detectTool()
-		key, err := p.Direct(a.pos[0], to, p.CallerLabel(tool, session, os.Getenv("TMUX_PANE"), tmuxSocket()))
+		key, err := p.Direct(a.pos[0], to, p.CallerLabel(tool, session, tmuxPane(), tmuxSocket()))
 		if err != nil {
 			return err
 		}
@@ -1172,7 +1184,7 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 			From: a.flags["from"], Token: a.flags["token"], NoNudge: a.has("no-nudge"), Nudge: a.has("nudge"), Op: a.flags["op"], FromSession: session, Follows: a.flags["follows"], Replaces: a.flags["replaces"]}
 		p, perr := core.FindProject(a.flags["root"])
 		if p != nil {
-			opts.Via = p.CallerLabel(tool, session, os.Getenv("TMUX_PANE"), tmuxSocket())
+			opts.Via = p.CallerLabel(tool, session, tmuxPane(), tmuxSocket())
 		} else if tool != "" {
 			opts.Via = tool + " session"
 		}
@@ -1355,7 +1367,7 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 			callerTool, _ := detectTool()
 			r, err := core.SpawnFree(core.FreeOptions{Tool: a.flags["tool"], DefaultTool: callerTool, Name: a.flags["name"], Title: a.flags["title"], Note: a.flags["note"],
 				Beside: a.flags["beside"], Dir: a.flags["dir"], Root: root, OverCap: a.has("over-cap"), Access: access, Model: a.flags["model"], Effort: a.flags["effort"],
-				Place: place, Socket: tmuxSocket(), Caller: os.Getenv("TMUX_PANE")})
+				Place: place, Socket: tmuxSocket(), Caller: tmuxPane()})
 			if err != nil {
 				return err
 			}
@@ -1398,8 +1410,8 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 		}
 		callerTool, callerSession := detectTool()
 		r, err := p.Spawn(core.SpawnOptions{Arg: a.pos[0], Tool: a.flags["tool"], DefaultTool: callerTool,
-			FromSession: callerSession, Via: p.CallerLabel(callerTool, callerSession, os.Getenv("TMUX_PANE"), tmuxSocket()), Task: a.flags["task"], Socket: tmuxSocket(), Server: tmuxServer(), Note: a.flags["note"],
-			Place: a.flags["place"], Window: a.has("window"), Caller: os.Getenv("TMUX_PANE"), Brief: brief, OverCap: a.has("over-cap")})
+			FromSession: callerSession, Via: p.CallerLabel(callerTool, callerSession, tmuxPane(), tmuxSocket()), Task: a.flags["task"], Socket: tmuxSocket(), Server: tmuxServer(), Note: a.flags["note"],
+			Place: a.flags["place"], Window: a.has("window"), Caller: tmuxPane(), Brief: brief, OverCap: a.has("over-cap")})
 		if err != nil {
 			return err
 		}
@@ -1542,7 +1554,7 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 			return err
 		}
 		_, session := detectTool()
-		held := p.HeldBy(session, os.Getenv("TMUX_PANE"), tmuxSocket())
+		held := p.HeldBy(session, tmuxPane(), tmuxSocket())
 		if len(held) == 0 {
 			return &core.Error{Code: core.ExitFail, Reason: "not_found", Msg: "this session holds no Sunstack identity here; run the as skill"}
 		}
@@ -1626,7 +1638,7 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 			return missing("the session (a label, a session ID or a tmux pane)")
 		}
 		o := core.DriveOptions{Target: a.pos[0], NoWait: a.has("no-wait"), Wait: a.has("wait"), Reply: a.has("reply"), Cancel: a.has("cancel"),
-			Pane: os.Getenv("TMUX_PANE"), Socket: tmuxSocket()}
+			Pane: tmuxPane(), Socket: tmuxSocket()}
 		usage := func(msg string) error { return &core.Error{Code: core.ExitUsage, Reason: "usage", Msg: msg} }
 		o.Text = strings.Join(a.pos[1:], " ")
 		if f, ok := a.flags["file"]; ok {
@@ -1706,7 +1718,7 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 		if len(a.pos) < 1 {
 			return missing("the new name (or a session, then the new name)")
 		}
-		o := core.NameOptions{Name: a.pos[len(a.pos)-1], Title: a.flags["title"], Pane: os.Getenv("TMUX_PANE"), Socket: tmuxSocket()}
+		o := core.NameOptions{Name: a.pos[len(a.pos)-1], Title: a.flags["title"], Pane: tmuxPane(), Socket: tmuxSocket()}
 		_, o.Session = detectTool()
 		if len(a.pos) == 2 {
 			o.Target = a.pos[0]
@@ -1877,7 +1889,7 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 		if len(a.pos) < 1 {
 			return missing("session ID")
 		}
-		r, err := core.Reopen(core.ReopenOptions{SessionID: a.pos[0], Socket: tmuxSocket(), Server: tmuxServer(), Caller: os.Getenv("TMUX_PANE"), Window: a.has("window"), Place: a.flags["place"]})
+		r, err := core.Reopen(core.ReopenOptions{SessionID: a.pos[0], Socket: tmuxSocket(), Server: tmuxServer(), Caller: tmuxPane(), Window: a.has("window"), Place: a.flags["place"]})
 		if err != nil {
 			return err
 		}
@@ -1979,7 +1991,7 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 		if in.Event == "SessionStart" {
 			// After compaction, /clear or a resume the model has lost the
 			// session state; give it back so it never has to guess.
-			held := p.HeldBy(in.SessionID, os.Getenv("TMUX_PANE"), tmuxSocket())
+			held := p.HeldBy(in.SessionID, tmuxPane(), tmuxSocket())
 			if len(held) == 0 {
 				return nil
 			}
@@ -1988,12 +2000,12 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 			fmt.Fprintln(stdout, string(b))
 			return nil
 		}
-		lines := p.PendingForSession(in.SessionID, os.Getenv("TMUX_PANE"), tmuxSocket())
+		lines := p.PendingForSession(in.SessionID, tmuxPane(), tmuxSocket())
 		if host := hostWaitingLines(in.SessionID); len(host) > 0 {
 			lines = append(lines, strings.Join(host, "; ")+" (sunstack check --session)")
 		}
 		halt := ""
-		if h := p.HaltLine(); h != "" && len(p.HeldBy(in.SessionID, os.Getenv("TMUX_PANE"), tmuxSocket())) > 0 {
+		if h := p.HaltLine(); h != "" && len(p.HeldBy(in.SessionID, tmuxPane(), tmuxSocket())) > 0 {
 			halt = "[sunstack] " + h + " "
 		}
 		name := sessionNameLine(p, in.SessionID) // which session this is (§36)
@@ -2345,7 +2357,7 @@ func nextCommand(a *args, hostWide bool, stdout io.Writer) error {
 	switch {
 	case err == nil && !hostWide:
 		_, session := detectTool()
-		if held := p.HeldBy(session, os.Getenv("TMUX_PANE"), tmuxSocket()); len(held) > 0 {
+		if held := p.HeldBy(session, tmuxPane(), tmuxSocket()); len(held) > 0 {
 			caller = held[0].ID
 		}
 		items = p.Next(caller, time.Now())
@@ -2847,7 +2859,7 @@ func sessionNameLine(p *core.Project, sid string) string {
 // claimNames are the <id>_<task> names of this session's claims in the
 // team, by session ID, else by pane for a claim with no session ID.
 func claimNames(p *core.Project, sid string) []string {
-	pane := os.Getenv("TMUX_PANE")
+	pane := tmuxPane()
 	var names []string
 	for _, id := range p.Agents() {
 		claims, _ := p.Claims(id)
@@ -2863,7 +2875,7 @@ func claimNames(p *core.Project, sid string) []string {
 // claimTitles are the titles (§48) of this session's claims in the team,
 // found as claimNames finds them.
 func claimTitles(p *core.Project, sid string) []string {
-	pane := os.Getenv("TMUX_PANE")
+	pane := tmuxPane()
 	var titles []string
 	for _, id := range p.Agents() {
 		claims, _ := p.Claims(id)
@@ -2891,7 +2903,7 @@ func paneLabel() string { return paneOption("@sunstack_label") }
 
 // paneOption reads one of this pane's options under the same bound.
 func paneOption(option string) string {
-	pane := os.Getenv("TMUX_PANE")
+	pane := tmuxPane()
 	if pane == "" {
 		return ""
 	}
