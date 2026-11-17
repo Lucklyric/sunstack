@@ -2504,9 +2504,12 @@ func killIdle(a *args, stdin io.Reader, stdout io.Writer) error {
 	}
 	var names []string
 	for _, s := range idle {
-		if s.For >= core.IdleAfter {
+		switch {
+		case s.Kind == core.IdleStale:
+			names = append(names, s.Name) // its name already says the pane
+		case s.For >= core.IdleAfter:
 			names = append(names, fmt.Sprintf("%s (pane %s, idle %dd)", s.Name, s.Pane, int(s.For.Hours())/24))
-		} else {
+		default:
 			names = append(names, fmt.Sprintf("%s (pane %s)", s.Name, s.Pane))
 		}
 	}

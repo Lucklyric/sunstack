@@ -85,6 +85,8 @@ func TestCleanReleasedAndStale(t *testing.T) {
 	}
 	expect(t, sh(t, p, s.env, "release", "reviewer", "--token", claims[0].Token), 0, "release")
 	s.tmux(t, "kill-pane", "-t", gone)
+	// Claude Code's title starts with a status mark.
+	s.tmux(t, "select-pane", "-t", done, "-T", "✳ reviewer_done")
 
 	// Active a moment ago: not closed yet.
 	r := sh(t, p, s.env, "clean")
@@ -99,6 +101,12 @@ func TestCleanReleasedAndStale(t *testing.T) {
 	r = sh(t, p, s.env, "next", "--all")
 	requireContains(t, r.out, "1 session(s) that released their agent", "released reviewer", "1 claim(s) whose pane is closed", "sunstack clean")
 
+	r = sh(t, p, s.env, "clean")
+	expect(t, r, 2, "clean lists both")
+	requireContains(t, r.stderr, "reviewer_done (released reviewer", "builder.bob_gone (pane "+gone+" closed)")
+	if strings.Contains(r.stderr, "✳") || strings.Contains(r.stderr, "closed) (pane") {
+		t.Errorf("list names carry a status mark or a second pane:\n%s", r.stderr)
+	}
 	r = sh(t, p, s.env, "clean", "--yes")
 	expect(t, r, 0, "clean --yes")
 	requireContains(t, r.out, "closed ", "released reviewer", "released builder.bob_gone (its pane is closed)")

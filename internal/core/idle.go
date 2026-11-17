@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	"unicode"
 )
 
 // IdleAfter is how long a session may sit at its prompt, with nothing
@@ -75,7 +76,10 @@ func (p *Project) releasedPanes(sessions []*HostSession, now time.Time) []IdleSe
 		if len(f) != 3 || !strings.HasPrefix(f[1], p.Root+"|") || claimed[f[0]] || selfPane() == f[0] || paneExited(sock, f[0]) {
 			continue
 		}
-		pane, id, title := f[0], strings.TrimPrefix(f[1], p.Root+"|"), f[2]
+		pane, id := f[0], strings.TrimPrefix(f[1], p.Root+"|")
+		// Claude Code starts its title with a status mark (✳, or a spinner
+		// while busy): the name starts at the first letter or digit.
+		title := strings.TrimLeftFunc(f[2], func(r rune) bool { return !unicode.IsLetter(r) && !unicode.IsDigit(r) })
 		for _, s := range sessions {
 			if s.Pane != pane || !onDefaultServer(s.socket) || s.Status != "idle" || s.SessionID == "" || dup[s.SessionID] != nil {
 				continue
