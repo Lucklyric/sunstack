@@ -39,7 +39,7 @@ const shortUsage = `sunstack — agent-team layer for Claude Code and Codex
   sunstack send <to> "<text>"           message an agent, a session or another host
   sunstack check [--session]            your inbox: messages waiting for this agent or session
   sunstack spawn <id|title>             start a session as that agent
-  sunstack clean [--yes]                close idle sessions and exited panes (lists first)
+  sunstack clean [--yes]                close idle, released and exited sessions, stale claims (lists first)
   sunstack attach <session>             go to a session's tmux pane
   sunstack tmux panel|popup|install     the dashboard as a side panel that follows you, or a popup
   sunstack peek <session> [--lines N]   the end of a session's pane, read only
@@ -121,7 +121,8 @@ Sessions and messages:
   sunstack dismiss <id|id_task>                   ask a session to finish (a shutdown message)
   sunstack kill <id_task|id> [--yes]              close that one session's tmux pane now (asks first; unsaved work is lost)
   sunstack clean [--yes]                          close agent and free sessions at their prompt over 24h with nothing taken
-                                                  or staged, and panes sunstack opened whose CLI exited (one confirmation
+                                                  or staged, panes sunstack opened whose CLI exited, spawned sessions that
+                                                  released their agent, and claims whose pane is closed (one confirmation
                                                   for the list; next shows them); also sunstack kill --idle
   sunstack hr                                     staffing facts: load, idle agents, uncovered objectives, gaps,
                                                   unused templates, what the project is made of
@@ -544,6 +545,11 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 			fmt.Fprintf(stdout, "===== %s =====\n", h)
 		}
 		fmt.Fprint(stdout, p.Bundle(r))
+		// Only the user can retitle the CLI session: say how, when its
+		// title is not the one Sunstack gives it.
+		if text, do, ok := renameStep(tool, session, core.Title(p.Slug(), r.ID, r.Task)); ok {
+			fmt.Fprintf(stdout, "\n===== rename =====\n%s\nthe user renames it: %s\n", text, do)
+		}
 		fmt.Fprint(stdout, migrateNote(p))
 		return nil
 
@@ -2482,8 +2488,9 @@ func nextCommand(a *args, hostWide bool, stdout io.Writer) error {
 	return nil
 }
 
-// killIdle (clean, kill --idle) closes the team's idle agent and free sessions and the panes
-// whose CLI exited (§16) after one confirmation for the whole list.
+// killIdle (clean, kill --idle) closes the team's idle agent and free sessions, the panes
+// whose CLI exited or whose session released its agent, and drops claims whose pane is
+// closed (§16, §51), after one confirmation for the whole list.
 func killIdle(a *args, stdin io.Reader, stdout io.Writer) error {
 	p, err := core.FindProject(a.flags["root"])
 	if err != nil {
@@ -2492,18 +2499,18 @@ func killIdle(a *args, stdin io.Reader, stdout io.Writer) error {
 	sessions, _ := core.ScanSessions()
 	idle := p.IdleSessions(sessions, time.Now())
 	if len(idle) == 0 {
-		fmt.Fprintln(stdout, "sunstack: nothing to close (idle: an agent or free session at its prompt over 24h with nothing taken or staged, or a pane sunstack opened whose CLI exited)")
+		fmt.Fprintln(stdout, "sunstack: nothing to close (idle: an agent or free session at its prompt over 24h with nothing taken or staged, a pane sunstack opened whose CLI exited, a spawned session that released its agent, or a claim whose pane is closed)")
 		return nil
 	}
 	var names []string
 	for _, s := range idle {
-		if s.For > 0 {
+		if s.For >= core.IdleAfter {
 			names = append(names, fmt.Sprintf("%s (pane %s, idle %dd)", s.Name, s.Pane, int(s.For.Hours())/24))
 		} else {
 			names = append(names, fmt.Sprintf("%s (pane %s)", s.Name, s.Pane))
 		}
 	}
-	plan := "close " + strconv.Itoa(len(idle)) + " idle session(s) or exited pane(s): " + strings.Join(names, ", ")
+	plan := "close " + strconv.Itoa(len(idle)) + " idle session(s), exited pane(s) or stale claim(s): " + strings.Join(names, ", ")
 	if !a.has("yes") {
 		if !setup.IsTerminal(os.Stdin) {
 			return &core.Error{Code: core.ExitUsage, Reason: "confirm", Msg: "this will " + plan + "; rerun with --yes once the user has confirmed"}
@@ -2930,22 +2937,29 @@ func renameIssue(p *core.Project) (core.Issue, bool) {
 	if name == "" {
 		name = paneTitle()
 	}
-	if name == "" || tool == "" {
+	text, do, ok := renameStep(tool, sid, name)
+	if !ok {
 		return core.Issue{}, false
+	}
+	return core.Issue{Kind: "yours", Owner: "user", Text: text, Do: do}, true
+}
+
+// renameStep says how the user renames the CLI session sid to name, when
+// its title is known and differs; ok is false when there is nothing to do.
+// Claude Code and Codex (0.166 and later) both take /rename <name>.
+func renameStep(tool, sid, name string) (text, do string, ok bool) {
+	if name == "" || tool == "" {
+		return "", "", false
 	}
 	title, known := core.SessionTitle(tool, sid)
 	if !known || title == name {
-		return core.Issue{}, false
+		return "", "", false
 	}
-	text := "this session has no title"
+	text = "this session has no title"
 	if title != "" {
 		text = fmt.Sprintf("this session is titled %q", title)
 	}
-	do := "/rename " + name
-	if tool == "codex" {
-		do = "rename it to " + name + " in Codex's agents list"
-	}
-	return core.Issue{Kind: "yours", Owner: "user", Text: text + "; Sunstack calls it " + name, Do: do}, true
+	return text + "; Sunstack calls it " + name, "/rename " + name, true
 }
 
 // printPrompt shows what the trust watch did, if anything (§37).

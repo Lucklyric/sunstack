@@ -13,11 +13,19 @@ import (
 // unfinished, before sunstack next offers to close it.
 const IdleAfter = 24 * time.Hour
 
+// ReleasedAfter is how long a session that released its agent must sit at
+// its prompt before clean offers to close its pane.
+const ReleasedAfter = 10 * time.Minute
+
 // Idle session kinds: sunstack clean closes each kind its own way.
 const (
 	IdleAgent  = "agent"  // an agent session at its prompt over IdleAfter
 	IdleFree   = "free"   // a free session (§20.2) at its prompt over IdleAfter
 	IdleExited = "exited" // a pane sunstack opened whose Claude or Codex has exited
+	// IdleReleased: a pane sunstack spawned for an agent whose session
+	// released it (after a shutdown or a finished task) and sits at its prompt.
+	IdleReleased = "released"
+	IdleStale    = "stale" // a claim whose tmux pane is confirmed closed
 )
 
 // IdleSession is a session or pane that can be closed: sunstack clean's list.
@@ -39,7 +47,67 @@ type IdleSession struct {
 func (p *Project) IdleSessions(sessions []*HostSession, now time.Time) []IdleSession {
 	out := p.idleAgents(sessions, now)
 	out = append(out, p.idleFree(sessions, now)...)
-	return append(out, p.exitedPanes()...)
+	out = append(out, p.exitedPanes()...)
+	out = append(out, p.releasedPanes(sessions, now)...)
+	return append(out, p.staleClaims()...)
+}
+
+// releasedPanes lists the panes sunstack spawned for the team's agents that
+// hold no claim, whose CLI still runs and has sat at its prompt for
+// ReleasedAfter with no taken message in its session inbox: the session
+// released its agent, so its work is saved and done.
+func (p *Project) releasedPanes(sessions []*HostSession, now time.Time) []IdleSession {
+	claimed := map[string]bool{}
+	for _, id := range p.Agents() {
+		claims, _ := p.Claims(id)
+		for _, c := range claims {
+			claimed[c.TmuxPane] = true
+		}
+	}
+	sock, _ := DefaultSocket()
+	cmd := exec.Command("tmux", TmuxArgs(sock, "list-panes", "-a", "-F", "#{pane_id}\t#{@sunstack}\t#{pane_title}")...)
+	cmd.Env = withoutTMUX(os.Environ())
+	list, _ := cmd.Output()
+	dup := DuplicateSessions(sessions)
+	var out []IdleSession
+	for _, l := range strings.Split(strings.TrimSpace(string(list)), "\n") {
+		f := strings.SplitN(l, "\t", 3)
+		if len(f) != 3 || !strings.HasPrefix(f[1], p.Root+"|") || claimed[f[0]] || selfPane() == f[0] || paneExited(sock, f[0]) {
+			continue
+		}
+		pane, id, title := f[0], strings.TrimPrefix(f[1], p.Root+"|"), f[2]
+		for _, s := range sessions {
+			if s.Pane != pane || !onDefaultServer(s.socket) || s.Status != "idle" || s.SessionID == "" || dup[s.SessionID] != nil {
+				continue
+			}
+			if len(listNames(hostTakenDir(s.SessionID), ".md")) > 0 {
+				continue
+			}
+			if d, ok := quietFor(now, ReleasedAfter, s.Activity.LastActive); ok {
+				name := id + " (released, " + s.Tool + " at its prompt)"
+				if title != "" {
+					name = title + " (released " + id + ", " + s.Tool + " at its prompt)"
+				}
+				out = append(out, IdleSession{Kind: IdleReleased, Name: name, Pane: pane, For: d, agent: id})
+			}
+		}
+	}
+	return out
+}
+
+// staleClaims lists the team's claims whose tmux pane is confirmed closed:
+// no session can use them, and clean drops them as release --stale does.
+func (p *Project) staleClaims() []IdleSession {
+	var out []IdleSession
+	for _, id := range p.Agents() {
+		claims, _ := p.Claims(id)
+		for _, c := range claims {
+			if c.TmuxPane != "" && paneGone(c) {
+				out = append(out, IdleSession{Kind: IdleStale, Label: c.Label(id), Name: c.Label(id) + " (pane " + c.TmuxPane + " closed)", Pane: c.TmuxPane})
+			}
+		}
+	}
+	return out
 }
 
 func (p *Project) idleAgents(sessions []*HostSession, now time.Time) []IdleSession {
@@ -172,6 +240,11 @@ func paneExited(socket, pane string) bool {
 
 // idleFor is how long ago the latest of the times was, if over IdleAfter.
 func idleFor(now time.Time, times ...string) (time.Duration, bool) {
+	return quietFor(now, IdleAfter, times...)
+}
+
+// quietFor is how long ago the latest of the times was, if over min.
+func quietFor(now time.Time, min time.Duration, times ...string) (time.Duration, bool) {
 	last := ""
 	for _, at := range times {
 		if at > last {
@@ -179,7 +252,7 @@ func idleFor(now time.Time, times ...string) (time.Duration, bool) {
 		}
 	}
 	t, err := time.Parse("2006-01-02T15:04:05Z", last)
-	if err != nil || now.Sub(t) < IdleAfter {
+	if err != nil || now.Sub(t) < min {
 		return 0, false
 	}
 	return now.Sub(t), true
@@ -189,6 +262,15 @@ func idleFor(now time.Time, times ...string) (time.Duration, bool) {
 func (p *Project) CloseIdle(s IdleSession) (string, error) {
 	sock, _ := DefaultSocket()
 	switch {
+	case s.Kind == IdleStale:
+		dropped, err := p.ReleaseStale(s.Label)
+		if err != nil {
+			return "", err
+		}
+		if len(dropped) == 0 {
+			return "", fail(ExitFail, "not_found", "%s no longer has a closed pane; left alone", s.Label)
+		}
+		return "released " + s.Label + " (its pane is closed)", nil
 	case s.free:
 		if label, _, ok := FreeByPane(s.Pane); !ok || label != s.Label {
 			return "", fail(ExitFail, "not_found", "pane %s no longer runs the free session %s; left alone", s.Pane, s.Label)
@@ -197,15 +279,23 @@ func (p *Project) CloseIdle(s IdleSession) (string, error) {
 	case s.Label != "":
 		return p.Kill(s.Label)
 	}
-	// An exited agent pane with no claim: re-check, then close it.
+	// An agent pane with no claim, exited or released: re-check, then close it.
 	mark, _ := exec.Command("tmux", TmuxArgs(sock, "show-options", "-p", "-v", "-t", s.Pane, "@sunstack")...).Output()
-	if strings.TrimSpace(string(mark)) != p.Root+"|"+s.agent || !paneExited(sock, s.Pane) {
-		return "", fail(ExitFail, "not_exited", "pane %s is no longer an exited %s pane; left alone", s.Pane, s.agent)
+	if strings.TrimSpace(string(mark)) != p.Root+"|"+s.agent || paneExited(sock, s.Pane) != (s.Kind == IdleExited) {
+		return "", fail(ExitFail, "changed", "pane %s is no longer a %s %s pane; left alone", s.Pane, s.Kind, s.agent)
+	}
+	for _, id := range p.Agents() {
+		claims, _ := p.Claims(id)
+		for _, c := range claims {
+			if c.TmuxPane == s.Pane {
+				return "", fail(ExitFail, "changed", "pane %s holds a claim on %s again; left alone", s.Pane, id)
+			}
+		}
 	}
 	if err := exec.Command("tmux", TmuxArgs(sock, "kill-pane", "-t", s.Pane)...).Run(); err != nil {
 		return "", fail(ExitFail, "tmux", "could not close pane %s: %v", s.Pane, err)
 	}
-	p.LogEvent("kill", s.agent, "pane="+s.Pane+" exited")
+	p.LogEvent("kill", s.agent, "pane="+s.Pane+" "+s.Kind)
 	return "closed " + s.Name + " (pane " + s.Pane + ")", nil
 }
 
@@ -219,13 +309,15 @@ func IdleIssue(idle []IdleSession) (Issue, bool) {
 		{IdleAgent, "agent session(s) idle over 24h"},
 		{IdleFree, "free session(s) idle over 24h"},
 		{IdleExited, "pane(s) whose CLI exited"},
+		{IdleReleased, "session(s) that released their agent"},
+		{IdleStale, "claim(s) whose pane is closed"},
 	} {
 		var names []string
 		for _, s := range idle {
 			if s.Kind != k.kind {
 				continue
 			}
-			if s.For > 0 {
+			if s.For >= IdleAfter {
 				names = append(names, fmt.Sprintf("%s (%dd)", s.Name, int(s.For.Hours())/24))
 			} else {
 				names = append(names, s.Name)

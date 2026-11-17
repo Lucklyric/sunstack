@@ -1,6 +1,6 @@
 ---
 name: clean
-description: Close the Sunstack team's idle sessions and leftover panes in one go (agent and free sessions at their prompt over 24h with nothing unfinished, and panes whose Claude or Codex exited), after one confirmation. Use for "sunstack clean", "/sunstack:clean", "clean up", "clean up sessions", "clean up panes", "close idle sessions", "close exited panes", "sunstack kill --idle". Closing one named session is the spawn skill. Only in projects with a Sunstack team (sunstack/PROTOCOL.md).
+description: Close the Sunstack team's unused sessions and leftover panes in one go (agent and free sessions at their prompt over 24h with nothing unfinished, spawned sessions that released their agent, panes whose Claude or Codex exited, and claims whose pane is closed), after one confirmation. Use for "sunstack clean", "/sunstack:clean", "clean up", "clean up sessions", "clean up panes", "close idle sessions", "close unused sessions", "close finished sessions", "close exited panes", "too many sessions", "sunstack kill --idle". Closing one named session is the spawn skill. Only in projects with a Sunstack team (sunstack/PROTOCOL.md).
 ---
 
 # Sunstack: clean
@@ -17,7 +17,7 @@ Command: `sunstack clean` (also `kill --idle`). Skill: `/sunstack:clean` in Clau
 
 `sunstack next --team` shows one `[user]` line when there is something to close, for example
 `2 agent session(s) idle over 24h: builder.alice_csv (3d), reviewer_ui (1d); 1 pane(s) whose CLI
-exited: scratch (free, claude exited)`. `sunstack clean` closes three kinds, all checked by the CLI,
+exited: scratch (free, claude exited)`. `sunstack clean` closes five kinds, all checked by the CLI,
 not by you:
 
 - **Idle agent sessions:** in a tmux pane, at their prompt, nothing for 24 hours (no claim,
@@ -27,6 +27,12 @@ not by you:
 - **Exited panes:** panes sunstack opened for this team (a spawn or a free session) where
   Claude or Codex has exited and the pane is back at its shell with nothing running. An agent's
   claim on such a pane is dropped too. A window or tmux home closes with its last pane.
+- **Released sessions:** panes sunstack spawned for an agent whose session released it (after
+  a shutdown or a finished task) and still runs, at its prompt for 10 minutes, with no taken
+  message in its session inbox.
+- **Stale claims:** claims whose tmux pane is confirmed closed, as `sunstack release
+  <id_task> --stale` drops them. Nothing is closed; the claim goes and its taken messages go
+  back to the inbox.
 
 It never closes this session's own pane, and it closes an exited pane only when sunstack opened
 it and it runs nothing but its shell. An idle session is closed even in a pane you opened, so

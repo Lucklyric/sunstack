@@ -82,15 +82,15 @@ func TestNextSuggestsRenameCodex(t *testing.T) {
 	}
 	// An index with no entry for this thread: its title is unknown, no item.
 	write()
-	if r := sh(t, p, xenv, "next", "--all"); strings.Contains(r.out, "rename it") {
+	if r := sh(t, p, xenv, "next", "--all"); strings.Contains(r.out, "/rename") {
 		t.Errorf("no index entry for the thread, yet a rename item: %s", r.out)
 	}
 	write("Read the protocol")
 	r := sh(t, p, xenv, "next", "--all")
 	expect(t, r, 0, "next")
-	requireContains(t, r.out, `titled "Read the protocol"`, "rename it to "+wantTitle(t, p, "reviewer", "web")+" in Codex's agents list")
+	requireContains(t, r.out, `titled "Read the protocol"`, "/rename "+wantTitle(t, p, "reviewer", "web"))
 	write("Read the protocol", wantTitle(t, p, "reviewer", "web"))
-	if r := sh(t, p, xenv, "next", "--all"); strings.Contains(r.out, "rename it") {
+	if r := sh(t, p, xenv, "next", "--all"); strings.Contains(r.out, "/rename") {
 		t.Errorf("a Codex thread with the right name got a rename item: %s", r.out)
 	}
 }

@@ -74,9 +74,10 @@ the token.
   values (root, id, token, task) in the conversation; every later save or release needs them.
   If `protocol` is not `2`, tell the user to run `sunstack update`.
   Then, in this order:
-  1. **Name the session.** The tmux pane is already titled `session_name`. You cannot rename
-     the Claude Code or Codex session yourself, so give the user the exact step in one line:
-     in Claude Code `/rename <session_name>`; in Codex, open the agents list and use rename.
+  1. **Name the session.** The tmux pane is already titled. If the output has a `rename`
+     block, this session's title in Claude Code or Codex differs from the one Sunstack gives
+     it: pass its `/rename` step on to the user in one line, since you cannot rename the
+     session yourself. With no `rename` block, say nothing about naming.
   2. **Directives.** If the output lists directives not aligned yet, check your board against
      each and propose the board changes they need; they are written at the next save (the save
      skill sets `aligned:`). If a directive conflicts with a pillar or another directive, ask.
