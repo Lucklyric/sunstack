@@ -107,6 +107,11 @@ func main() {
 		}
 		return
 	case "ps":
+		// Parent IDs only, for a pane's child check: read-only, so the real ps.
+		if len(args) == 3 && args[0] == "-A" && args[1] == "-o" && args[2] == "ppid=" {
+			run(os.Getenv("SUNSTACK_TEST_REAL_PS"), args...)
+			return
+		}
 		if pid := os.Getenv("SUNSTACK_TEST_SCAN_PID"); pid != "" {
 			if len(args) == 2 && args[0] == "-axo" {
 				fmt.Printf("%s ttysTEST /test/codex\n", pid)

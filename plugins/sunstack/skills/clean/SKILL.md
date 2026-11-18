@@ -23,13 +23,16 @@ not by you:
 - **Idle agent sessions:** in a tmux pane, at their prompt, nothing for 24 hours (no claim,
   save, `doing` line or transcript change), no taken message and no staged save.
 - **Idle free sessions** of this team: in a tmux pane, at their prompt, no transcript change
-  for 24 hours, no taken message in their session inbox.
+  for 24 hours, no taken message in their session inbox. A free session that took an agent
+  is checked as that agent's session instead.
 - **Exited panes:** panes sunstack opened for this team (a spawn or a free session) where
-  Claude or Codex has exited and the pane is back at its shell with nothing running. An agent's
+  Claude or Codex has exited and the pane is back at its shell with nothing running (no
+  background job). An agent's
   claim on such a pane is dropped too. A window or tmux home closes with its last pane.
 - **Released sessions:** panes sunstack spawned for an agent whose session released it (after
   a shutdown or a finished task) and still runs, at its prompt for 10 minutes, with no taken
-  message in its session inbox.
+  message in its session inbox. Only the session that released runs there counts: a CLI
+  started in that pane later is not closed.
 - **Stale claims:** claims whose tmux pane is confirmed closed, as `sunstack release
   <id_task> --stale` drops them. Nothing is closed; the claim goes and its taken messages go
   back to the inbox.
@@ -41,14 +44,19 @@ with other work (a Now entry on its board, files it has not saved) should be dis
 (spawn skill), so it saves first. Right before closing, it checks the list again and leaves alone
 anything no longer on it.
 
-1. Run `sunstack clean` (no `--yes`). It changes nothing: it exits 2 and lists exactly
-   what would close, or says there is nothing to close.
+1. Run `sunstack clean` (no `--yes`). From an agent session it changes nothing: it exits 2,
+   lists exactly what would close and ends with the command to run, `sunstack clean --yes
+   --plan <code>`. Or it says there is nothing to close. (In the user's own terminal it asks
+   there instead.)
 2. Show the list and ask once: close all / cancel. To keep one open, dismiss or leave it and
    close the others one by one with `sunstack kill "<id_task>"` (or `sunstack kill <label>` for
    a free session) instead.
-3. On yes: `sunstack clean --yes`. The CLI asks the user to approve that command; this is expected. Each one prints `closed <name>`, or `left alone <name>`
-   when it is no longer idle. Errors name the ones not closed (the reasons are as for
-   `sunstack kill`).
+3. On yes: `sunstack clean --yes --plan <code>`, with the code from step 1. The CLI asks the
+   user to approve that command; this is expected. Each one prints `closed <name>`, or `left
+   alone <name>` when it is no longer idle. Errors name what went wrong for each (the reasons
+   are as for `sunstack kill`; a pane can be closed and its claim or messages still need a fix).
+   - **4 `changed`:** the list changed after the user saw it, and nothing was closed. Show the
+     new list it prints and ask again. Never run the new command without a new yes.
 
 Agents never run it for themselves; a lead or PM session runs it only on the user's yes. It
 covers this team only: for free sessions outside a team, list them with `sunstack org --by host`

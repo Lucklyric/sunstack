@@ -110,7 +110,7 @@ func openNear(socket, caller, place, cwd, name string) (string, bool, error) {
 		}
 		split := ""
 		switch {
-		case w >= 2*minPaneCols && h >= minPaneRows:
+		case w >= 2*minPaneCols+1 && h >= minPaneRows: // the divider takes a column
 			split = "-h"
 		case w >= minPaneCols && h >= 2*minPaneRows+1:
 			split = "-v"

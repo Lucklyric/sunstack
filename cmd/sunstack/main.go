@@ -4,6 +4,8 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,6 +15,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -39,7 +42,7 @@ const shortUsage = `sunstack — agent-team layer for Claude Code and Codex
   sunstack send <to> "<text>"           message an agent, a session or another host
   sunstack check [--session]            your inbox: messages waiting for this agent or session
   sunstack spawn <id|title>             start a session as that agent
-  sunstack clean [--yes]                close idle, released and exited sessions, stale claims (lists first)
+  sunstack clean [--yes --plan <code>]  close idle, released and exited sessions, stale claims (lists first)
   sunstack attach <session>             go to a session's tmux pane
   sunstack tmux panel|popup|install     the dashboard as a side panel that follows you, or a popup
   sunstack peek <session> [--lines N]   the end of a session's pane, read only
@@ -120,10 +123,11 @@ Sessions and messages:
                                                   and while the team is halted; the tool defaults to tool: in AGENT.md
   sunstack dismiss <id|id_task>                   ask a session to finish (a shutdown message)
   sunstack kill <id_task|id> [--yes]              close that one session's tmux pane now (asks first; unsaved work is lost)
-  sunstack clean [--yes]                          close agent and free sessions at their prompt over 24h with nothing taken
+  sunstack clean [--yes --plan <code>]            close agent and free sessions at their prompt over 24h with nothing taken
                                                   or staged, panes sunstack opened whose CLI exited, spawned sessions that
                                                   released their agent, and claims whose pane is closed (one confirmation
-                                                  for the list; next shows them); also sunstack kill --idle
+                                                  for the list; next shows them); --plan is the code the list printed, and
+                                                  refuses if the list changed since; also sunstack kill --idle
   sunstack hr                                     staffing facts: load, idle agents, uncovered objectives, gaps,
                                                   unused templates, what the project is made of
 
@@ -680,7 +684,8 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 			}
 			return nil
 		}
-		if err := p.Release(a.pos[0], a.flags["token"]); err != nil {
+		_, session := detectTool()
+		if err := p.ReleaseSession(a.pos[0], a.flags["token"], session); err != nil {
 			return err
 		}
 		fmt.Fprintf(stdout, "sunstack: released %s\n", a.pos[0])
@@ -1459,7 +1464,7 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 		return nil
 
 	case "kill":
-		a, err := parse(rest, "root", "yes idle")
+		a, err := parse(rest, "root plan", "yes idle")
 		if err == nil {
 			err = a.atMost(1, "kill")
 		}
@@ -1476,6 +1481,9 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 			return missing("session name (sunstack team --sessions lists them)")
 		}
 		p, perr := core.FindProject(a.flags["root"])
+		if perr != nil && a.flags["root"] != "" {
+			return perr // never widen a named team's kill to the whole host
+		}
 		scope := ""
 		if perr == nil {
 			scope = p.HomeScope()
@@ -1523,7 +1531,7 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 		return nil
 
 	case "clean":
-		a, err := parse(rest, "root", "yes")
+		a, err := parse(rest, "root plan", "yes")
 		if err == nil {
 			err = a.atMost(0, "clean")
 		}
@@ -2514,9 +2522,13 @@ func killIdle(a *args, stdin io.Reader, stdout io.Writer) error {
 		}
 	}
 	plan := "close " + strconv.Itoa(len(idle)) + " idle session(s), exited pane(s) or stale claim(s): " + strings.Join(names, ", ")
+	code := idlePlanCode(idle)
+	if want := a.flags["plan"]; want != "" && want != code {
+		return &core.Error{Code: core.ExitClaim, Reason: "changed", Msg: "the list changed since it was shown, so nothing was closed; it now would " + plan + "; show the user this list, and on their yes run sunstack clean --yes --plan " + code}
+	}
 	if !a.has("yes") {
 		if !setup.IsTerminal(os.Stdin) {
-			return &core.Error{Code: core.ExitUsage, Reason: "confirm", Msg: "this will " + plan + "; rerun with --yes once the user has confirmed"}
+			return &core.Error{Code: core.ExitUsage, Reason: "confirm", Msg: "this will " + plan + "; rerun with sunstack clean --yes --plan " + code + " once the user has confirmed"}
 		}
 		if !setup.Confirm(stdin, stdout, "This will "+plan+". Continue?", false) {
 			fmt.Fprintln(stdout, "sunstack: nothing closed")
@@ -2527,13 +2539,14 @@ func killIdle(a *args, stdin io.Reader, stdout io.Writer) error {
 	stillIdle := func(s core.IdleSession) bool {
 		sessions, _ := core.ScanSessions()
 		for _, n := range p.IdleSessions(sessions, time.Now()) {
-			if n.Kind == s.Kind && n.Pane == s.Pane && n.Label == s.Label {
+			if n.Key() == s.Key() {
 				return true
 			}
 		}
 		return false
 	}
 	var failed []string
+	closed := 0
 	for _, s := range idle {
 		if !stillIdle(s) {
 			fmt.Fprintf(stdout, "sunstack: left alone %s (no longer idle)\n", s.Name)
@@ -2544,12 +2557,27 @@ func killIdle(a *args, stdin io.Reader, stdout io.Writer) error {
 			failed = append(failed, s.Name+": "+err.Error())
 			continue
 		}
+		closed++
 		fmt.Fprintf(stdout, "sunstack: %s\n", msg)
 	}
 	if len(failed) > 0 {
-		return &core.Error{Code: core.ExitFail, Reason: "kill", Msg: "not closed: " + strings.Join(failed, "; ")}
+		// A kill can close the pane and still fail to drop its claim or put
+		// its messages back: the error itself says which.
+		return &core.Error{Code: core.ExitFail, Reason: "kill", Msg: fmt.Sprintf("%d of %d done; problems: %s", closed, len(idle), strings.Join(failed, "; "))}
 	}
 	return nil
+}
+
+// idlePlanCode names clean's list by what each entry is and where, so a
+// later clean --yes --plan closes only the list the user saw.
+func idlePlanCode(idle []core.IdleSession) string {
+	keys := make([]string, len(idle))
+	for i, s := range idle {
+		keys[i] = s.Key()
+	}
+	sort.Strings(keys)
+	h := sha256.Sum256([]byte(strings.Join(keys, "\n")))
+	return hex.EncodeToString(h[:4])
 }
 
 // orgNext is what waits on the user across this host's teams and the org's

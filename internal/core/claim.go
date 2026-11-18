@@ -371,12 +371,10 @@ func (p *Project) As(o AsOptions) (*AsResult, error) {
 		if res.Mode == "resumed" {
 			l.Doing, l.DoingAt = replace.Doing, replace.DoingAt
 		}
-		l.path = replace.path // resumed: rewritten in place; taken over: replaced
-		if res.Mode == "taken_over" {
-			p.removeLive(replace)
-			os.RemoveAll(p.sessionTmp(id, replace.Token))
-			l.path = ""
-		}
+		// Resumed: rewritten in place. Taken over: the new claim is written
+		// under its own token and writeLive then removes the old file, so a
+		// failed write leaves the old claim as it was.
+		l.path = replace.path
 	}
 	if l.TmuxPane != "" && l.TmuxSocket != "" {
 		if pid, _, ok := paneToolProc(l.TmuxSocket, l.TmuxPane, l.Tool); ok {
@@ -391,6 +389,9 @@ func (p *Project) As(o AsOptions) (*AsResult, error) {
 	}
 	if err := p.writeLive(id, l); err != nil {
 		return nil, fail(ExitFail, "fs", "%v", err)
+	}
+	if res.Mode == "taken_over" {
+		os.RemoveAll(p.sessionTmp(id, replace.Token)) // only once the new claim exists
 	}
 	fields := []string{"tool=" + l.Tool}
 	if l.Task != "" {
@@ -554,7 +555,11 @@ func (p *Project) requireToken(id, token string) (*Live, error) {
 }
 
 // Release drops this session's claim; other sessions on the same ID keep theirs.
-func (p *Project) Release(id, token string) (err error) {
+func (p *Project) Release(id, token string) error { return p.ReleaseSession(id, token, "") }
+
+// ReleaseSession is Release by the CLI session session (its ID, when the
+// claim does not record one yet), which marks a spawned pane as released by it.
+func (p *Project) ReleaseSession(id, token, session string) (err error) {
 	if !ValidID(id) {
 		return fail(ExitUsage, "usage", "invalid id: %s", id)
 	}
@@ -583,6 +588,16 @@ func (p *Project) Release(id, token string) (err error) {
 	}
 	if cur.TmuxPane != "" && cur.TmuxSocket != "" && cur.PaneTitle != "" {
 		quickTmux(cur.TmuxSocket, "select-pane", "-t", cur.TmuxPane, "-T", cur.PaneTitle)
+	}
+	// Mark a spawned pane with the session that released it, so clean closes
+	// it only while that same session still runs there (§51).
+	if cur.Session != "" {
+		session = cur.Session
+	}
+	if cur.Spawned && session != "" && cur.TmuxPane != "" && cur.TmuxSocket != "" && sameServer(cur) {
+		if mark, err := quickTmux(cur.TmuxSocket, "show-options", "-p", "-v", "-t", cur.TmuxPane, "@sunstack"); err == nil && strings.TrimSpace(string(mark)) == p.Root+"|"+id {
+			quickTmux(cur.TmuxSocket, "set-option", "-p", "-t", cur.TmuxPane, "@sunstack_released", session)
+		}
 	}
 	os.RemoveAll(p.sessionTmp(id, token))
 	p.clearNudged(id, token)

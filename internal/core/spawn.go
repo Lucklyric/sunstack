@@ -3,6 +3,7 @@ package core
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -402,9 +403,14 @@ func (p *Project) Kill(t string) (msg string, err error) {
 		return "", fail(ExitFail, "not_running", "pane %s no longer runs %s for %s, so it is left alone; if that session is gone, close the pane, then sunstack release %s --stale", c.TmuxPane, c.Tool, name, name)
 	}
 	var returned []*Message
+	var stuck []string
 	defer func() { // after the unlock below
 		if failed := p.notifyReturned(id, returned); len(failed) > 0 && err == nil {
 			err = fail(ExitFail, "notice", "%s, but %s", msg, strings.Join(failed, "; "))
+		}
+		var ce *Error
+		if len(stuck) > 0 && (err == nil || errors.As(err, &ce) && ce.Reason == "notice") {
+			err = fail(ExitFail, "stranded", "%s, but message(s) %s could not go back to its inbox and stay taken with no session: fix the inbox folder's permissions, then run sunstack check as %s", msg, strings.Join(stuck, ", "), id)
 		}
 	}()
 	unlock, err := p.lock(id)
@@ -427,12 +433,15 @@ func (p *Project) Kill(t string) (msg string, err error) {
 	if err := exec.Command("tmux", TmuxArgs(c.TmuxSocket, "kill-pane", "-t", c.TmuxPane)...).Run(); err != nil {
 		return "", fail(ExitFail, "tmux", "could not close pane %s: %v", c.TmuxPane, err)
 	}
-	p.removeLive(c)
+	msg = "closed " + name + " (pane " + c.TmuxPane + ")"
+	p.LogEvent("kill", name, "pane="+c.TmuxPane)
+	if err := p.removeLive(c); err != nil {
+		return "", fail(ExitFail, "fs", "%s, but its claim could not be dropped: %v; run sunstack release %s --stale", msg, err, name)
+	}
 	os.RemoveAll(p.sessionTmp(id, c.Token))
 	rest, _ := p.Claims(id)
-	returned, _ = p.requeue(id, rest, map[string]string{c.Token: name}) // a stuck one is tried again at the next check
-	p.LogEvent("kill", name, "pane="+c.TmuxPane)
-	return "closed " + name + " (pane " + c.TmuxPane + ")", nil
+	returned, stuck = p.requeue(id, rest, map[string]string{c.Token: name}) // a stuck one is tried again at the next check
+	return msg, nil
 }
 
 // checkCap refuses a spawn when the team already has max_sessions live

@@ -38,6 +38,24 @@ type IdleSession struct {
 	For   time.Duration // since its last activity; 0 for an exited pane
 	free  bool          // a free session's pane
 	agent string        // an exited pane with no claim: the agent its mark names
+	// session: a released pane, the session ID that released the agent
+	session string
+}
+
+// Key identifies an entry across two runs of clean: what kind it is and
+// where, never its name or age, which change between the runs.
+func (s IdleSession) Key() string {
+	return s.Kind + "|" + s.Pane + "|" + s.Label + "|" + s.agent + "|" + s.session
+}
+
+// paneRows splits a tmux list-panes output into rows, keeping empty
+// trailing fields (TrimSpace would drop the last row's trailing tabs).
+func paneRows(out []byte) []string {
+	s := strings.TrimRight(string(out), "\r\n")
+	if s == "" {
+		return nil
+	}
+	return strings.Split(s, "\n")
 }
 
 // IdleSessions lists what sunstack clean closes for the team: its agent
@@ -66,22 +84,24 @@ func (p *Project) releasedPanes(sessions []*HostSession, now time.Time) []IdleSe
 		}
 	}
 	sock, _ := DefaultSocket()
-	cmd := exec.Command("tmux", TmuxArgs(sock, "list-panes", "-a", "-F", "#{pane_id}\t#{@sunstack}\t#{pane_title}")...)
+	cmd := exec.Command("tmux", TmuxArgs(sock, "list-panes", "-a", "-F", "#{pane_id}\t#{@sunstack}\t#{@sunstack_released}\t#{pane_title}")...)
 	cmd.Env = withoutTMUX(os.Environ())
 	list, _ := cmd.Output()
 	dup := DuplicateSessions(sessions)
 	var out []IdleSession
-	for _, l := range strings.Split(strings.TrimSpace(string(list)), "\n") {
-		f := strings.SplitN(l, "\t", 3)
-		if len(f) != 3 || !strings.HasPrefix(f[1], p.Root+"|") || claimed[f[0]] || selfPane() == f[0] || paneExited(sock, f[0]) {
+	for _, l := range paneRows(list) {
+		f := strings.SplitN(l, "\t", 4)
+		// The released mark names the session that released the agent
+		// (Release sets it): a CLI started there later is not that session.
+		if len(f) != 4 || !strings.HasPrefix(f[1], p.Root+"|") || f[2] == "" || claimed[f[0]] || selfPane() == f[0] || paneExited(sock, f[0]) {
 			continue
 		}
-		pane, id := f[0], strings.TrimPrefix(f[1], p.Root+"|")
+		pane, id, released := f[0], strings.TrimPrefix(f[1], p.Root+"|"), f[2]
 		// Claude Code starts its title with a status mark (✳, or a spinner
 		// while busy): the name starts at the first letter or digit.
-		title := strings.TrimLeftFunc(f[2], func(r rune) bool { return !unicode.IsLetter(r) && !unicode.IsDigit(r) })
+		title := strings.TrimLeftFunc(f[3], func(r rune) bool { return !unicode.IsLetter(r) && !unicode.IsDigit(r) })
 		for _, s := range sessions {
-			if s.Pane != pane || !onDefaultServer(s.socket) || s.Status != "idle" || s.SessionID == "" || dup[s.SessionID] != nil {
+			if s.Pane != pane || s.SessionID != released || !onDefaultServer(s.socket) || s.Status != "idle" || dup[s.SessionID] != nil {
 				continue
 			}
 			if len(listNames(hostTakenDir(s.SessionID), ".md")) > 0 {
@@ -92,7 +112,7 @@ func (p *Project) releasedPanes(sessions []*HostSession, now time.Time) []IdleSe
 				if title != "" {
 					name = title + " (released " + id + ", " + s.Tool + " at its prompt)"
 				}
-				out = append(out, IdleSession{Kind: IdleReleased, Name: name, Pane: pane, For: d, agent: id})
+				out = append(out, IdleSession{Kind: IdleReleased, Name: name, Pane: pane, For: d, agent: id, session: released})
 			}
 		}
 	}
@@ -152,9 +172,20 @@ func (p *Project) idleFree(sessions []*HostSession, now time.Time) []IdleSession
 	ps, _ := freePanes()
 	scope := p.HomeScope()
 	dup := DuplicateSessions(sessions)
+	// A free session that took an agent is closed, if at all, as that
+	// agent's session (idleAgents), whose checks cover its unfinished work.
+	claimed := map[string]bool{}
+	for _, id := range p.Agents() {
+		claims, _ := p.Claims(id)
+		for _, c := range claims {
+			if c.TmuxPane != "" && onDefaultServer(c.TmuxSocket) && sameServer(c) {
+				claimed[c.TmuxPane] = true
+			}
+		}
+	}
 	var out []IdleSession
 	for _, fp := range ps {
-		if fp.scope != scope || selfPane() == fp.pane {
+		if fp.scope != scope || selfPane() == fp.pane || claimed[fp.pane] {
 			continue
 		}
 		for _, s := range sessions {
@@ -203,7 +234,7 @@ func (p *Project) exitedPanes() []IdleSession {
 	cmd.Env = withoutTMUX(os.Environ())
 	list, _ := cmd.Output()
 	scope := p.HomeScope()
-	for _, l := range strings.Split(strings.TrimSpace(string(list)), "\n") {
+	for _, l := range paneRows(list) {
 		f := strings.Split(l, "\t")
 		if len(f) != 6 || seen[f[0]] || selfPane() == f[0] {
 			continue
@@ -225,19 +256,40 @@ func (p *Project) exitedPanes() []IdleSession {
 
 // paneExited reports whether a pane is dead or runs only its shell.
 func paneExited(socket, pane string) bool {
-	cmd := exec.Command("tmux", TmuxArgs(socket, "display-message", "-p", "-t", pane, "#{pane_dead}\t#{pane_current_command}")...)
+	cmd := exec.Command("tmux", TmuxArgs(socket, "display-message", "-p", "-t", pane, "#{pane_dead}\t#{pane_current_command}\t#{pane_pid}")...)
 	cmd.Env = withoutTMUX(os.Environ())
 	out, err := cmd.Output()
 	if err != nil {
 		return false
 	}
-	dead, command, _ := strings.Cut(strings.TrimSpace(string(out)), "\t")
-	if dead == "1" {
+	f := strings.Split(strings.TrimRight(string(out), "\r\n"), "\t")
+	if len(f) != 3 {
+		return false
+	}
+	if f[0] == "1" {
 		return true
 	}
-	switch strings.TrimPrefix(filepath.Base(command), "-") {
+	switch strings.TrimPrefix(filepath.Base(f[1]), "-") {
 	case "sh", "bash", "zsh", "fish", "dash", "ksh", "tcsh", "csh", "nu", "pwsh", "powershell":
+		// A shell with a background job still runs something.
+		return !hasChildren(f[2])
+	}
+	return false
+}
+
+// hasChildren reports whether process pid has a child process; true when
+// it cannot tell, so a pane is never closed on a failed check.
+func hasChildren(pid string) bool {
+	cmd, done := quick("ps", "-A", "-o", "ppid=")
+	defer done()
+	out, err := cmd.Output()
+	if err != nil || pid == "" {
 		return true
+	}
+	for _, l := range strings.Split(string(out), "\n") {
+		if strings.TrimSpace(l) == pid {
+			return true
+		}
 	}
 	return false
 }

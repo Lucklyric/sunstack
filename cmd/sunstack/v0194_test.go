@@ -6,6 +6,7 @@ package main
 
 import (
 	"os"
+	"regexp"
 	"os/exec"
 	"path/filepath"
 	"strconv"
@@ -83,7 +84,12 @@ func TestCleanReleasedAndStale(t *testing.T) {
 	if len(claims) != 1 {
 		t.Fatalf("reviewer claims: %d", len(claims))
 	}
-	expect(t, sh(t, p, s.env, "release", "reviewer", "--token", claims[0].Token), 0, "release")
+	// The session that releases marks its spawned pane with its ID.
+	renv := append(append([]string{}, s.env...), "CLAUDECODE=1", "CLAUDE_CODE_SESSION_ID="+sid)
+	expect(t, sh(t, p, renv, "release", "reviewer", "--token", claims[0].Token), 0, "release")
+	if got := s.tmux(t, "show-options", "-p", "-v", "-t", done, "@sunstack_released"); got != sid {
+		t.Errorf("released mark: %q, want %q", got, sid)
+	}
 	s.tmux(t, "kill-pane", "-t", gone)
 	// Claude Code's title starts with a status mark.
 	s.tmux(t, "select-pane", "-t", done, "-T", "✳ reviewer_done")
@@ -101,14 +107,31 @@ func TestCleanReleasedAndStale(t *testing.T) {
 	r = sh(t, p, s.env, "next", "--all")
 	requireContains(t, r.out, "1 session(s) that released their agent", "released reviewer", "1 claim(s) whose pane is closed", "sunstack clean")
 
+	// Another session started in that pane is not the one that released.
+	s.tmux(t, "set-option", "-p", "-t", done, "@sunstack_released", "00000000-0000-4000-8000-000000000999")
+	r = sh(t, p, s.env, "clean")
+	if strings.Contains(r.stderr, "released reviewer") {
+		t.Errorf("a pane whose session is not the releasing one is listed:\n%s", r.stderr)
+	}
+	stale := field(planRe, r.stderr)
+	s.tmux(t, "set-option", "-p", "-t", done, "@sunstack_released", sid)
+
 	r = sh(t, p, s.env, "clean")
 	expect(t, r, 2, "clean lists both")
+	code := field(planRe, r.stderr)
+	if code == "" || code == stale {
+		t.Fatalf("plan codes: %q then %q", stale, code)
+	}
+	// A --plan from an older list closes nothing.
+	r = sh(t, p, s.env, "clean", "--yes", "--plan", stale)
+	expect(t, r, 4, "clean with a stale plan")
+	requireContains(t, r.stderr, "changed", "--plan "+code)
 	requireContains(t, r.stderr, "reviewer_done (released reviewer", "builder.bob_gone (pane "+gone+" closed)")
 	if strings.Contains(r.stderr, "✳") || strings.Contains(r.stderr, "closed) (pane") {
 		t.Errorf("list names carry a status mark or a second pane:\n%s", r.stderr)
 	}
-	r = sh(t, p, s.env, "clean", "--yes")
-	expect(t, r, 0, "clean --yes")
+	r = sh(t, p, s.env, "clean", "--yes", "--plan", code)
+	expect(t, r, 0, "clean --yes --plan")
 	requireContains(t, r.out, "closed ", "released reviewer", "released builder.bob_gone (its pane is closed)")
 	panes := s.tmux(t, "list-panes", "-a", "-F", "#{pane_id}")
 	if strings.Contains(panes+"\n", done+"\n") || !strings.Contains(panes+"\n", s.pane+"\n") {
@@ -121,3 +144,5 @@ func TestCleanReleasedAndStale(t *testing.T) {
 	expect(t, r, 0, "nothing left")
 	requireContains(t, r.out, "nothing to close")
 }
+
+var planRe = regexp.MustCompile(`--plan ([0-9a-f]{8})`)

@@ -64,7 +64,7 @@ func freePanes() ([]freePane, string) {
 		return nil, sock
 	}
 	var ps []freePane
-	for _, l := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+	for _, l := range paneRows(out) {
 		f := strings.Split(l, "\t")
 		if len(f) == 5 && f[1] != "" {
 			ps = append(ps, freePane{f[0], f[2], f[3], f[4]})
