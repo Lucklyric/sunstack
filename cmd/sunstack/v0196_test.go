@@ -131,3 +131,10 @@ func TestCleanFreePaneWithClaim(t *testing.T) {
 		t.Errorf("a session holding a taken message is listed:\n%s%s", r.out, r.stderr)
 	}
 }
+
+// A plan code names its team: the same list in another team is another plan.
+func TestPlanCodeNamesTeam(t *testing.T) {
+	if idlePlanCode("/a", nil) == idlePlanCode("/b", nil) {
+		t.Errorf("two teams share a plan code")
+	}
+}

@@ -6,9 +6,9 @@ package main
 
 import (
 	"os"
-	"regexp"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"testing"
@@ -130,8 +130,10 @@ func TestCleanReleasedAndStale(t *testing.T) {
 	if strings.Contains(r.stderr, "✳") || strings.Contains(r.stderr, "closed) (pane") {
 		t.Errorf("list names carry a status mark or a second pane:\n%s", r.stderr)
 	}
-	r = sh(t, p, s.env, "clean", "--yes", "--plan", code)
-	expect(t, r, 0, "clean --yes --plan")
+	// The command it prints names the team, so it works from any folder.
+	requireContains(t, r.stderr, "sunstack clean --root "+core.ShellQuote(pr.Root)+" --yes --plan "+code)
+	r = sh(t, t.TempDir(), s.env, "clean", "--root", pr.Root, "--yes", "--plan", code)
+	expect(t, r, 0, "clean --root --yes --plan")
 	requireContains(t, r.out, "closed ", "released reviewer", "released builder.bob_gone (its pane is closed)")
 	panes := s.tmux(t, "list-panes", "-a", "-F", "#{pane_id}")
 	if strings.Contains(panes+"\n", done+"\n") || !strings.Contains(panes+"\n", s.pane+"\n") {

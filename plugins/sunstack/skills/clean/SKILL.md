@@ -45,13 +45,13 @@ with other work (a Now entry on its board, files it has not saved) should be dis
 anything no longer on it.
 
 1. Run `sunstack clean` (no `--yes`). From an agent session it changes nothing: it exits 2,
-   lists exactly what would close and ends with the command to run, `sunstack clean --yes
-   --plan <code>`. Or it says there is nothing to close. (In the user's own terminal it asks
+   lists exactly what would close and ends with the command to run, `sunstack clean --root
+   <root> --yes --plan <code>`. Or it says there is nothing to close. (In the user's own terminal it asks
    there instead.)
 2. Show the list and ask once: close all / cancel. To keep one open, dismiss or leave it and
    close the others one by one with `sunstack kill "<id_task>"` (or `sunstack kill <label>` for
    a free session) instead.
-3. On yes: `sunstack clean --yes --plan <code>`, with the code from step 1. The CLI asks the
+3. On yes: run that command exactly as printed in step 1. The CLI asks the
    user to approve that command; this is expected. Each one prints `closed <name>`, or `left
    alone <name>` when it is no longer idle. Errors name what went wrong for each (the reasons
    are as for `sunstack kill`; a pane can be closed and its claim or messages still need a fix).

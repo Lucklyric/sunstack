@@ -2522,13 +2522,14 @@ func killIdle(a *args, stdin io.Reader, stdout io.Writer) error {
 		}
 	}
 	plan := "close " + strconv.Itoa(len(idle)) + " idle session(s), exited pane(s) or stale claim(s): " + strings.Join(names, ", ")
-	code := idlePlanCode(idle)
+	code := idlePlanCode(p.Root, idle)
+	rerun := "sunstack clean --root " + core.ShellQuote(p.Root) + " --yes --plan " + code
 	if want := a.flags["plan"]; want != "" && want != code {
-		return &core.Error{Code: core.ExitClaim, Reason: "changed", Msg: "the list changed since it was shown, so nothing was closed; it now would " + plan + "; show the user this list, and on their yes run sunstack clean --yes --plan " + code}
+		return &core.Error{Code: core.ExitClaim, Reason: "changed", Msg: "the list changed since it was shown, so nothing was closed; it now would " + plan + "; show the user this list, and on their yes run " + rerun}
 	}
 	if !a.has("yes") {
 		if !setup.IsTerminal(os.Stdin) {
-			return &core.Error{Code: core.ExitUsage, Reason: "confirm", Msg: "this will " + plan + "; rerun with sunstack clean --yes --plan " + code + " once the user has confirmed"}
+			return &core.Error{Code: core.ExitUsage, Reason: "confirm", Msg: "this will " + plan + "; rerun with " + rerun + " once the user has confirmed"}
 		}
 		if !setup.Confirm(stdin, stdout, "This will "+plan+". Continue?", false) {
 			fmt.Fprintln(stdout, "sunstack: nothing closed")
@@ -2570,13 +2571,13 @@ func killIdle(a *args, stdin io.Reader, stdout io.Writer) error {
 
 // idlePlanCode names clean's list by what each entry is and where, so a
 // later clean --yes --plan closes only the list the user saw.
-func idlePlanCode(idle []core.IdleSession) string {
+func idlePlanCode(root string, idle []core.IdleSession) string {
 	keys := make([]string, len(idle))
 	for i, s := range idle {
 		keys[i] = s.Key()
 	}
 	sort.Strings(keys)
-	h := sha256.Sum256([]byte(strings.Join(keys, "\n")))
+	h := sha256.Sum256([]byte(root + "\n" + strings.Join(keys, "\n")))
 	return hex.EncodeToString(h[:4])
 }
 

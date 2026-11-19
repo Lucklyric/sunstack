@@ -107,8 +107,8 @@ func main() {
 		}
 		return
 	case "ps":
-		// Parent IDs only, for a pane's child check: read-only, so the real ps.
-		if len(args) == 3 && args[0] == "-A" && args[1] == "-o" && args[2] == "ppid=" {
+		// The process list for a pane's child check: read-only, so the real ps.
+		if len(args) == 3 && args[0] == "-A" && args[1] == "-o" && args[2] == "pid=,ppid=,stat=,comm=" {
 			run(os.Getenv("SUNSTACK_TEST_REAL_PS"), args...)
 			return
 		}

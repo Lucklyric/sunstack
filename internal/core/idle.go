@@ -269,29 +269,61 @@ func paneExited(socket, pane string) bool {
 	if f[0] == "1" {
 		return true
 	}
-	switch strings.TrimPrefix(filepath.Base(f[1]), "-") {
+	if !isShell(f[1]) {
+		return false
+	}
+	// A shell with a background job still runs something.
+	return onlyShells(f[2])
+}
+
+// isShell reports whether a command name is a login or interactive shell.
+func isShell(name string) bool {
+	switch strings.TrimPrefix(filepath.Base(name), "-") {
 	case "sh", "bash", "zsh", "fish", "dash", "ksh", "tcsh", "csh", "nu", "pwsh", "powershell":
-		// A shell with a background job still runs something.
-		return !hasChildren(f[2])
+		return true
 	}
 	return false
 }
 
-// hasChildren reports whether process pid has a child process; true when
-// it cannot tell, so a pane is never closed on a failed check.
-func hasChildren(pid string) bool {
-	cmd, done := quick("ps", "-A", "-o", "ppid=")
+// onlyShells reports whether every live process under pid is a shell. tmux
+// may start a pane as "sh -c <shell>", so pane_pid can be a wrapper with the
+// real shell below it. False when it cannot tell, so a pane is never closed
+// on a failed check.
+func onlyShells(pid string) bool {
+	if pid == "" {
+		return false
+	}
+	cmd, done := quick("ps", "-A", "-o", "pid=,ppid=,stat=,comm=")
 	defer done()
 	out, err := cmd.Output()
-	if err != nil || pid == "" {
-		return true
+	if err != nil {
+		return false
 	}
+	type proc struct{ pid, stat, comm string }
+	kids := map[string][]proc{}
 	for _, l := range strings.Split(string(out), "\n") {
-		if strings.TrimSpace(l) == pid {
-			return true
+		f := strings.Fields(l)
+		if len(f) < 4 {
+			continue
+		}
+		kids[f[1]] = append(kids[f[1]], proc{f[0], f[2], strings.Join(f[3:], " ")})
+	}
+	seen := map[string]bool{pid: true}
+	for todo := []string{pid}; len(todo) > 0; {
+		p := todo[0]
+		todo = todo[1:]
+		for _, k := range kids[p] {
+			if seen[k.pid] || strings.HasPrefix(k.stat, "Z") {
+				continue
+			}
+			if !isShell(k.comm) {
+				return false
+			}
+			seen[k.pid] = true
+			todo = append(todo, k.pid)
 		}
 	}
-	return false
+	return true
 }
 
 // idleFor is how long ago the latest of the times was, if over IdleAfter.
