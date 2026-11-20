@@ -285,10 +285,11 @@ func isShell(name string) bool {
 	return false
 }
 
-// onlyShells reports whether every live process under pid is a shell. tmux
-// may start a pane as "sh -c <shell>", so pane_pid can be a wrapper with the
-// real shell below it. False when it cannot tell, so a pane is never closed
-// on a failed check.
+// onlyShells reports whether pid is a live shell and every live process
+// under it is a shell in the terminal's foreground: tmux may start a pane as
+// "sh -c <shell>", so pane_pid can be a wrapper with the real shell below
+// it, while a background subshell is not in the foreground. False when it
+// cannot tell, so a pane is never closed on a failed check.
 func onlyShells(pid string) bool {
 	if pid == "" {
 		return false
@@ -301,12 +302,22 @@ func onlyShells(pid string) bool {
 	}
 	type proc struct{ pid, stat, comm string }
 	kids := map[string][]proc{}
+	var root *proc
 	for _, l := range strings.Split(string(out), "\n") {
 		f := strings.Fields(l)
 		if len(f) < 4 {
 			continue
 		}
-		kids[f[1]] = append(kids[f[1]], proc{f[0], f[2], strings.Join(f[3:], " ")})
+		p := proc{f[0], f[2], strings.Join(f[3:], " ")}
+		kids[f[1]] = append(kids[f[1]], p)
+		if p.pid == pid {
+			root = &p
+		}
+	}
+	// The pane's own process must still be there and still a shell: it may
+	// have exec'd a CLI since tmux was asked.
+	if root == nil || strings.HasPrefix(root.stat, "Z") || !isShell(root.comm) {
+		return false
 	}
 	seen := map[string]bool{pid: true}
 	for todo := []string{pid}; len(todo) > 0; {
@@ -316,7 +327,7 @@ func onlyShells(pid string) bool {
 			if seen[k.pid] || strings.HasPrefix(k.stat, "Z") {
 				continue
 			}
-			if !isShell(k.comm) {
+			if !isShell(k.comm) || !strings.Contains(k.stat, "+") {
 				return false
 			}
 			seen[k.pid] = true

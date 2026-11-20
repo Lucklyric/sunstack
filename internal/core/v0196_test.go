@@ -2,6 +2,7 @@ package core
 
 import (
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
@@ -20,8 +21,9 @@ func TestPaneRowsKeepsTrailingFields(t *testing.T) {
 	}
 }
 
-// A pane counts as exited only when every process under it is a shell: a
-// wrapper "sh -c sh" passes, a shell with a background job does not.
+// A pane counts as exited only when it is a shell with nothing else under
+// it. A wrapper shell with the real shell in the foreground needs a
+// terminal, so the tmux test covers it.
 func TestOnlyShells(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("ps is Unix")
@@ -45,26 +47,42 @@ func TestOnlyShells(t *testing.T) {
 				}
 			}
 			if n >= kids {
-				break
+				return cmd
 			}
 			time.Sleep(50 * time.Millisecond)
 		}
-		return cmd
+		t.Fatalf("%q: no %d child process(es)", script, kids)
+		return nil
 	}
 	idle := start("read x", 0)
-	wrapper := start("sh -c 'read x'; :", 1)
+	fifo := filepath.Join(t.TempDir(), "ff")
+	if err := exec.Command("mkfifo", fifo).Run(); err != nil {
+		t.Fatal(err)
+	}
+	sub := start("(read x < "+fifo+") & read x", 1)
 	job := start("sleep 30 & read x", 1)
 	time.Sleep(100 * time.Millisecond)
 	if !onlyShells(strconv.Itoa(idle.Process.Pid)) {
 		t.Errorf("a shell at its prompt runs something")
 	}
-	if !onlyShells(strconv.Itoa(wrapper.Process.Pid)) {
-		t.Errorf("a shell under a wrapper shell runs something")
+	if onlyShells(strconv.Itoa(sub.Process.Pid)) {
+		t.Errorf("a shell with a background subshell runs only shells")
 	}
 	if onlyShells(strconv.Itoa(job.Process.Pid)) {
 		t.Errorf("a shell with a background job runs only shells")
 	}
 	if onlyShells("") {
 		t.Errorf("no pid counts as only shells")
+	}
+	sleeper := exec.Command("sleep", "30")
+	if err := sleeper.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { sleeper.Process.Kill(); sleeper.Wait() }()
+	if onlyShells(strconv.Itoa(sleeper.Process.Pid)) {
+		t.Errorf("a pane whose own process is no shell counts as only shells")
+	}
+	if onlyShells(strconv.Itoa(job.Process.Pid + 1000000)) {
+		t.Errorf("a pid not listed counts as only shells")
 	}
 }

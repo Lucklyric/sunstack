@@ -138,3 +138,49 @@ func TestPlanCodeNamesTeam(t *testing.T) {
 		t.Errorf("two teams share a plan code")
 	}
 }
+
+// A pane back at its shell with a background subshell still runs something.
+func TestCleanExitedShellWithSubshell(t *testing.T) {
+	p := fixture(t)
+	s := privateTmux(t, p, isolatedEnv(t))
+	r := sh(t, p, s.env, "spawn", "--free", "--tool", "claude", "--name", "bg", "--place", "here")
+	expect(t, r, 0, "spawn bg")
+	pane := field(paneRe, r.out)
+	tty := strings.TrimPrefix(s.tmux(t, "display-message", "-p", "-t", pane, "#{pane_tty}"), "/dev/")
+	pid := 0
+	for i := 0; i < 50 && pid == 0; i++ {
+		for _, e := range launches(t, s.env) {
+			out, _ := exec.Command("/bin/ps", "-o", "tty=", "-p", strconv.Itoa(e.PID)).Output()
+			got := strings.TrimPrefix(strings.TrimPrefix(strings.TrimSpace(string(out)), "/dev/"), "tty")
+			if got != "" && strings.TrimPrefix(tty, "tty") == got {
+				pid = e.PID
+			}
+		}
+		if pid == 0 {
+			time.Sleep(100 * time.Millisecond)
+		}
+	}
+	if pid == 0 {
+		t.Fatalf("no stand-in on %s", tty)
+	}
+	proc, err := os.FindProcess(pid)
+	must(t, err)
+	must(t, proc.Kill())
+	for i := 0; i < 50 && s.tmux(t, "display-message", "-p", "-t", pane, "#{pane_current_command}") != "sh"; i++ {
+		time.Sleep(100 * time.Millisecond)
+	}
+	r = sh(t, p, s.env, "clean")
+	requireContains(t, r.stderr, "bg (free, claude exited)")
+
+	// A subshell left in the background, blocked on a fifo nobody writes.
+	fifo := filepath.Join(t.TempDir(), "ff")
+	must(t, exec.Command("mkfifo", fifo).Run())
+	// C-j, not Enter: the killed stand-in leaves the terminal raw, and dash
+	// does not run a line ended by a carriage return.
+	s.tmux(t, "send-keys", "-t", pane, "(read x < "+fifo+") &", "C-j")
+	time.Sleep(time.Second) // the subshell starts
+	r = sh(t, p, s.env, "clean")
+	if strings.Contains(r.stderr+r.out, "bg (free") {
+		t.Errorf("a shell with a background subshell is listed as exited:\n%s%s", r.out, r.stderr)
+	}
+}
