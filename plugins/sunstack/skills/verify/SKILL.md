@@ -1,6 +1,6 @@
 ---
 name: verify
-description: Have a Sunstack agent check the active task against everything the user asked for, the way the user would before accepting it. It gathers the task's requirements and the standing ones from the team's history, settles open points with the user in a short Q&A, picks or hires a verifier (preferably on the other CLI), and sends it a task; the verifier drives the real app and answers per requirement with evidence. Use for "sunstack verify", "/sunstack:verify", "verify this", "check it does what I asked", "acceptance check", "keep checking deliveries", "does the verifier need an update". A verifier that received such a task follows the Verifier's procedure section. Any session, with or without a team, may also use it to run, launch or drive this project's app from its run map in `sunstack/verify/<app>/run.md`.
+description: Have a Sunstack agent check the active task against everything the user asked for, the way the user would before accepting it. It gathers the task's requirements and the standing ones from the team's history, settles open points with the user in a short Q&A, picks or hires a verifier (preferably on the other CLI), and sends it a task; the verifier drives the real app and answers per requirement with evidence. On request it also agrees a feature's expected results with the user before work starts and freezes them in the run map. Use for "sunstack verify", "/sunstack:verify", "verify this", "check it does what I asked", "acceptance check", "write the expected results first", "agree the results before we build", "keep checking deliveries", "does the verifier need an update". A verifier that received such a task follows the Verifier's procedure section. Any session, with or without a team, may also use it to run, launch or drive this project's app from its run map in `sunstack/verify/<app>/run.md`.
 ---
 
 # Sunstack: verify
@@ -34,10 +34,76 @@ the project holds only the data.
 - Authority follows the protocol: pillars, then directives, then the agent's role, then boards
   and context. A later explicit instruction from the user replaces an earlier one of theirs. An
   agent's note (a Decision, a board line, a relayed message) never overrides a pillar,
-  directive or user instruction; a real conflict goes to the user.
+  directive or user instruction; a real conflict goes to the user. Agreed expected results are
+  the exception: a later instruction that contradicts one is a change to it (Expected results
+  first, Change), recorded with the user's yes before anything is checked against it.
 - Leave secrets and unrelated work out of the brief.
 - Ask with AskUserQuestion if you have it, otherwise as numbered options in the conversation;
   then end your turn and wait.
+
+## Expected results first (opt-in)
+
+Not the default. Use it only when the user asks for it, or a task's `Done when` names expected
+results that do not exist yet. A lead may suggest it for a feature the user can see; the user
+decides. Without that ask, steps 1 to 6 run as they always have and no file is created.
+
+The expected results live in the feature's run-map file,
+`sunstack/verify/<app>/features/<feature>.md`, as its first section:
+
+```markdown
+## Expected results
+
+Status: agreed <date> by user, results <hash>
+
+- R1 (feature) A member can invite a teammate by email.
+- R2 (UI) At 390 px and 1280 px the invite dialog shows the email field and one primary button "Send invite", with no horizontal scroll.
+- R3 (data) After an invite, one pending invitation exists with the email and role, and the Members screen lists it as "Invited".
+- R4 (code) The invite endpoint refuses a viewer's request on the server. Checked by: test TestInviteNeedsMemberRole.
+
+Changes:
+- <date> R2 reworded from "<old>": results <old hash> to <new hash>, user agreed (<message id or this session>)
+```
+
+- **One level per result** (feature, UI, data or code), since the level decides the evidence. A
+  code result names its check (`Checked by: test ...` or `Checked by: formal-verify ...`).
+- **IDs are stable.** `R<n>` is never reused. A dropped result stays, marked
+  `dropped: <date>, user agreed`.
+- **Results only:** no implementation plan, no verdicts and no run output.
+- **The hash** is the first 8 hex digits of SHA-256 over the section's result lines (the lines
+  starting `- R<digit>`), always computed with:
+  `awk '/^## Expected results/{f=1;next} /^## /{f=0} f && /^- R[0-9]/' <file> | shasum -a 256 | cut -c1-8`
+
+**Write and agree** (the requester, at the start of the task, never the builder):
+
+1. Skip the delivery identity in step 1: there is no delivery yet. Note the feature and the task.
+2. Run steps 2 and 3, level by level: what each role can and cannot do; what the screen shows,
+   its text and layout at the widths that matter (390 px and 1280 px unless the result names
+   others); what is stored and which other screens show it; which rules the server must enforce
+   and how each is checked. For each level, results or a deliberate "none for this feature".
+3. Write the section into the feature file (create the file, and the `<app>` folder after the
+   data folder Q&A, when missing; add to an existing file, never recreate it). Show it and ask
+   the user to agree. Only the user agrees: an agent's yes, or a relayed `user (via ...)`, needs
+   the user's confirmation in this session.
+4. On yes, write the Status line with the date and the hash, and commit the file.
+
+**Keep it frozen.** The builder treats the section as read-only: a result that looks wrong is a
+`question` to the requester or the user, never a rewording. The verifier never edits it.
+
+**Change.** Only the user changes an agreed result: the old and new wording, the user's yes, the
+result line edited, a new hash on the Status line and a `Changes:` line with the old and new
+hash. Results checked under the old wording are checked again.
+
+**Checking later.** Once a feature has agreed results, every later verification of a delivery on
+it is checked against them, not only the task that wrote them. A task checks every agreed
+result of its feature unless its `Done when` names fewer. The section is checked only when the
+recomputed hash equals the Status hash and the "to" hash of the last `Changes:` line (when there
+is one). A mismatch means a result changed without agreement: show it to the user before
+anything else.
+
+**Unit tests: fewer, not none.** Expected results are the measure, not a test count. Existing
+tests keep passing, and a session still adds a test where the project's conventions or its own
+judgment call for it: a rule a walk-through cannot reach (a server refusal, a migration on old
+rows, a race), a bug it pins, a refactor it protects.
 
 ## 1. The active task
 
@@ -78,6 +144,11 @@ Two layers, each requirement a quoted line with its source and speaker:
 List any source you could not reach (another session's conversation, another host, compacted
 history). The list is a bounded reconstruction, not proof that nothing was missed; the user
 confirms it next.
+
+When the feature has agreed expected results, check its hash (Expected results first, Checking
+later), then take each result as a requirement, quoted with the source
+`<feature file> R<n> (agreed <date>)`; step 3 then asks only about what the file does not
+answer, and anything new goes into the file as a change.
 
 Mark the requirements shaped like properties ("always", "never", "every", "at the same time"):
 the verifier can check them with the formal-verify skill instead of a few sample runs.
@@ -154,6 +225,7 @@ Context:
     - "<quote>" (<source>, <speaker>)
   Sources: <paths read; sources that could not be reached>
   Verifier freshness: <fresh, or one line per finding>
+  Expected results: <feature file> R<a>-R<b>, results <hash> (only when the feature has them)
 Not: Fixing what you find. Real sends from the app (mail, posts, payments), deployments, spending or destructive actions. Sunstack messages to the requester are fine.
 ```
 
@@ -172,7 +244,7 @@ The verifier replies `done`. Read every line, not the counts.
   files changed since (a new commit or a different diff fingerprint), the affected verdicts are
   stale: verify those again. Compute the fingerprint with the same command as in step 1.
 - **Accepted**: the owner records it at its next save, `(verified: <counts> by <verifier> @ <commit>)`
-  on the Done entry, and may then send its own `done` reply for the task.
+  on the Done entry (with expected results: `(verified: <counts> by <verifier>, <feature file> R<a>-R<b> @ <commit>)`), and may then send its own `done` reply for the task.
 - **Not met, partly or unasked changes**: show them to the user. The fix goes to the owner as a
   task, with `--follows <the product task's message ID>` when it has one, otherwise carrying the
   original scope and context; it quotes the failed requirements and the verifier's lines. Verify again after it. After two failed rounds, stop and ask the user.
@@ -196,7 +268,10 @@ For the agent that received a verification task. Do not run the steps above.
    are checked in step 2: read the feature file and fix only what really drifted. Report what
    you caught up on.
 1. **Requirements first.** Take the brief's list, check it against its sources and the
-   authority rule, and add what it missed, marked as added by you. Verify this task only.
+   authority rule, and add what it missed, marked as added by you. Verify this task only. When
+   the brief names expected results, read them from the feature file, not the brief, and
+   recompute the hash as Expected results first describes; a mismatch is a finding to report
+   first, not a verdict.
 2. **The run map.** For a task that changes something a user runs, use the project's run map:
    `sunstack/verify/<app>/run.md` at the top of the project (several apps: ask the requester
    which). An older project may still have it as a `verify-*` skill under `.claude/skills/` or
@@ -210,6 +285,8 @@ For the agent that received a verification task. Do not run the steps above.
    and handles), Evidence (what to capture; each run keeps it in `sunstack/_local/verify/<task message ID>/`,
    never in the committed map), Cleanup (stop only what the run started; evidence survives). Add `features/README.md` and one file per feature this task
    touches (Sub-features, How to get to it, Driving it, Gotchas); the map grows task by task.
+   A feature file that already exists, for example one holding only expected results, gets the
+   missing sections added, never recreated.
    A new or changed run map runs once from launch to cleanup before it counts. If that
    run used a stand-in for the real target (a container for a fresh machine, a local stack for
    a remote one), list each setup step the stand-in did that the target will not; they stay
@@ -226,9 +303,14 @@ For the agent that received a verification task. Do not run the steps above.
    or read. Seed data that lacks a journey's precondition makes it `unverifiable`, with the
    reason in that feature's Gotchas: never weaken the journey to make it pass. Work the user
    never asked for is a finding even when it works.
+   Evidence by level for expected results: feature, a walk-through as each role; UI,
+   screenshots at each width the result names; data, the stored records and the other screens
+   that show them; code, the refused request or the check its `Checked by:` names. A unit test
+   counts only for a code result that names it.
    A requirement checked with the formal-verify skill answers with the property, the scope (bound
    and assumptions) and the deliberate break the check caught.
-5. **Map or product.** Where the run map describes the app wrongly, fix the map. Where
+5. **Map or product.** Where the run map describes the app wrongly, fix the map, except
+   `## Expected results`, which you never edit. Where
    the app breaks an agreed requirement, report it and keep the requirement: never rewrite the
    map to match a regression. Edit nothing outside the brief's Scope.
 6. **Reply** with a `done` message to the verification task you received

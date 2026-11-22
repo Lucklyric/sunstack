@@ -62,6 +62,8 @@ host, only when it must be read now.
   ```
 
   A field you cannot fill means the task is not scoped yet: settle it with the user first.
+  When the feature has agreed expected results (verify skill), `Done when` may name them
+  instead of restating them: `- R1-R5 in sunstack/verify/<app>/features/<feature>.md are met`.
 - If the user asked you to send it, show the exact text, recipient and type first and ask
   (send / edit / cancel), unless they already gave the exact wording. An agent's own routine
   `done` reply needs no confirmation.

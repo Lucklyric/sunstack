@@ -84,7 +84,9 @@ and ones this session has already taken.
      Commit `board.md` right away (save skill steps 3 to 5 for `board.md` only, with its error
      handling), so other sessions of this agent see it and its key. If the task is not what
      this session's task label says, rename it for the task (`sunstack name <label>`, the as
-     skill). Then do it inside its Scope. Stop at its Timebox if one is set, and report what is done so far. Reply
+     skill). Then do it inside its Scope. A `## Expected results` section the brief names
+     (verify skill) is read-only for you: a result that looks wrong is a `question` to the
+     sender, never a rewording. Stop at its Timebox if one is set, and report what is done so far. Reply
      `done --reply-to <message id>` with what Report asks for and a `verified:` line naming
      the checks you actually ran (`verified: none, <reason>` when there was nothing to run).
      In a git project the line ends with `@ <short commit>` you checked, so the sender sees
