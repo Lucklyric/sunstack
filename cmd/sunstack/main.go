@@ -35,6 +35,7 @@ var version = "dev"
 const shortUsage = `sunstack — agent-team layer for Claude Code and Codex
 
   sunstack next [--team] [--all]        what to do now: this session's own work; --team: the whole team
+  sunstack checkpoint                   where this folder's work stands: done, in progress, next (works without a team)
   sunstack                              dashboard (also sunstack tui)
   sunstack org [--attention]            every team and session on this host and the org; --attention: what waits on you
   sunstack board [id]                   objectives, key results and directives
@@ -56,14 +57,14 @@ const shortUsage = `sunstack — agent-team layer for Claude Code and Codex
   sunstack update                       update this binary and the plugin
 
 Skills have the command's name: /sunstack:<name> in Claude Code, $sunstack:<name> in Codex
-(as, board, check, clean, direct, drive, fire, health, hire, hr, issues, next, org, release, send, spawn; save,
-verify and formal-verify are skills only). Every command and flag: sunstack help all
+(as, board, check, checkpoint, clean, direct, drive, fire, health, hire, hr, issues, next, org, release, send, spawn;
+save, wrap, verify and formal-verify are skills only). Every command and flag: sunstack help all
 `
 
 const usage = `sunstack — agent-team layer for Claude Code and Codex
 
 Each skill has the name of the command it runs: sunstack <name>, /sunstack:<name> in Claude Code,
-$sunstack:<name> in Codex; save, verify and formal-verify are skills only.
+$sunstack:<name> in Codex; save, wrap, verify and formal-verify are skills only.
 
 Agent identity (used by the plugin's skills):
   sunstack as <id|title> [--task LABEL] [--join] [--token T] [--takeover --expect CLAIM] [--tool claude|codex] [--root DIR]
@@ -93,6 +94,12 @@ Boards:
                                                   team's other ones. --team (or --root): the whole team, as outside
                                                   a session. Outside a team: this session's
                                                   inbox and open tasks only, plus a count of the rest (org --attention)
+  sunstack checkpoint [--root DIR]                where this folder's work stands, with or without a team: the last
+                                                  wrap note, git in this folder and its submodules (commits since the
+                                                  note, uncommitted files), the team's Now and Done entries, next, and this
+                                                  session's messages
+  sunstack checkpoint --save <file>               store <file> as this session's wrap note for this folder
+                                                  (~/.sunstack/wrap/), stamped with the time and each repo's commit
   sunstack tasks [--all] [--from ID] [--type task|question] [--root DIR]
                                                   open tasks and questions (open until a done reply), with replies
   sunstack halt "<reason>" | --off                pause the whole team: work in progress saves, nothing new starts
@@ -922,6 +929,17 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 			return err
 		}
 		return nextCommand(a, false, stdout)
+
+	case "checkpoint":
+		// Where this folder's work stands, and the wrap note (§52).
+		a, err := parse(rest, "root save", "")
+		if err == nil {
+			err = a.atMost(0, "checkpoint")
+		}
+		if err != nil {
+			return err
+		}
+		return checkpointCommand(a, stdout)
 
 	case "tasks":
 		// The delegation ledger (§17.2), derived from messages.
@@ -1991,7 +2009,13 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 		drive := core.DriveNudge(in.Prompt) // a prompt that names a co-worker (§47)
 		p, err := core.FindProject(in.Cwd)
 		if err != nil {
-			// Outside a team, only the host inbox can hold something.
+			// Outside a team, only the host inbox can hold something,
+			// and after a compaction only a wrap note (§52).
+			if in.Event == "SessionStart" {
+				if w := wrapHookLine(in.Cwd, in.SessionID); w != "" {
+					sessionStartContext(stdout, strings.TrimSpace(w))
+				}
+			}
 			if in.Event != "SessionStart" {
 				name := sessionNameLine(nil, in.SessionID)
 				if lines := hostWaitingLines(in.SessionID); len(lines) > 0 {
@@ -2006,12 +2030,14 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 			// After compaction, /clear or a resume the model has lost the
 			// session state; give it back so it never has to guess.
 			held := p.HeldBy(in.SessionID, tmuxPane(), tmuxSocket())
+			wrap := wrapHookLine(in.Cwd, in.SessionID)
 			if len(held) == 0 {
+				if wrap != "" {
+					sessionStartContext(stdout, strings.TrimSpace(wrap))
+				}
 				return nil
 			}
-			ctx := "[sunstack] " + haltFirst(p) + whoamiText(p, held) + rulesText(p, held) + "Before more Sunstack work, reload the identity files: run the as skill with this id and --token (it resumes the claim, no new one)."
-			b, _ := json.Marshal(map[string]any{"hookSpecificOutput": map[string]string{"hookEventName": "SessionStart", "additionalContext": ctx}})
-			fmt.Fprintln(stdout, string(b))
+			sessionStartContext(stdout, wrap+"[sunstack] "+haltFirst(p)+whoamiText(p, held)+rulesText(p, held)+"Before more Sunstack work, reload the identity files: run the as skill with this id and --token (it resumes the claim, no new one).")
 			return nil
 		}
 		lines := p.PendingForSession(in.SessionID, tmuxPane(), tmuxSocket())
@@ -2714,6 +2740,11 @@ func printMessages(w io.Writer, ms []*core.Message) {
 		}
 		fmt.Fprintf(stdout, "\n%s\n", strings.TrimRight(m.Body, "\n"))
 	}
+}
+
+func sessionStartContext(stdout io.Writer, ctx string) {
+	b, _ := json.Marshal(map[string]any{"hookSpecificOutput": map[string]string{"hookEventName": "SessionStart", "additionalContext": ctx}})
+	fmt.Fprintln(stdout, string(b))
 }
 
 func hookContext(stdout io.Writer, ctx string) {
