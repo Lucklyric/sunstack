@@ -35,7 +35,7 @@ var version = "dev"
 const shortUsage = `sunstack — agent-team layer for Claude Code and Codex
 
   sunstack next [--team] [--all]        what to do now: this session's own work; --team: the whole team
-  sunstack checkpoint                   where this folder's work stands: done, in progress, next (works without a team)
+  sunstack pickup                       where this folder's work stands: done, in progress, next (works without a team)
   sunstack                              dashboard (also sunstack tui)
   sunstack org [--attention]            every team and session on this host and the org; --attention: what waits on you
   sunstack board [id]                   objectives, key results and directives
@@ -57,7 +57,7 @@ const shortUsage = `sunstack — agent-team layer for Claude Code and Codex
   sunstack update                       update this binary and the plugin
 
 Skills have the command's name: /sunstack:<name> in Claude Code, $sunstack:<name> in Codex
-(as, board, check, checkpoint, clean, direct, drive, fire, health, hire, hr, issues, next, org, release, send, spawn;
+(as, board, check, clean, direct, drive, fire, health, hire, hr, issues, next, org, pickup, release, send, spawn;
 save, wrap, verify and formal-verify are skills only). Every command and flag: sunstack help all
 `
 
@@ -94,11 +94,11 @@ Boards:
                                                   team's other ones. --team (or --root): the whole team, as outside
                                                   a session. Outside a team: this session's
                                                   inbox and open tasks only, plus a count of the rest (org --attention)
-  sunstack checkpoint [--root DIR]                where this folder's work stands, with or without a team: the last
+  sunstack pickup [--root DIR]                where this folder's work stands, with or without a team: the last
                                                   wrap note, git in this folder and its submodules (commits since the
                                                   note, uncommitted files), the team's Now and Done entries, next, and this
                                                   session's messages
-  sunstack checkpoint --save <file>               store <file> as this session's wrap note for this folder
+  sunstack pickup --save <file>               store <file> as this session's wrap note for this folder
                                                   (~/.sunstack/wrap/), stamped with the time and each repo's commit
   sunstack tasks [--all] [--from ID] [--type task|question] [--root DIR]
                                                   open tasks and questions (open until a done reply), with replies
@@ -381,7 +381,7 @@ func tmuxServer() string {
 }
 
 // skillOnly names the plugin's skills that have no command of their own.
-var skillOnly = map[string]bool{"save": true, "verify": true, "formal-verify": true}
+var skillOnly = map[string]bool{"save": true, "wrap": true, "verify": true, "formal-verify": true}
 
 func missing(what string) error {
 	return &core.Error{Code: core.ExitUsage, Reason: "missing_arguments", Msg: "missing " + what, Stdout: "missing_arguments: " + what + "\n"}
@@ -930,16 +930,16 @@ func dispatch(cmd string, rest []string, stdin io.Reader, stdout, stderr io.Writ
 		}
 		return nextCommand(a, false, stdout)
 
-	case "checkpoint":
+	case "pickup", "checkpoint": // checkpoint: the v0.19.9 name, kept as an alias
 		// Where this folder's work stands, and the wrap note (§52).
 		a, err := parse(rest, "root save", "")
 		if err == nil {
-			err = a.atMost(0, "checkpoint")
+			err = a.atMost(0, "pickup")
 		}
 		if err != nil {
 			return err
 		}
-		return checkpointCommand(a, stdout)
+		return pickupCommand(a, stdout)
 
 	case "tasks":
 		// The delegation ledger (§17.2), derived from messages.

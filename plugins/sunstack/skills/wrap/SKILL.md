@@ -5,11 +5,11 @@ description: Before a compaction, /clear or the end of a session, write this ses
 
 # Sunstack: wrap
 
-Skill only: `/sunstack:wrap` in Claude Code, `$sunstack:wrap` in Codex. It runs `sunstack checkpoint`.
+Skill only: `/sunstack:wrap` in Claude Code, `$sunstack:wrap` in Codex. It runs `sunstack pickup`.
 
 Run it on purpose before `/compact` or `/clear`: a hook fires only once compaction has started,
 too late for this. After the compaction, the SessionStart hook says a wrap note exists, and
-`sunstack checkpoint` (or the checkpoint skill) prints it with the current state.
+`sunstack pickup` (or the pickup skill) prints it with the current state.
 
 ## Rules
 
@@ -21,12 +21,13 @@ too late for this. After the compaction, the SessionStart hook says a wrap note 
   evidence), inferred or a guess.
 - Ask with AskUserQuestion if you have it, otherwise as numbered options in the conversation;
   then end your turn and wait.
-- No `checkpoint` command (an older binary): do steps 1 to 4 from git and the conversation,
+- No `pickup` command (an older binary): use `sunstack checkpoint`, its name in v0.19.9.
+  If that fails too, do steps 1 to 4 from git and the conversation,
   then show the wrap note in the conversation instead of saving it, and say so.
 
 ## 1. Inventory
 
-Do the checkpoint skill's step 1 (`sunstack checkpoint` and the reading). List what this
+Do the pickup skill's step 1 (`sunstack pickup` and the reading). List what this
 session did and left open: changes and commits, decisions, findings, open items with their next
 step, background jobs and their output files, questions waiting on the user.
 
@@ -56,7 +57,7 @@ skill for its part.
 Write the note to a file in this session's scratch or temporary folder, then:
 
 ```sh
-sunstack checkpoint --save "<note file>"
+sunstack pickup --save "<note file>"
 ```
 
 It stores the note for this folder and session (host-local, replacing the last one) and stamps
@@ -73,4 +74,4 @@ Exit 2 `no_session`: this CLI gave no session ID. Show the note in the conversat
 ## 6. Report
 
 One line per file updated, the note's path, what is left to commit, and: "Ready to compact.
-After it, run `sunstack checkpoint` (or the checkpoint skill)."
+After it, run `sunstack pickup` (or the pickup skill)."

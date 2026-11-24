@@ -15,11 +15,11 @@ import (
 	"github.com/Lucklyric/sunstack/internal/core"
 )
 
-// checkpoint (§52) prints where this folder's work stands: the last wrap
+// pickup (§52) prints where this folder's work stands: the last wrap
 // note, git in the folder and its submodules, the team's open work, and
 // this session's messages. --save <file> stores a wrap note. Outside a
 // team, git or a session it prints what it can and still exits 0.
-func checkpointCommand(a *args, stdout io.Writer) error {
+func pickupCommand(a *args, stdout io.Writer) error {
 	dir, err := os.Getwd()
 	if err != nil {
 		return err
@@ -184,7 +184,7 @@ func checkpointCommand(a *args, stdout io.Writer) error {
 
 type cpRepo struct{ label, dir, scope string }
 
-// cpRepos are the repos checkpoint reports on: the folder's own repo,
+// cpRepos are the repos pickup reports on: the folder's own repo,
 // limited to the folder, then each checked-out submodule under it, whole.
 func cpRepos(dir string) []cpRepo {
 	if !cpGitOK(dir, "rev-parse", "--show-toplevel") {
@@ -254,5 +254,5 @@ func wrapHookLine(cwd, sid string) string {
 	if n.Other {
 		whose = " by another session"
 	}
-	return fmt.Sprintf("[sunstack] a wrap note for this folder was saved %s ago%s: run `sunstack checkpoint` to read it and see where the work stands. ", cpAgo(n.Saved), whose)
+	return fmt.Sprintf("[sunstack] a wrap note for this folder was saved %s ago%s: run `sunstack pickup` to read it and see where the work stands. ", cpAgo(n.Saved), whose)
 }

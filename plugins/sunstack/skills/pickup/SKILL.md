@@ -1,11 +1,11 @@
 ---
-name: checkpoint
-description: Give a quick progress report on the work this session is doing in this folder (what is done, what is in progress, the next steps, and what waits on the user) from git, the project's status docs, any Sunstack team board, this session's messages and the conversation. Read-only. Works in any Claude Code or Codex session, with or without a Sunstack team. Use for "sunstack checkpoint", "/sunstack:checkpoint", "checkpoint", "progress report", "where are we", "what's done and what's next", "status of this project", "after compacting, where were we", "进度", "汇报", "进展". Not the ranked to-do list (next skill), the team's OKRs (board skill) or every team (org skill), and not Claude Code's own rewind checkpoints.
+name: pickup
+description: Give a quick progress report on the work this session is doing in this folder (what is done, what is in progress, the next steps, and what waits on the user) from git, the project's status docs, any Sunstack team board, this session's messages and the conversation. Read-only. Works in any Claude Code or Codex session, with or without a Sunstack team. Use for "sunstack pickup", "/sunstack:pickup", "pick up", "pick up where we left off", "pickup", "checkpoint", "progress report", "where are we", "what's done and what's next", "status of this project", "after compacting, where were we", "接着做", "进度", "汇报", "进展". Not the ranked to-do list (next skill), the team's OKRs (board skill) or every team (org skill), and not Claude Code's own rewind checkpoints.
 ---
 
-# Sunstack: checkpoint
+# Sunstack: pickup
 
-Command: `sunstack checkpoint`. Skill: `/sunstack:checkpoint` in Claude Code, `$sunstack:checkpoint` in Codex.
+Command: `sunstack pickup`. Skill: `/sunstack:pickup` in Claude Code, `$sunstack:pickup` in Codex.
 
 A short report the user can read in a minute. It changes nothing. The wrap skill uses the same
 inventory to save what is not written down yet, before a compaction.
@@ -16,13 +16,14 @@ inventory to save what is not written down yet, before a compaction.
 - Run every `sunstack` command on its own, with nothing chained after it.
 - Every line comes from a source you read. Never invent progress, and never count work as done
   without its evidence (a commit, a passing check, the user's yes).
-- No `checkpoint` command (an older binary: exit 2 with an unknown command): read git
+- No `pickup` command (an older binary: exit 2 with an unknown command): try
+  `sunstack checkpoint`, its name in v0.19.9. If that fails too, read git
   (`git log`, `git status`) and the docs below yourself and say the CLI part is missing.
 
 ## 1. Read
 
 ```sh
-sunstack checkpoint
+sunstack pickup
 ```
 
 It prints, as far as each exists: the last wrap note for this folder (its age and whether this

@@ -18,9 +18,9 @@ func gitCommit(t *testing.T, dir, msg string) {
 	}
 }
 
-// checkpoint works without a team: git state, a wrap note it stores and
+// pickup works without a team: git state, a wrap note it stores and
 // reads back, and the SessionStart hook pointing at it (§52).
-func TestCheckpointAndWrapNote(t *testing.T) {
+func TestPickupAndWrapNote(t *testing.T) {
 	dir := t.TempDir()
 	if out, err := exec.Command("git", "-C", dir, "init", "-q").CombinedOutput(); err != nil {
 		t.Fatalf("git init: %s", out)
@@ -30,35 +30,35 @@ func TestCheckpointAndWrapNote(t *testing.T) {
 	const sid = "0a1b2c3d-4e5f-4a6b-8c7d-8e9f0a1b2c3d"
 	me := []string{home, "SUNSTACK_NO_UPDATE_CHECK=1", "CLAUDECODE=1", "CLAUDE_CODE_SESSION_ID=" + sid}
 
-	r := sh(t, dir, me, "checkpoint")
-	expect(t, r, 0, "checkpoint before any note")
+	r := sh(t, dir, me, "pickup")
+	expect(t, r, 0, "pickup before any note")
 	requireContains(t, r.out, "== wrap note", "none for this folder", "last commits:", "first change", "uncommitted: none")
 
 	body := filepath.Join(t.TempDir(), "note.md")
 	must(t, os.WriteFile(body, []byte("Read first: plan.md\nOpen: finish the parser, next step tests\n"), 0o644))
-	r = sh(t, dir, me, "checkpoint", "--save", body)
+	r = sh(t, dir, me, "pickup", "--save", body)
 	expect(t, r, 0, "save the note")
 	requireContains(t, r.out, "saved the wrap note", filepath.Join("home", "wrap"))
 
 	gitCommit(t, dir, "second change")
 	must(t, os.WriteFile(filepath.Join(dir, "draft.txt"), []byte("wip"), 0o644))
-	r = sh(t, dir, me, "checkpoint")
-	expect(t, r, 0, "checkpoint after the note")
+	r = sh(t, dir, me, "pickup")
+	expect(t, r, 0, "pickup after the note")
 	requireContains(t, r.out, "by this session", "finish the parser", "commit .: ", "commits since the note", "second change", "uncommitted (1)", "draft.txt")
 	if since := r.out[strings.Index(r.out, "commits since the note"):]; strings.Contains(since, "first change") {
 		t.Errorf("a commit from before the note is listed as since:\n%s", r.out)
 	}
 
 	other := []string{home, "SUNSTACK_NO_UPDATE_CHECK=1", "CLAUDECODE=1", "CLAUDE_CODE_SESSION_ID=1a1b2c3d-4e5f-4a6b-8c7d-8e9f0a1b2c3d"}
-	requireContains(t, sh(t, dir, other, "checkpoint").out, "by another session", "finish the parser")
+	requireContains(t, sh(t, dir, other, "pickup").out, "by another session", "finish the parser")
 
 	// Saving needs the session's ID; reading never fails.
-	r = sh(t, dir, []string{home, "SUNSTACK_NO_UPDATE_CHECK=1"}, "checkpoint", "--save", body)
+	r = sh(t, dir, []string{home, "SUNSTACK_NO_UPDATE_CHECK=1"}, "pickup", "--save", body)
 	expect(t, r, 2, "save without a session")
 	requireContains(t, r.stderr+r.out, "no_session")
 	plain := t.TempDir()
-	r = sh(t, plain, me, "checkpoint")
-	expect(t, r, 0, "checkpoint outside git")
+	r = sh(t, plain, me, "pickup")
+	expect(t, r, 0, "pickup outside git")
 	requireContains(t, r.out, "not a git repository", "none for this folder")
 
 	// After a compaction the hook points at the note, with no team here.
@@ -66,7 +66,7 @@ func TestCheckpointAndWrapNote(t *testing.T) {
 	hook.Env = append(cleanEnv(), home)
 	hook.Stdin = strings.NewReader(`{"session_id":"` + sid + `","cwd":"` + filepath.ToSlash(dir) + `","hook_event_name":"SessionStart","source":"compact"}`)
 	out, _ := hook.Output()
-	requireContains(t, string(out), `"hookEventName":"SessionStart"`, "a wrap note for this folder", "sunstack checkpoint")
+	requireContains(t, string(out), `"hookEventName":"SessionStart"`, "a wrap note for this folder", "sunstack pickup")
 	hook = exec.Command(bin, "hook")
 	hook.Env = append(cleanEnv(), home)
 	hook.Stdin = strings.NewReader(`{"session_id":"` + sid + `","cwd":"` + filepath.ToSlash(plain) + `","hook_event_name":"SessionStart","source":"compact"}`)
@@ -75,9 +75,9 @@ func TestCheckpointAndWrapNote(t *testing.T) {
 	}
 }
 
-// In a team, checkpoint shows the board's Now and Done entries, and the
+// In a team, pickup shows the board's Now and Done entries, and the
 // SessionStart hook names the wrap note for a session that holds no claim.
-func TestCheckpointInTeam(t *testing.T) {
+func TestPickupInTeam(t *testing.T) {
 	p := t.TempDir()
 	home := "SUNSTACK_HOME=" + filepath.Join(t.TempDir(), "home")
 	env := []string{home, "SUNSTACK_NO_UPDATE_CHECK=1"}
@@ -91,14 +91,15 @@ func TestCheckpointInTeam(t *testing.T) {
 
 	const sid = "0a1b2c3d-4e5f-4a6b-8c7d-8e9f0a1b2c3d"
 	me := append(append([]string{}, env...), "CLAUDECODE=1", "CLAUDE_CODE_SESSION_ID="+sid)
-	r := sh(t, p, me, "checkpoint")
-	expect(t, r, 0, "checkpoint in a team")
+	r := sh(t, p, me, "pickup")
+	expect(t, r, 0, "pickup in a team")
 	requireContains(t, r.out, "in progress", "builder.alice KR2 Parser in progress", "done, latest", "KR1 Scaffold", "go test ./... @ abc1234")
-	expect(t, sh(t, p, me, "checkpoint", "--root", t.TempDir()), 1, "a --root with no team")
+	expect(t, sh(t, p, me, "pickup", "--root", t.TempDir()), 1, "a --root with no team")
+	expect(t, sh(t, p, me, "checkpoint"), 0, "the old name still works")
 
 	body := filepath.Join(t.TempDir(), "note.md")
 	must(t, os.WriteFile(body, []byte("Open: the parser\n"), 0o644))
-	expect(t, sh(t, p, me, "checkpoint", "--save", body), 0, "save in a team")
+	expect(t, sh(t, p, me, "pickup", "--save", body), 0, "save in a team")
 	hook := exec.Command(bin, "hook")
 	hook.Env = append(cleanEnv(), home)
 	hook.Stdin = strings.NewReader(`{"session_id":"` + sid + `","cwd":"` + filepath.ToSlash(p) + `","hook_event_name":"SessionStart","source":"clear"}`)
