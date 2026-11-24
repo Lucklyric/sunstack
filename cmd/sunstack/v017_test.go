@@ -142,7 +142,7 @@ func TestPstackPassText(t *testing.T) {
 			"out of time or context, a smaller scope",
 			"a tool or model failure, a session on the other CLI",
 		},
-		"../../plugins/sunstack/skills/verify/SKILL.md": {
+		"../../plugins/sunstack/skills/verify/references/verifier.md": {
 			"from an empty data dir",
 			"ready means usable, not that a process answers",
 			"never weaken the journey",

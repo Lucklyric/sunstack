@@ -1,6 +1,6 @@
 ---
 name: verify
-description: Have a Sunstack agent check the active task against everything the user asked for, the way the user would before accepting it. It gathers the task's requirements and the standing ones from the team's history, settles open points with the user in a short Q&A, picks or hires a verifier (preferably on the other CLI), and sends it a task; the verifier drives the real app and answers per requirement with evidence. On request it also agrees a feature's expected results with the user before work starts and freezes them in the run map. Use for "sunstack verify", "/sunstack:verify", "verify this", "check it does what I asked", "acceptance check", "write the expected results first", "agree the results before we build", "keep checking deliveries", "does the verifier need an update". A verifier that received such a task follows the Verifier's procedure section. Any session, with or without a team, may also use it to run, launch or drive this project's app from its run map in `sunstack/verify/<app>/run.md`.
+description: Have a Sunstack agent check the active task against everything the user asked for, the way the user would before accepting it. It gathers the task's requirements and the standing ones from the team's history, settles open points with the user in a short Q&A, picks or hires a verifier (preferably on the other CLI), and sends it a task; the verifier drives the real app and answers per requirement with evidence. On request it also agrees a feature's expected results with the user before work starts and freezes them in the run map, or writes the verification document (the run map, with conditions and scenarios per feature) on its own. Use for "sunstack verify", "/sunstack:verify", "verify this", "check it does what I asked", "acceptance check", "write the expected results first", "agree the results before we build", "write the verification document", "write the scenarios for this feature", "write the run map", "is the verification document still true", "keep checking deliveries", "does the verifier need an update". A verifier that received such a task follows the Verifier's procedure (`references/verifier.md`). Any session, with or without a team, may also use it to run, launch or drive this project's app from its run map in `sunstack/verify/<app>/run.md`, or to write that document.
 ---
 
 # Sunstack: verify
@@ -11,15 +11,20 @@ The user checks deliveries by hand: does it run, and is it what they asked for, 
 everything they said before. This skill hands that check to an agent. The requester (this
 session) collects the requirements, because it heard the conversation. The verifier, a
 different agent and preferably on the other CLI, checks the delivery against them by the
-Verifier's procedure at the end of this skill, using the project's run map
+Verifier's procedure (`references/verifier.md` in this skill's folder), using the project's run map
 (`sunstack/verify/<app>/`). This skill owns that map: it creates it, keeps it true and reads it;
 the project holds only the data.
+
+Three uses, in this order when a task has all three, and each works without the one before it:
+expected results first (opt-in, the user agrees them), the verification document (conditions and
+scenarios), checking a delivery (steps 1 to 6). A check with no document writes it as it goes.
 
 **Project data folder.** Sunstack skills keep a project's data in `sunstack/` at the top of the project (beside the team files, when there is a team), or in the folder that `sunstack.json` there names (`{"data": "<path inside the project>"}`). Paths in this skill that start with `sunstack/verify/` or `sunstack/formal-verify/` mean that folder. It holds only what is committed, never run output. Before a skill creates it for the first time, settle the place with the user in a short Q&A (AskUserQuestion in Claude Code, a numbered question in Codex), showing what will go in it: `sunstack/` (recommended: one folder for skill data and any later team), `.sunstack/` (hidden), `docs/sunstack/`, or create nothing (check only, leave nothing behind); the user may name another folder. For any folder other than `sunstack/`, write `sunstack.json` with its path and commit both. When the folder already exists, use it without asking.
 
 ## Rules
 
-- **Just running the app** (no verification asked), with or without a team: follow `sunstack/verify/<app>/run.md`, Launch to Cleanup. If Launch or Doctor fails because the map no longer matches the repo, fix the map from the repo (step 2 of the Verifier's procedure) and run it once more. No map yet: say so and offer to write one; do not guess a launch command into it. Evidence goes to `sunstack/_local/verify/run-<UTC time>/` in a team (a `sunstack/PROTOCOL.md` here or above, which also keeps `_local/` out of git), else to this session's scratch folder.
+- **Just running the app** (no verification asked), with or without a team: follow `sunstack/verify/<app>/run.md`, Launch to Cleanup. If Launch or Doctor fails because the map no longer matches the repo, fix the map from the repo (`references/verifier.md`, step 2) and run it once more. No map yet: say so and offer to write one; do not guess a launch command into it. Evidence goes to `sunstack/_local/verify/run-<UTC time>/` in a team (a `sunstack/PROTOCOL.md` here or above, which also keeps `_local/` out of git), else to this session's scratch folder.
+- **Just writing the verification document, or checking it is still true** (no delivery to check), with or without a team: follow "The verification document" below. No verifier, no brief and no verdicts.
 - Otherwise, if there is no Sunstack team here (no `sunstack/PROTOCOL.md` in this folder or above), say so in one line and stop; the health skill sets one up.
 - Act only on this folder's team (its sessions on other hosts included). Work for a different
   team is delegated: send it as a task (send skill) to its agent that owns that work, else
@@ -80,6 +85,7 @@ Changes:
    its text and layout at the widths that matter (390 px and 1280 px unless the result names
    others); what is stored and which other screens show it; which rules the server must enforce
    and how each is checked. For each level, results or a deliberate "none for this feature".
+   Ask once which of the empty, loading and error states matter for this feature.
 3. Write the section into the feature file (create the file, and the `<app>` folder after the
    data folder Q&A, when missing; add to an existing file, never recreate it). Show it and ask
    the user to agree. Only the user agrees: an agent's yes, or a relayed `user (via ...)`, needs
@@ -104,6 +110,74 @@ anything else.
 tests keep passing, and a session still adds a test where the project's conventions or its own
 judgment call for it: a rule a walk-through cannot reach (a server refusal, a migration on old
 rows, a race), a bug it pins, a refactor it protects.
+
+## The verification document
+
+The run map is the project's verification document: `run.md` for the app, `features/README.md`
+for what every feature shares, and one file per feature. A verifier writes and extends it while
+it checks a delivery (`references/verifier.md`, step 2). Any session may also write it on its own,
+when the user asks for the document for an app or a feature and there is no delivery to check.
+
+**`features/README.md`** holds, before the index of features:
+
+- **Baseline conditions:** what is true before any feature is driven: the instance and its own
+  data dir, seed records by name, accounts and roles, flags, services. Each line is a state one
+  read-only look can confirm.
+- **Driving conventions:** each feature starts from the baseline state unless its preconditions
+  say otherwise, and restores the seeded data after it changes any.
+
+**A feature's "Driving it"** opens with its preconditions and then lists its scenarios:
+
+```markdown
+## Driving it
+
+Preconditions:
+- a member and a viewer exist in the seed team (Members screen as admin)
+- no pending invitation for new@example.com (`GET /api/invitations`)
+
+- **S1 Invite by email.** (member) Open Members, press "Invite", enter new@example.com, press "Send invite". Result: an "Invited" row for that email. Second view: `GET /api/invitations` lists one pending invitation. Proves R1, R3.
+- **S2 Viewer cannot invite.** (viewer) Open Members. Result: no "Invite" button. Proves R2.
+```
+
+- **Preconditions** list only what the feature needs beyond the baseline. Each names the
+  read-only look that confirms it. A condition may be arranged (seed data, a fixture, a role);
+  the result under test is never injected.
+- **A scenario** is one journey: the role, the user's action, the exact command or control, and
+  the state a user can then observe. One that changes stored data adds `Second view:`, a
+  read-only look at the stored value from somewhere else. `Proves R<n>` only when the feature
+  has expected results.
+- **`S<n>` is stable** and never reused. A scenario may be made more exact. It is never loosened
+  to pass, and one that is removed or reworded is listed in the reply under run-map changes.
+- **Coverage:** every entry point in "How to get to it" has a scenario, or a line saying why it
+  has none.
+- Scenarios never go into `## Expected results`, and this use never writes that section.
+
+**Writing it on its own:**
+
+1. Read the repo and the existing map. Ask the user only what the code does not show.
+2. Write or update `run.md` (its five sections are in `references/verifier.md`, step 2), the
+   `features/README.md` parts above, and the feature files asked for. Add to existing files,
+   never recreate them. No map folder yet: the project data folder Q&A first.
+3. Prove it: one run from Launch to Cleanup on an instance you own, confirming the baseline
+   conditions and driving at least one scenario of each feature file you wrote. Evidence goes
+   to `sunstack/_local/verify/run-<UTC time>/` in a team, else to this session's scratch folder.
+   Fix what the run shows is wrong. A document that never ran is a draft: say so.
+4. Report what was written, what ran and what did not, and offer to commit the map. It gives no
+   verdicts. A delivery of this session's own work is still checked by a verifier (steps 1 to 6).
+
+**Checking it is still true** (only when the user asks, for example "is the verification
+document still true"; never on a schedule of its own):
+
+1. Tidy the index: every feature file is listed in `features/README.md` once, with no dead entry.
+2. One run from Launch to Cleanup on an instance you own, driving every feature at least once,
+   even when the code looks unchanged. Doctor again after any drive that fails.
+3. Sort what differs: the document describes the app wrongly, fix the document; the app can
+   no longer be driven as written, fix the Drive section and drive it again; the app is broken,
+   report it and leave the document as it is. Edit only the run map, never product code and never
+   `## Expected results`.
+4. Report one outcome: `clean` (every feature driven, nothing to change), `changed` (the
+   corrections, each proven by a drive) or `blocked` (what stopped it, and the features not
+   driven with the prerequisite each lacked).
 
 ## 1. The active task
 
@@ -211,13 +285,14 @@ Write the brief to a file in this session's scratch or temporary folder:
 
 ```text
 Goal: Check <the product task: its message ID, or a one-line description> against the user's requirements below, the way the user would before accepting it.
-Scope: Verify <the task's files and behavior> at <commit> plus <uncommitted files and diff fingerprint, if any>. You may write the project's run map (`sunstack/verify/<app>/`), your evidence folder (`sunstack/_local/verify/<this task's message ID>/`), and your own Sunstack state. Product code, other agents' state and the user's live data stay read-only.
+Scope: Verify <the task's files and behavior; the features, and the scenarios when fewer than all> at <commit> plus <uncommitted files and diff fingerprint, if any>. You may write the project's run map (`sunstack/verify/<app>/`), your evidence folder (`sunstack/_local/verify/<this task's message ID>/`), and your own Sunstack state. Product code, other agents' state and the user's live data stay read-only.
 Done when:
   - every requirement below has a verdict: met, partly, not met, changed, pending or unverifiable
   - each verdict says how it was checked (live, tests or read) and where its evidence is
   - <when the task changes something a user runs:> the run map ran from launch to cleanup on an instance you own, and its evidence survived
-Verify: Follow the Verifier's procedure in the sunstack verify skill (only that section).
-Report: One line per requirement (quote, source, verdict, how checked, evidence), then findings, then run-map changes, then the identity you tested, then verified: <counts> by <your id>.
+  - <when the task changes something a user runs:> each verdict names the scenarios (S<n>) that prove it, and every entry point of the features in scope was driven or is reported as skipped with the reason
+Verify: Follow the Verifier's procedure of the sunstack verify skill: `references/verifier.md` in the skill's folder. Do not run the skill's numbered steps.
+Report: One line per requirement (quote, source, verdict, how checked, scenarios, evidence), then findings, then run-map changes, then the identity you tested, then verified: <counts> by <your id>.
 Context:
   The task's requirements (newest first):
     - "<quote>" (<source>, <speaker>)
@@ -248,6 +323,8 @@ The verifier replies `done`. Read every line, not the counts.
 - **Not met, partly or unasked changes**: show them to the user. The fix goes to the owner as a
   task, with `--follows <the product task's message ID>` when it has one, otherwise carrying the
   original scope and context; it quotes the failed requirements and the verifier's lines. Verify again after it. After two failed rounds, stop and ask the user.
+- **Skipped, not in scope, or scenarios removed or reworded**: show these lines to the user
+  as they are. None of them counts as checked.
 - **Pending or unverifiable**: tell the user which answer or prerequisite is missing, with the
   ask's owner (`<agent>#Q<n>`).
 
@@ -260,61 +337,6 @@ verification task itself is not verified again.
 
 ## Verifier's procedure
 
-For the agent that received a verification task. Do not run the steps above.
-
-0. **Catch up first.** For each line under `Verifier freshness:` (and any drift you notice
-   yourself): align with the directive (save skill), and reread the changed rules, objectives
-   and your AGENT.md; save only new lasting decisions, not copies of the rules. Feature lines
-   are checked in step 2: read the feature file and fix only what really drifted. Report what
-   you caught up on.
-1. **Requirements first.** Take the brief's list, check it against its sources and the
-   authority rule, and add what it missed, marked as added by you. Verify this task only. When
-   the brief names expected results, read them from the feature file, not the brief, and
-   recompute the hash as Expected results first describes; a mismatch is a finding to report
-   first, not a verdict.
-2. **The run map.** For a task that changes something a user runs, use the project's run map:
-   `sunstack/verify/<app>/run.md` at the top of the project (several apps: ask the requester
-   which). An older project may still have it as a `verify-*` skill under `.claude/skills/` or
-   `.agents/skills/`: that is only input for the map. Move it to `sunstack/verify/<app>/`
-   (`git mv`, `SKILL.md` to `run.md`, frontmatter dropped, `features/` along), remove its
-   `.agents/skills/` symlink, say so in the reply, and work from the moved map. None: create `sunstack/verify/<app>/run.md` (the project data folder Q&A first, when the folder does not exist yet) and commit
-   it with the project. It is data this skill reads, not a skill: no frontmatter, five sections
-   grounded in this repo, no placeholders: Launch (the exact command from an empty data dir, migrations and seed data
-   included; ready means usable, not that a process answers; teardown), Doctor (one
-   read-only check that the instance is worth driving), Drive (the repo's real commands, routes
-   and handles), Evidence (what to capture; each run keeps it in `sunstack/_local/verify/<task message ID>/`,
-   never in the committed map), Cleanup (stop only what the run started; evidence survives). Add `features/README.md` and one file per feature this task
-   touches (Sub-features, How to get to it, Driving it, Gotchas); the map grows task by task.
-   A feature file that already exists, for example one holding only expected results, gets the
-   missing sections added, never recreated.
-   A new or changed run map runs once from launch to cleanup before it counts. If that
-   run used a stand-in for the real target (a container for a fresh machine, a local stack for
-   a remote one), list each setup step the stand-in did that the target will not; they stay
-   unverified until a run on the target.
-3. **Drive an instance you own**, with its own data, never one the user or another agent is
-   using; if you cannot get one, the requirement is `unverifiable` with that prerequisite. Run
-   Doctor before the first drive and after any drive that fails. Prefer the real user path over
-   internal setters; check side effects (files, rows, messages) as well as what is visible.
-   Never kill a process by name.
-4. **Verdicts**: `met`, `partly` (what is missing), `not met` (what happened instead), `changed`
-   (the delivery departs on purpose: cite the user's agreement), `pending` (it depends on what
-   the user meant: raise an ask as the save skill describes and name it `<your id>#Q<n>`) or
-   `unverifiable` (the prerequisite and the route tried). Say how each was checked: live, tests
-   or read. Seed data that lacks a journey's precondition makes it `unverifiable`, with the
-   reason in that feature's Gotchas: never weaken the journey to make it pass. Work the user
-   never asked for is a finding even when it works.
-   Evidence by level for expected results: feature, a walk-through as each role; UI,
-   screenshots at each width the result names; data, the stored records and the other screens
-   that show them; code, the refused request or the check its `Checked by:` names. A unit test
-   counts only for a code result that names it.
-   A requirement checked with the formal-verify skill answers with the property, the scope (bound
-   and assumptions) and the deliberate break the check caught.
-5. **Map or product.** Where the run map describes the app wrongly, fix the map, except
-   `## Expected results`, which you never edit. Where
-   the app breaks an agreed requirement, report it and keep the requirement: never rewrite the
-   map to match a regression. Edit nothing outside the brief's Scope.
-6. **Reply** with a `done` message to the verification task you received
-   (`--reply-to <its message ID>`, never the product task's; send skill) in the brief's
-   Report shape, with the identity you tested (commit, diff fingerprint, build or config when
-   relevant) and
-   `verified: <n> met, <n> partly, <n> not met, <n> changed, <n> pending, <n> unverifiable by <your id>`.
+For the agent that received a verification task: follow `references/verifier.md` in this
+skill's folder. From this file read only "The verification document" and "Expected results
+first", for the shapes it names. Do not run the numbered steps above.
